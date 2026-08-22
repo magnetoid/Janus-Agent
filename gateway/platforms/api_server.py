@@ -53,6 +53,7 @@ except ImportError:
     web = None  # type: ignore[assignment]
 
 from gateway.config import Platform, PlatformConfig
+from gateway.platforms import agui as agui_protocol
 from gateway.platforms.base import (
     BasePlatformAdapter,
     SendResult,
@@ -719,6 +720,18 @@ class APIServerAdapter(BasePlatformAdapter):
             raw_port = os.getenv("API_SERVER_PORT", str(DEFAULT_PORT))
         self._port: int = _coerce_port(raw_port, DEFAULT_PORT)
         self._api_key: str = extra.get("key", os.getenv("API_SERVER_KEY", ""))
+        # AG-UI's credential is separate from the bearer key on purpose: the caller signs
+        # each body rather than presenting a static token, so the two are different kinds
+        # of secret and sharing one would weaken both.
+        self._blob_signing_secret: str = extra.get(
+            "blob_signing_secret", os.getenv("BLOB_SIGNING_SECRET", "")
+        )
+        self._agui_run_timeout: float = float(
+            os.getenv("BLOB_AGUI_RUN_TIMEOUT_SECONDS", agui_protocol.DEFAULT_RUN_TIMEOUT_SECONDS)
+        )
+        self._agui_keepalive: float = float(
+            os.getenv("BLOB_AGUI_KEEPALIVE_SECONDS", agui_protocol.DEFAULT_KEEPALIVE_SECONDS)
+        )
         self._cors_origins: tuple[str, ...] = self._parse_cors_origins(
             extra.get("cors_origins", os.getenv("API_SERVER_CORS_ORIGINS", "")),
         )
@@ -3516,6 +3529,149 @@ class APIServerAdapter(BasePlatformAdapter):
         return await loop.run_in_executor(None, _run)
 
     # ------------------------------------------------------------------
+    # /v1/agui — the AG-UI protocol, for chat platforms that speak it
+    # ------------------------------------------------------------------
+
+    async def _handle_agui(self, request: "web.Request") -> "web.StreamResponse":
+        """POST /v1/agui — run a turn and answer with an AG-UI event stream.
+
+        Deliberately does not call ``_check_auth``. The caller signs each body with a
+        shared secret rather than presenting the static bearer key, which is strictly
+        stronger for a public endpoint: a captured request cannot be replayed once its
+        timestamp ages out, and the signature covers what was actually sent.
+
+        Text is buffered and sent as one message at the end rather than streamed delta by
+        delta. Janus *can* stream — the callback is registered below and its output is
+        kept — but forwarding it would be wrong today for three reasons that all point
+        the same way: the chat client buffers anyway, so nothing renders sooner; the
+        model layer suppresses assistant text on any step that also produced a tool call,
+        so a delta-driven answer would silently lose pre-tool commentary; and a plugin
+        hook may rewrite the final answer after the turn, which cannot be retracted once
+        an END frame has gone out. What the deltas *are* used for is the salvage path
+        below, which is the one case where a partial answer is better than none.
+        """
+        raw_body = await request.content.read(agui_protocol.AGUI_MAX_BODY_BYTES + 1)
+        if len(raw_body) > agui_protocol.AGUI_MAX_BODY_BYTES:
+            return web.json_response({"error": "body too large"}, status=413)
+
+        try:
+            agui_protocol.verify_blob_signature(
+                raw_body=raw_body,
+                timestamp=request.headers.get("X-Blob-Request-Timestamp"),
+                signature=request.headers.get("X-Blob-Signature"),
+                secret=self._blob_signing_secret,
+            )
+        except agui_protocol.AGUISignatureError as exc:
+            # The reason is logged and never returned: a caller must not be able to learn
+            # which check rejected it.
+            logger.warning("agui rejected a request: %s", exc.reason)
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        try:
+            run = agui_protocol.parse_run_input(json.loads(raw_body))
+        except (ValueError, json.JSONDecodeError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        loop = asyncio.get_running_loop()
+        queue: "asyncio.Queue[Optional[Dict[str, Any]]]" = asyncio.Queue()
+
+        def enqueue(event: Dict[str, Any]) -> None:
+            """Hand an event to the writer from whichever thread produced it."""
+            try:
+                if asyncio.get_running_loop() is loop:
+                    queue.put_nowait(event)
+                    return
+            except RuntimeError:
+                pass
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        callbacks = agui_protocol.make_agui_callbacks(enqueue)
+        agent_ref: list = [None]
+
+        async def drive() -> None:
+            """Run the turn, then post its outcome as events."""
+            message_id = f"msg_{uuid.uuid4().hex}"
+            try:
+                result, _usage = await asyncio.wait_for(
+                    self._run_agent(
+                        user_message=run.user_message,
+                        conversation_history=run.history,
+                        ephemeral_system_prompt=run.context_prompt,
+                        stream_delta_callback=callbacks.stream_delta_callback,
+                        tool_start_callback=callbacks.tool_start_callback,
+                        tool_complete_callback=callbacks.tool_complete_callback,
+                        agent_ref=agent_ref,
+                        gateway_session_key=agui_protocol.sanitize_session_key(run.thread_id),
+                    ),
+                    timeout=self._agui_run_timeout,
+                )
+                answer = ""
+                if isinstance(result, dict):
+                    answer = str(result.get("final_response") or "").strip()
+                answer = answer or callbacks.accumulated_text.strip()
+                if answer:
+                    for event in agui_protocol.text_message(message_id, answer):
+                        enqueue(event)
+                enqueue(agui_protocol.run_finished(run.thread_id, run.run_id))
+            except asyncio.TimeoutError:
+                # Cooperative: it lands between iterations, so a command already in flight
+                # finishes in the background after this response has closed.
+                agent = agent_ref[0]
+                if agent is not None:
+                    try:
+                        agent.interrupt()
+                    except Exception:
+                        logger.warning("agui could not interrupt the agent", exc_info=True)
+                salvaged = callbacks.accumulated_text.strip()
+                if salvaged:
+                    for event in agui_protocol.text_message(
+                        message_id, salvaged + "\n\n_(cut off — this took too long.)_"
+                    ):
+                        enqueue(event)
+                    enqueue(agui_protocol.run_finished(run.thread_id, run.run_id))
+                else:
+                    enqueue(agui_protocol.run_error("that took too long to finish", "timeout"))
+            except Exception as exc:
+                logger.warning("agui run failed", exc_info=True)
+                enqueue(agui_protocol.run_error(str(exc)[:300] or "the run failed"))
+            finally:
+                enqueue(None)  # type: ignore[arg-type]
+
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await response.prepare(request)
+        await response.write(agui_protocol.sse(agui_protocol.run_started(run.thread_id, run.run_id)))
+
+        task = asyncio.ensure_future(drive())
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=self._agui_keepalive)
+                except asyncio.TimeoutError:
+                    # Nothing to say yet. Say nothing, loudly enough that no proxy in
+                    # between decides the connection is dead.
+                    await response.write(agui_protocol.keepalive())
+                    continue
+                if event is None:
+                    break
+                await response.write(agui_protocol.sse(event))
+        except (ConnectionResetError, asyncio.CancelledError):
+            task.cancel()
+            raise
+        finally:
+            if not task.done():
+                task.cancel()
+
+        await response.write_eof()
+        return response
+
+    # ------------------------------------------------------------------
     # /v1/runs — structured event streaming
     # ------------------------------------------------------------------
 
@@ -4129,6 +4285,11 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
             self._app.router.add_get("/v1/skills", self._handle_skills)
             self._app.router.add_get("/v1/toolsets", self._handle_toolsets)
+            # AG-UI. Registered only when a signing secret is configured: the route
+            # authenticates by HMAC rather than the bearer key, so without a secret there
+            # is nothing to check and it must not exist at all.
+            if self._blob_signing_secret:
+                self._app.router.add_post("/v1/agui", self._handle_agui)
             # Session/client control surface (thin wrappers over SessionDB + _run_agent)
             self._app.router.add_get("/api/sessions", self._handle_list_sessions)
             self._app.router.add_post("/api/sessions", self._handle_create_session)
