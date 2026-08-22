@@ -1,0 +1,60 @@
+# Janus as a gateway server, shaped for Coolify.
+#
+# The repo's own docker-compose.yml is for running Janus on your own machine: it uses a
+# prebuilt `janus-agent` image, host networking and a bind mount of ~/.janus. None of
+# those survive a platform deploy, so this is the server-shaped sibling — built from the
+# repo, one named volume, one published port.
+#
+# Point Coolify at this file (Docker Compose → location /docker-compose.coolify.yml).
+#
+# Why a compose file rather than the Dockerfile build pack: the image's ENTRYPOINT is the
+# s6 wrapper and its CMD is empty, which the wrapper reads as "start the interactive
+# CLI". A server needs `gateway run` instead, and Coolify does not apply its own start
+# command to a Dockerfile-built app — the container comes up running a chat prompt that
+# nothing is attached to, listening on nothing. `command:` here is the whole difference.
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Without this the wrapper starts the CLI. See the note above.
+    command: ["gateway", "run"]
+    environment:
+      # Coolify generates the public domain and routes it to the API server's port.
+      - SERVICE_FQDN_GATEWAY_8642
+      # The OpenAI-compatible API server is the platform that owns /v1/agui. It refuses
+      # to start without a key even on loopback, so API_SERVER_KEY is mandatory whether
+      # or not anything uses bearer auth — AG-UI authenticates by signature instead.
+      - API_SERVER_ENABLED=${API_SERVER_ENABLED:-true}
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_PORT=8642
+      - API_SERVER_KEY=${API_SERVER_KEY}
+      # Shared with the chat platform that calls us. Its presence is also what registers
+      # the /v1/agui route at all: no secret, no route.
+      - BLOB_SIGNING_SECRET=${BLOB_SIGNING_SECRET}
+      # A provider key, or the agent has nothing to think with. Any one of these is
+      # enough; the resolver picks whichever is set.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # The caller gives up at 120s. Janus defaults to 90 iterations and a 30-minute API
+      # timeout, which is right for a terminal and hopeless for a chat message, so the
+      # turn is capped to something that can finish inside the caller's patience.
+      - JANUS_MAX_ITERATIONS=${JANUS_MAX_ITERATIONS:-25}
+      - BLOB_AGUI_RUN_TIMEOUT_SECONDS=${BLOB_AGUI_RUN_TIMEOUT_SECONDS:-100}
+      - BLOB_AGUI_KEEPALIVE_SECONDS=${BLOB_AGUI_KEEPALIVE_SECONDS:-15}
+    volumes:
+      # The image declares VOLUME /opt/data, so without a named volume here Docker mints
+      # an anonymous one and every deploy starts from nothing — losing auth, memories and
+      # anything installed lazily at runtime.
+      - janusdata:/opt/data
+    # No healthcheck on purpose. Under s6 the supervised process is not the API server,
+    # so container liveness says nothing useful, and a check that cannot pass fails the
+    # whole deploy — worse than none. `GET /health` on 8642 is the real signal, and it
+    # only answers once the gateway has finished booting, which takes a while: the image
+    # syncs skills and resolves a Playwright browser before it serves anything.
+
+volumes:
+  janusdata:

@@ -216,3 +216,15 @@ class TestCallbacks:
         callbacks.stream_delta_callback(None)
         callbacks.tool_start_callback(None)
         callbacks.tool_complete_callback(None)
+
+
+class TestDurationParsing:
+    """These are read while the adapter is constructed, so a bad value used to be an
+    outage for every gateway platform rather than a default for this one."""
+
+    def test_a_good_value_is_used(self) -> None:
+        assert agui.positive_float("45", 100.0) == 45.0
+
+    def test_a_typo_falls_back_instead_of_raising(self) -> None:
+        for bad in ("15s", "", None, "abc", "-1", "0"):
+            assert agui.positive_float(bad, 100.0) == 100.0

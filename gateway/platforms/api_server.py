@@ -726,11 +726,16 @@ class APIServerAdapter(BasePlatformAdapter):
         self._blob_signing_secret: str = extra.get(
             "blob_signing_secret", os.getenv("BLOB_SIGNING_SECRET", "")
         )
-        self._agui_run_timeout: float = float(
-            os.getenv("BLOB_AGUI_RUN_TIMEOUT_SECONDS", agui_protocol.DEFAULT_RUN_TIMEOUT_SECONDS)
+        # Parsed defensively. These run in the adapter's constructor, so a typo in one
+        # of them used to take the entire gateway down at start-up — every platform, not
+        # just this route — which is a steep price for a misspelled duration.
+        self._agui_run_timeout: float = agui_protocol.positive_float(
+            os.getenv("BLOB_AGUI_RUN_TIMEOUT_SECONDS"),
+            agui_protocol.DEFAULT_RUN_TIMEOUT_SECONDS,
         )
-        self._agui_keepalive: float = float(
-            os.getenv("BLOB_AGUI_KEEPALIVE_SECONDS", agui_protocol.DEFAULT_KEEPALIVE_SECONDS)
+        self._agui_keepalive: float = agui_protocol.positive_float(
+            os.getenv("BLOB_AGUI_KEEPALIVE_SECONDS"),
+            agui_protocol.DEFAULT_KEEPALIVE_SECONDS,
         )
         self._cors_origins: tuple[str, ...] = self._parse_cors_origins(
             extra.get("cors_origins", os.getenv("API_SERVER_CORS_ORIGINS", "")),
