@@ -3715,10 +3715,24 @@ def test_gateway_dispatcher_retries_corrupt_board_after_quarantine(
     import inspect
     import logging
     import sqlite3
+    import types
 
     from gateway.run import GatewayRunner
     import janus_cli.config as _cfg_mod
     import janus_cli.kanban_db as _kb
+
+    # The quarantine clock lives in whichever module defines the dispatcher
+    # (`gateway.run` is a back-compat shim; the implementation now lives in
+    # `gateway.runner`). Resolve it from the function object so the fake clock
+    # follows the code across future moves instead of pinning a file path — a
+    # stale path silently degrades the fake into a real clock, which makes the
+    # TTL unreachable and this test unfalsifiable.
+    dispatcher_module = inspect.getmodule(GatewayRunner._kanban_dispatcher_watcher)
+    assert dispatcher_module is not None, "cannot locate the dispatcher's module"
+    assert isinstance(getattr(dispatcher_module, "time", None), types.ModuleType), (
+        f"{dispatcher_module.__name__} must reference the stdlib `time` module "
+        "by name for the fake clock below to apply"
+    )
 
     runner = object.__new__(GatewayRunner)
     runner._running = True
@@ -3747,18 +3761,23 @@ def test_gateway_dispatcher_retries_corrupt_board_after_quarantine(
     )
     monkeypatch.setattr(_kb, "kanban_db_path", lambda board=None: corrupt_db)
 
-    real_monotonic = time.monotonic
-    time_values = iter([1000.0, 1001.0, 1301.0, 1301.0])
+    # Virtual monotonic clock, visible only to the dispatcher's module. Ticks 1
+    # and 2 are a second apart (inside any quarantine window); tick 3 jumps a
+    # full day, which is past any plausible TTL — so the retry is asserted on
+    # "enough time passed", not on the TTL's literal value.
+    virtual_now = {"value": 1000.0}
 
-    def _monotonic_for_gateway_dispatcher():
-        caller = inspect.currentframe().f_back  # type: ignore[union-attr]
-        code = caller.f_code if caller is not None else None
-        filename = code.co_filename if code is not None else ""
-        if filename.endswith("gateway/run.py"):
-            return next(time_values, 1301.0)
-        return real_monotonic()
+    class _FakeTime:
+        """Stdlib ``time`` proxy with a controllable ``monotonic``."""
 
-    monkeypatch.setattr("gateway.run.time.monotonic", _monotonic_for_gateway_dispatcher)
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        @staticmethod
+        def monotonic():
+            return virtual_now["value"]
+
+    monkeypatch.setattr(dispatcher_module, "time", _FakeTime())
 
     calls = {"tick": 0}
 
@@ -3766,11 +3785,12 @@ def test_gateway_dispatcher_retries_corrupt_board_after_quarantine(
         raise sqlite3.DatabaseError("file is not a database")
 
     async def _to_thread(fn, *args, **kwargs):
-        result = fn(*args, **kwargs)
         if getattr(fn, "__name__", "") == "_tick_once":
             calls["tick"] += 1
-            if calls["tick"] >= 3:
-                runner._running = False
+            virtual_now["value"] += 86_400.0 if calls["tick"] == 3 else 1.0
+        result = fn(*args, **kwargs)
+        if getattr(fn, "__name__", "") == "_tick_once" and calls["tick"] >= 3:
+            runner._running = False
         return result
 
     async def _sleep(_delay):
@@ -3780,7 +3800,7 @@ def test_gateway_dispatcher_retries_corrupt_board_after_quarantine(
     monkeypatch.setattr("gateway.run.asyncio.to_thread", _to_thread)
     monkeypatch.setattr("gateway.run.asyncio.sleep", _sleep)
 
-    with caplog.at_level(logging.INFO, logger="gateway.run"):
+    with caplog.at_level(logging.INFO):
         asyncio.run(
             asyncio.wait_for(
                 runner._kanban_dispatcher_watcher(),

@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Fout: {error}"
     switched:               "Model verander na `{model}`"
     provider_label:         "Verskaffer: {provider}"
+    cache_switch_warning:   "⚠ Wissel tydens gesprek: die aanwysingskas is modelgebonde, dus word die volle konteks volgende beurt teen vars-tokentariewe herbereken (begin 'n nuwe sessie met /new as jy van plan is om tussen modelle af te wissel)."
     context_label:          "Konteks: {tokens} tokens"
     max_output_label:       "Maks. uitvoer: {tokens} tokens"
     cost_label:             "Koste: {cost}"

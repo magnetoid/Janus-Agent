@@ -759,8 +759,11 @@ def main() -> int:
             # Accumulate test-level counts from parsed summary.
             tests_passed += summary.get("passed", 0)
             tests_failed += summary.get("failed", 0)
-            file_times.append((fpath, subproc_wall))
             if rc == 0:
+                # Only successful runs produce trustworthy durations; a timeout
+                # or crash records a floor, not a duration, and poisons the LPT
+                # shard balancing that consumes test_durations.json.
+                file_times.append((fpath, subproc_wall))
                 pass_count += 1
             else:
                 fail_count += 1

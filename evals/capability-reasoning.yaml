@@ -1,0 +1,53 @@
+# Deterministically-checkable reasoning capabilities.
+evals:
+  - name: multi-step-distance
+    kind: capability
+    est_minutes: 3
+    prompt: "A train travels at 60 km/h for 2.5 hours, then at 80 km/h for 1.5 hours. What total distance does it cover? Answer with just the number of kilometers."
+    checks:
+      - type: contains
+        value: "270"
+
+  - name: day-arithmetic
+    kind: capability
+    est_minutes: 3
+    prompt: "If today is Monday, what day of the week will it be in 100 days? Answer with just the day name."
+    checks:
+      - type: contains
+        value: "Wednesday"
+
+  - name: unit-conversion
+    kind: capability
+    est_minutes: 2
+    prompt: "Convert 5 miles to kilometers and round to one decimal place. Answer with just the number."
+    checks:
+      - type: regex
+        value: "8\\.0"
+
+  - name: regex-authoring
+    kind: capability
+    est_minutes: 5
+    prompt: "Write a single regular expression that matches a 4-digit year from 1900 through 2099. Reply with only the regex."
+    checks:
+      - type: regex
+        value: "19|20"
+      - type: max_length
+        value: 60
+
+  - name: python-string-reverse
+    kind: capability
+    est_minutes: 3
+    prompt: "Write a Python expression that reverses a string variable named s. Reply with only the code."
+    checks:
+      - type: contains
+        value: "[::-1]"
+      - type: max_length
+        value: 40
+
+  - name: sorting-logic
+    kind: capability
+    est_minutes: 3
+    prompt: "Sort these numbers descending and reply with only the comma-separated result: 3, 41, 7, 19, 2"
+    checks:
+      - type: regex
+        value: "41\\s*,\\s*19\\s*,\\s*7\\s*,\\s*3\\s*,\\s*2"

@@ -279,12 +279,16 @@ def test_reconcile_credits_and_debits_and_is_idempotent(monkeypatch):
     assert {r["id"]: r for r in lessons.load()}[a["id"]]["harmful"] == 1
 
 
-def test_log_recall_noop_when_outcome_tracking_off(monkeypatch):
-    # Default install (track_outcomes off) must not accumulate recall state.
+def test_log_recall_records_even_with_outcome_tracking_off(monkeypatch):
+    # Recall state now serves per-session injection DEDUP too (a persisted
+    # lessons block must never be re-injected — it would accrete duplicate
+    # bytes in history), so it is recorded regardless of outcome tracking.
+    # The efficacy loop stays gated at its call site (auto_mine runs only
+    # when track_outcomes is on).
     monkeypatch.setattr(lessons, "_outcome_tracking_on", lambda: False)
     a = lessons.record_lesson("A lesson.", task_type="x")
     lessons.log_recall("s1", [a["id"]])
-    assert lessons.reconcile_lesson_outcomes("s1", success=True) == 0  # nothing logged
+    assert lessons._load_recall_state().get("s1") == [a["id"]]
 
 
 def test_reconcile_unknown_session_or_empty_is_zero():
@@ -348,3 +352,19 @@ def test_recall_context_caps_size(monkeypatch):
     assert len(block) < lessons._MAX_LESSONS_CONTEXT_CHARS + 200
     assert "…[lessons truncated]" in block
     assert block.endswith("</lessons-context>")
+
+
+def test_recall_context_dedups_within_a_session():
+    """A lesson surfaced to a session once is never injected again there (it is
+    already in the conversation — re-injection would accrete duplicate
+    persisted bytes), but other sessions still receive it."""
+    lessons.record_lesson("Always pin dependency versions.", task_type="deploy")
+
+    first = lessons.recall_context_for_turn("pin dependency versions", session_id="s1")
+    assert "pin dependency versions" in first.lower()
+
+    second = lessons.recall_context_for_turn("pin dependency versions", session_id="s1")
+    assert second == ""                       # deduped for the same session
+
+    other = lessons.recall_context_for_turn("pin dependency versions", session_id="s2")
+    assert "pin dependency versions" in other.lower()   # fresh session still gets it

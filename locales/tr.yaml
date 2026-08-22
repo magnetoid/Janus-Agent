@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Hata: {error}"
     switched:               "Model `{model}` olarak değiştirildi"
     provider_label:         "Sağlayıcı: {provider}"
+    cache_switch_warning:   "⚠ Konuşma ortasında geçiş: istem önbelleği modele bağlıdır, bu nedenle tüm bağlam bir sonraki turda yeni token ücretleriyle yeniden faturalandırılır (modeller arasında geçiş yapacaksanız /new ile yeni bir oturum başlatın)."
     context_label:          "Bağlam: {tokens} token"
     max_output_label:       "Maks. çıktı: {tokens} token"
     cost_label:             "Maliyet: {cost}"

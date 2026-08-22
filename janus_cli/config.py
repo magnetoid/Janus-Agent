@@ -1391,6 +1391,34 @@ DEFAULT_CONFIG = {
             "timeout": 600,
             "extra_body": {},
         },
+        # Dialectic stances (agent/deliberation.py) — advocate argues for an
+        # artifact, skeptic argues against it, arbiter rules. Pinning a
+        # different model per stance is the point: an arbiter that shares the
+        # advocate's model inherits its blind spots.
+        "dialectic_advocate": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 180,
+            "extra_body": {},
+        },
+        "dialectic_skeptic": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 180,
+            "extra_body": {},
+        },
+        "dialectic_arbiter": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 180,
+            "extra_body": {},
+        },
     },
     
     "display": {
@@ -1861,6 +1889,19 @@ DEFAULT_CONFIG = {
             # the proposer's; empty = in-profile self-review (still veto-only).
             "twin_review": False,
             "twin_review_reviewer_home": "",
+            # Noise-aware evaluation gate (agent/eval_orchestrator.py): each arm
+            # (baseline / variant) runs the suite this many times and the gate
+            # compares multi-trial means — a single-run coin flip must not
+            # promote a self-modification.
+            "eval_trials": 2,
+            # The variant's aggregate score may dip at most this far below the
+            # baseline mean and still pass, PROVIDED a per-eval improvement
+            # exists and no regression-kind eval flipped pass→fail.
+            "eval_epsilon": 0.05,
+            # can_promote refuses until the eval suite has at least this many
+            # specs — a promotion gate that passes on an empty suite is
+            # fabricated evidence with extra steps.
+            "min_eval_specs": 10,
         },
         # Self-improvement governor (agent/self_improvement_governor.py): the
         # consumer of the continual-learning health metrics. It classifies the
@@ -1872,9 +1913,16 @@ DEFAULT_CONFIG = {
         "governor": {
             "enabled": False,        # read-only assessment + gating (inspect via `janus learning governor`)
             "auto_promote": False,   # verifiable graduated-trust promotion of .drafts skills
+            # Shadow-trial lane: surface skills/.drafts/ entries under a
+            # `draft:<name>` alias in the skills index and let skill_view load
+            # them, so a draft can accumulate the usage trajectory the
+            # promotion gate demands. Off = drafts stay fully quarantined
+            # (and, having no trajectory, can never auto-promote).
+            "trial_drafts": False,
             "caution_ratio": 0.6,    # soft-band multiplier on the freeze thresholds → CAUTION
             "caution_extra_uses": 2,         # CAUTION raises graph.min_uses_for_promotion by this
             "caution_success_floor": 0.85,   # CAUTION raises graph.promotion_success_threshold to ≥ this
+            "caution_reward_floor": 0.75,    # CAUTION raises graph.promotion_reward_threshold to ≥ this
         },
     },
 
@@ -1949,6 +1997,11 @@ DEFAULT_CONFIG = {
     "graph": {
         "enable": True,
         "promotion_success_threshold": 0.75,
+        # Mean-reward floor for promotion (gap G10). reward =
+        # success - 0.5*tool_failure_rate, so this catches the skill whose every
+        # session "succeeded" only after most of its tool calls failed — the
+        # boolean success rate is blind to that. Both bars must clear.
+        "promotion_reward_threshold": 0.6,
         "refinement_failure_threshold": 0.35,
         "min_uses_for_promotion": 3,
     },
@@ -2087,16 +2140,28 @@ DEFAULT_CONFIG = {
         # Timeout (seconds) for each !`cmd` snippet when inline_shell is on.
         "inline_shell_timeout": 10,
         # Run the keyword/pattern security scanner on skills the agent
-        # writes via skill_manage (create/edit/patch).  Off by default
-        # because the agent can already execute the same code paths via
-        # terminal() with no gate, so the scan adds friction (blocks
-        # skills that mention risky keywords in prose) without meaningful
-        # security.  Turn on if you want the belt-and-suspenders — a
-        # dangerous verdict will then surface as a tool error to the
-        # agent, which can retry with the flagged content removed.
-        # External hub installs (trusted/community sources) are always
-        # scanned regardless of this setting.
-        "guard_agent_created": False,
+        # writes via skill_manage (create/edit/patch).
+        #
+        # "auto" (the default) decides by context: OFF in interactive /
+        # gateway sessions, where a human is in the loop and the agent can
+        # already execute the same code via an approved terminal() — so the
+        # scan would add friction (blocking skills that merely MENTION risky
+        # keywords in prose) without meaningful security.  ON in headless /
+        # cron sessions, where terminal() and execute_code are themselves
+        # approval-blocked, making an unscanned agent-written skill the one
+        # unguarded path to host code execution (gap G5).
+        #
+        # Set true/false to pin it in either direction.  Do NOT replace the
+        # sentinel with a plain boolean: DEFAULT_CONFIG is deep-merged into
+        # every load_config() result, so a literal here is indistinguishable
+        # from a user-set value and silently disables the context default —
+        # see tools/skill_manager_tool.py::_guard_agent_created_enabled and
+        # tests/tools/test_skill_guard_headless.py.
+        #
+        # A dangerous verdict surfaces as a tool error to the agent, which
+        # can retry with the flagged content removed.  External hub installs
+        # (trusted/community sources) are always scanned regardless.
+        "guard_agent_created": "auto",
     },
 
     # Curator — background skill maintenance.
@@ -2476,6 +2541,10 @@ DEFAULT_CONFIG = {
         "level": "INFO",       # Minimum level for agent.log: DEBUG, INFO, WARNING
         "max_size_mb": 5,      # Max size per log file before rotation
         "backup_count": 3,     # Number of rotated backup files to keep
+        # "text" (default, human-readable) or "json" (one redacted JSON object
+        # per line with discrete session_id/turn_id/request_id fields, for log
+        # aggregation and per-turn/per-call querying).
+        "format": "text",
     },
 
     # Remotely-hosted model catalog manifest.  When enabled, the CLI fetches
@@ -2798,7 +2867,7 @@ DEFAULT_CONFIG = {
 
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 28,
+    "_config_version": 29,
 }
 
 # =============================================================================
@@ -5114,6 +5183,25 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
             results["config_added"].append("model_catalog.ttl_hours 24→1")
             if not quiet:
                 print("  ✓ Lowered model_catalog.ttl_hours to 1 (hourly picker refresh)")
+
+    if current_ver < 29:
+        # skills.guard_agent_created became the "auto" sentinel (context-aware:
+        # on headless/cron, off interactive/gateway). save_config() writes the
+        # full merged config back to disk, so every install that ever ran it
+        # materialized the OLD default as a literal `false` — indistinguishable
+        # from a deliberate choice, which would pin the guard off forever and
+        # make the sentinel help fresh installs only. Reclaim exactly that
+        # stale `false`; an explicit `true` is a real opt-in and is preserved.
+        config = read_raw_config()
+        raw_skills = config.get("skills")
+        if isinstance(raw_skills, dict) and raw_skills.get("guard_agent_created") is False:
+            raw_skills["guard_agent_created"] = "auto"
+            config["skills"] = raw_skills
+            save_config(config)
+            results["config_added"].append("skills.guard_agent_created false→auto")
+            if not quiet:
+                print("  ✓ skills.guard_agent_created → auto "
+                      "(scans agent-written skills in headless/cron sessions)")
 
     if current_ver < latest_ver and not quiet:
         print(f"Config version: {current_ver} → {latest_ver}")

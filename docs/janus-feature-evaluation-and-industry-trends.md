@@ -69,6 +69,11 @@ Each feature carries **Verified** (what the code actually does, with citations) 
 Premises below were checked against the tree.
 
 1. **Surface the eval metrics (observability).** [agent/evals.py](../agent/evals.py) and [agent/eval_trend.py](../agent/eval_trend.py) exist, but there is **no OpenTelemetry/OTLP** instrumentation anywhere in the codebase (verified: zero matches). An OTLP-exportable metrics surface would let the self-improvement claims be *measured* rather than asserted — which this document repeatedly notes they currently are not. **Premise valid.**
+   > **[SUPERSEDED 2026-07-31]** — the "zero matches" premise no longer holds:
+   > [plugins/observability/otlp/](../plugins/observability/otlp/) ships an OTLP exporter.
+   > The *rest* of the recommendation still stands — an exporter existing is not the same as
+   > the eval-trend curve being externally visible, and this document's point that outcome
+   > claims remain unmeasured is unaffected.
 
 2. **Expand Computer-Use / Large-Action primitives.** Terminal and API execution are strong; native GUI-driving primitives are a reasonable next step. Standard direction; no premise to verify.
 

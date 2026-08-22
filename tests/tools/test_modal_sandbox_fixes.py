@@ -30,28 +30,52 @@ except ImportError:
 # Test 1: Tool resolution includes terminal + file tools
 # =========================================================================
 
+@pytest.fixture(scope="module")
+def discovered_registry():
+    """Populate the tool registry the way every entry point does at startup.
+
+    Importing ``model_tools`` does NOT trigger discovery — the module-level
+    ``discover_builtin_tools()`` was removed deliberately (it dragged blocking
+    MCP discovery into the gateway's event loop). cli.py, janus_cli/main.py and
+    gateway/runner.py each call it explicitly instead. Without this step the
+    registry holds only whatever tool modules happened to be imported, so every
+    toolset resolves to a near-empty list.
+    """
+    from tools.registry import discover_builtin_tools
+
+    discover_builtin_tools()
+
+
 class TestToolResolution:
     """Verify get_tool_definitions returns all expected tools for eval."""
 
-    def test_terminal_and_file_toolsets_resolve_all_tools(self):
-        """enabled_toolsets=['terminal', 'file'] should produce 6 tools."""
-        from model_tools import get_tool_definitions
-        tools = get_tool_definitions(
-            enabled_toolsets=["terminal", "file"],
-            quiet_mode=True,
-        )
-        names = {t["function"]["name"] for t in tools}
-        expected = {"terminal", "process", "read_file", "write_file", "search_files", "patch"}
-        assert expected == names, f"Expected {expected}, got {names}"
+    REQUESTED = ["terminal", "file"]
 
-    def test_terminal_tool_present(self):
-        """The terminal tool must be present (not silently dropped)."""
+    def _resolved_names(self):
         from model_tools import get_tool_definitions
         tools = get_tool_definitions(
-            enabled_toolsets=["terminal", "file"],
+            enabled_toolsets=list(self.REQUESTED),
             quiet_mode=True,
         )
-        names = [t["function"]["name"] for t in tools]
+        return {t["function"]["name"] for t in tools}
+
+    def test_requested_toolsets_resolve_to_their_declared_tools(self, discovered_registry):
+        """Asking for a toolset must yield exactly the tools it declares.
+
+        Derived from TOOLSETS rather than a hand-written list: the invariant is
+        "nothing declared goes missing and nothing extra sneaks in", which stays
+        true when a tool is added to either toolset.
+        """
+        from toolsets import TOOLSETS
+
+        expected = {name for ts in self.REQUESTED for name in TOOLSETS[ts]["tools"]}
+        assert expected, "terminal/file toolsets declare no tools — bad fixture"
+        names = self._resolved_names()
+        assert names == expected, f"Expected {expected}, got {names}"
+
+    def test_terminal_tool_present(self, discovered_registry):
+        """The terminal tool must be present (not silently dropped)."""
+        names = self._resolved_names()
         assert "terminal" in names, f"terminal tool missing! Only got: {names}."
 
 

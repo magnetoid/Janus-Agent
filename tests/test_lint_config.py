@@ -8,7 +8,7 @@ silently corrupts non-ASCII content.
 
 These tests ensure:
   1. PLW1514 stays in ``[tool.ruff.lint.select]``
-  2. The CI workflow's blocking step still invokes ``ruff check .``
+  2. Some CI workflow still invokes ``ruff check`` in a *blocking* step
   3. pyproject.toml has ``preview = true`` (required — PLW1514 is a
      preview rule in ruff 0.15.x)
 
@@ -19,6 +19,7 @@ opens and we're back to the original Windows-regression trap.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
@@ -67,48 +68,107 @@ class TestRuffConfig:
         )
 
 
-class TestLintWorkflow:
-    WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "lint.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
-    def test_workflow_exists(self):
-        assert self.WORKFLOW_PATH.exists(), (
-            f"CI workflow missing: {self.WORKFLOW_PATH}"
-        )
+_RUFF_CHECK_RE = re.compile(r"(^|[\s/\\])ruff\s+check\b")
 
-    def test_workflow_has_blocking_ruff_step(self):
-        """The workflow must run a blocking ``ruff check .`` step
-        (one without --exit-zero) so violations fail the job."""
-        content = self.WORKFLOW_PATH.read_text(encoding="utf-8")
-        # Look for the blocking step's named line + its command.  We want
-        # at least one ``ruff check .`` that does NOT have ``--exit-zero``
-        # nearby.
-        # Split into lines and find ruff check invocations
-        lines = content.splitlines()
-        found_blocking = False
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped.startswith("ruff check") and "--exit-zero" not in stripped:
-                # Also check it's not piped to `|| true` which would mask
-                # the exit code.
-                window = " ".join(lines[i:i + 3])
-                if "|| true" not in window:
-                    found_blocking = True
-                    break
-        assert found_blocking, (
-            "lint.yml no longer contains a blocking ``ruff check .`` step "
-            "(one without --exit-zero and not masked by || true).  "
-            "Restore it — the PLW1514 rule is only useful if CI actually "
-            "fails on violation."
-        )
 
-    def test_workflow_yaml_is_valid(self):
-        """Workflow file must parse as valid YAML (can't ship a broken
-        CI config to main)."""
-        import yaml
-        content = self.WORKFLOW_PATH.read_text(encoding="utf-8")
+def _iter_workflows():
+    """Yield ``(path, parsed_yaml)`` for every GitHub Actions workflow."""
+    import yaml
+
+    for path in sorted(WORKFLOWS_DIR.glob("*.y*ml")):
+        content = path.read_text(encoding="utf-8")
         try:
             parsed = yaml.safe_load(content)
-        except yaml.YAMLError as exc:
-            pytest.fail(f"lint.yml is not valid YAML: {exc}")
-        assert isinstance(parsed, dict)
-        assert "jobs" in parsed
+        except yaml.YAMLError as exc:  # pragma: no cover - only on a broken file
+            pytest.fail(f"{path.name} is not valid YAML: {exc}")
+        yield path, parsed
+
+
+def _blocking_ruff_steps():
+    """Return ``[(workflow, job, run_command)]`` for blocking ruff steps.
+
+    A step counts as *blocking* when a ruff-check failure fails the job:
+      * the command invokes ``ruff check`` (however ruff is spelled — bare,
+        ``.venv/bin/ruff``, ``uv run ruff`` …)
+      * it is not neutered by ``--exit-zero`` or ``|| true``
+      * neither the step nor its job is ``continue-on-error: true``
+        (an informational job cannot enforce anything)
+    """
+    found = []
+    for path, parsed in _iter_workflows():
+        if not isinstance(parsed, dict):
+            continue
+        for job_name, job in (parsed.get("jobs") or {}).items():
+            if not isinstance(job, dict) or job.get("continue-on-error"):
+                continue
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict) or step.get("continue-on-error"):
+                    continue
+                run = step.get("run")
+                if not isinstance(run, str) or not _RUFF_CHECK_RE.search(run):
+                    continue
+                if "--exit-zero" in run or "|| true" in run:
+                    continue
+                found.append((path.name, job_name, run.strip()))
+    return found
+
+
+class TestLintWorkflow:
+    """CI must actually enforce the ruff config above.
+
+    This used to pin ``.github/workflows/lint.yml`` by name; the lint job
+    was later merged into ``tests.yml`` and the tests broke even though the
+    enforcement they guard never went away.  The invariant is "*some*
+    non-informational workflow job runs ``ruff check`` in a way that can
+    fail the build" — not which file that job lives in.
+    """
+
+    def test_workflows_are_valid_yaml(self):
+        """Every workflow must parse and declare jobs — a broken CI config
+        silently stops enforcing everything below it."""
+        seen = 0
+        for path, parsed in _iter_workflows():
+            assert isinstance(parsed, dict), f"{path.name}: not a YAML mapping"
+            assert parsed.get("jobs"), f"{path.name}: no jobs defined"
+            seen += 1
+        assert seen, f"no GitHub Actions workflows found under {WORKFLOWS_DIR}"
+
+    def test_some_workflow_runs_blocking_ruff_check(self):
+        """A ruff violation must be able to fail CI.
+
+        ``ruff check`` behind ``--exit-zero``/``|| true``, or inside a
+        ``continue-on-error`` job, reports violations without blocking —
+        which is how the PLW1514 guarantee quietly evaporates.
+        """
+        blocking = _blocking_ruff_steps()
+        assert blocking, (
+            "No workflow under .github/workflows runs a blocking "
+            "``ruff check`` step (one without --exit-zero, not masked by "
+            "|| true, in a job that is not continue-on-error).  Restore it "
+            "— the PLW1514 rule is only useful if CI actually fails on "
+            "violation."
+        )
+
+    def test_blocking_ruff_check_covers_the_whole_repo(self):
+        """The blocking invocation must lint everything, not one subtree.
+
+        ``ruff check janus_cli/`` would pass this file's other test while
+        leaving most bare ``open()`` calls unchecked.  Accept an explicit
+        ``.``/repo-root target or no target at all (ruff defaults to the
+        current directory).
+        """
+        repo_wide = []
+        for workflow, job, run in _blocking_ruff_steps():
+            for line in run.splitlines():
+                if not _RUFF_CHECK_RE.search(line):
+                    continue
+                args = line.split("check", 1)[1].split()
+                targets = [a for a in args if not a.startswith("-")]
+                if not targets or "." in targets:
+                    repo_wide.append(f"{workflow}:{job}")
+        assert repo_wide, (
+            "A blocking ``ruff check`` exists but none of them lint the "
+            f"whole repo. Found: {_blocking_ruff_steps()!r}"
+        )

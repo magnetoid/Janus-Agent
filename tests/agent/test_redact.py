@@ -1,6 +1,7 @@
 """Tests for agent.redact -- secret masking in logs and output."""
 
 import logging
+import sys
 
 import pytest
 
@@ -482,3 +483,83 @@ class TestXaiToken:
     def test_prefix_visible_in_masked_output(self):
         result = redact_sensitive_text(self.KEY, force=True)
         assert result.startswith("xai-AB")
+
+
+class TestRedactingJSONFormatter:
+    """One redacted JSON object per record, with discrete correlation fields."""
+
+    @staticmethod
+    def _record(msg="hello", args=(), **extra):
+        record = logging.LogRecord(
+            "some.logger", logging.INFO, "/tmp/x.py", 10, msg, args, None,
+        )
+        for key, value in extra.items():
+            setattr(record, key, value)
+        return record
+
+    def _emit(self, record):
+        import json
+        from agent.redact import RedactingJSONFormatter
+        return json.loads(RedactingJSONFormatter().format(record))
+
+    def test_emits_a_single_json_object(self):
+        payload = self._emit(self._record("plain message"))
+        assert payload["message"] == "plain message"
+        assert payload["level"] == "INFO"
+        assert payload["logger"] == "some.logger"
+        assert payload["ts"]
+
+    def test_output_is_exactly_one_line(self):
+        from agent.redact import RedactingJSONFormatter
+        rendered = RedactingJSONFormatter().format(self._record("multi\nline\nmessage"))
+        assert "\n" not in rendered
+
+    def test_interpolates_message_args(self):
+        payload = self._emit(self._record("count=%s state=%s", (7, "ok")))
+        assert payload["message"] == "count=7 state=ok"
+
+    def test_redacts_secrets_in_message(self):
+        secret = "sk-ant-api03-" + "C" * 40
+        payload = self._emit(self._record("using %s now", (secret,)))
+        assert secret not in payload["message"]
+        assert "using" in payload["message"]
+
+    def test_includes_correlation_fields_when_set(self):
+        payload = self._emit(self._record(
+            session_id_ctx="sess9", turn_id="sess9:t:abcd1234",
+            request_id="sess9:t:abcd1234:api:5",
+        ))
+        assert payload["session_id"] == "sess9"
+        assert payload["turn_id"] == "sess9:t:abcd1234"
+        assert payload["request_id"] == "sess9:t:abcd1234:api:5"
+
+    def test_omits_correlation_fields_when_unset(self):
+        payload = self._emit(self._record(
+            session_id_ctx="", turn_id="", request_id="",
+        ))
+        assert "session_id" not in payload
+        assert "turn_id" not in payload
+        assert "request_id" not in payload
+
+    def test_survives_records_without_correlation_attributes(self):
+        """Third-party records never touched by our factory must still format."""
+        payload = self._emit(self._record("from a foreign handler"))
+        assert payload["message"] == "from a foreign handler"
+
+    def test_includes_and_redacts_exception_text(self):
+        secret = "sk-ant-api03-" + "D" * 40
+        try:
+            raise ValueError(f"boom with {secret}")
+        except ValueError:
+            record = logging.LogRecord(
+                "some.logger", logging.ERROR, "/tmp/x.py", 10,
+                "handler failed", (), sys.exc_info(),
+            )
+        payload = self._emit(record)
+        assert "exception" in payload
+        assert secret not in payload["exception"]
+        assert "ValueError" in payload["exception"]
+
+    def test_json_is_serializable_with_non_ascii(self):
+        payload = self._emit(self._record("naïve — 日本語"))
+        assert payload["message"] == "naïve — 日本語"

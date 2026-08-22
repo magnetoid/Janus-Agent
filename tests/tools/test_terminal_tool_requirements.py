@@ -8,13 +8,33 @@ from model_tools import get_tool_definitions
 
 terminal_tool_module = importlib.import_module("tools.terminal_tool")
 
+_tools_discovered = False
+
 
 @pytest.fixture(autouse=True)
-def _clear_caches():
-    """Invalidate check_fn and tool-definitions caches before each test
-    so that monkeypatched env vars / config take effect."""
-    from tools.registry import invalidate_check_fn_cache
+def _registered_tools_and_clear_caches():
+    """Register the built-in tools, then invalidate the check_fn and
+    tool-definitions caches so monkeypatched env vars / config take effect.
+
+    ``discover_builtin_tools()`` has to be called explicitly: importing
+    ``model_tools`` used to run it as a module-level side effect, but that was
+    removed in the gateway core/runner refactor. Every real entry point
+    (``cli.py``, ``janus_cli/main.py``, ``gateway/runner.py``) calls it before
+    asking for tool definitions, so the test has to do the same — otherwise
+    the registry only contains whatever this module happened to import
+    directly (``tools.terminal_tool``) and every other tool looks "unavailable"
+    for reasons that have nothing to do with backend requirements.
+    """
+    from tools.registry import discover_builtin_tools, invalidate_check_fn_cache
     from model_tools import _clear_tool_defs_cache
+    global _tools_discovered
+    if not _tools_discovered:
+        # Runs inside a fixture (not at module import) so the conftest
+        # hermetic-env fixture has already redirected JANUS_HOME. Discovery
+        # re-globs and re-reads every tools/*.py on each call, so do it once
+        # per file rather than once per test.
+        discover_builtin_tools()
+        _tools_discovered = True
     invalidate_check_fn_cache()
     _clear_tool_defs_cache()
     yield

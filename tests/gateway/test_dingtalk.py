@@ -153,35 +153,12 @@ class TestDingTalkAdapterInit:
 # ---------------------------------------------------------------------------
 
 
-class TestExtractText:
-
-    def test_extracts_dict_text(self):
-        from gateway.platforms.dingtalk import DingTalkAdapter
-        msg = MagicMock()
-        msg.text = {"content": "  hello world  "}
-        msg.rich_text = None
-        assert DingTalkAdapter._extract_text(msg) == "hello world"
-
-    def test_extracts_string_text(self):
-        from gateway.platforms.dingtalk import DingTalkAdapter
-        msg = MagicMock()
-        msg.text = "plain text"
-        msg.rich_text = None
-        assert DingTalkAdapter._extract_text(msg) == "plain text"
-
-    def test_falls_back_to_rich_text(self):
-        from gateway.platforms.dingtalk import DingTalkAdapter
-        msg = MagicMock()
-        msg.text = ""
-        msg.rich_text = [{"text": "part1"}, {"text": "part2"}, {"image": "url"}]
-        assert DingTalkAdapter._extract_text(msg) == "part1 part2"
-
-    def test_returns_empty_for_no_content(self):
-        from gateway.platforms.dingtalk import DingTalkAdapter
-        msg = MagicMock()
-        msg.text = ""
-        msg.rich_text = None
-        assert DingTalkAdapter._extract_text(msg) == ""
+# NOTE: an earlier `TestExtractText` class lived here with MagicMock-based
+# extract cases. It was shadowed (dead) by the SDK-shape-aware class further
+# down and never ran; its rich-text case was also broken by MagicMock
+# auto-vivifying `rich_text_content`. Removed — `TestExtractText` below
+# (formerly `TestExtractTextSdkShapes`) supersedes it with correct payload
+# shapes for every branch.
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +546,15 @@ class TestExtractText:
         msg.rich_text_content = None
         msg.rich_text = None
         assert DingTalkAdapter._extract_text(msg) == ""
+
+    def test_text_as_plain_string(self):
+        """Some payloads deliver ``message.text`` as a bare string."""
+        from gateway.platforms.dingtalk import DingTalkAdapter
+        msg = MagicMock()
+        msg.text = "plain text"
+        msg.rich_text_content = None
+        msg.rich_text = None
+        assert DingTalkAdapter._extract_text(msg) == "plain text"
 
 
 class TestExtractMedia:

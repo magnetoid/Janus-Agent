@@ -890,10 +890,49 @@ def skill_view(
             )
 
         local_category_name: str | None = None
+        preresolved_draft = None
+        # ── Shadow-trial drafts (learning.governor.trial_drafts) ─────
+        # Quarantined skills/.drafts/ entries are viewable ONLY under the
+        # explicit ``draft:`` alias and only when the trial flag is on — the
+        # quarantine stays a quarantine for everyone else. The alias also
+        # keeps outcome attribution for a draft separate from any ACTIVE
+        # skill sharing its name (the active skill always wins the bare
+        # name), which is what lets a draft accumulate its own promotion
+        # trajectory. Flag off → falls through to the plugin dispatch below,
+        # where the unregistered 'draft' namespace fails not-found as before.
+        if isinstance(name, str) and name.startswith("draft:"):
+            from agent.feature_flags import flag_enabled
+
+            if flag_enabled("learning", "governor.trial_drafts", default=False):
+                _draft_rest = name.split(":", 1)[1]
+                if not re.fullmatch(r"[A-Za-z0-9_-]+", _draft_rest):
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Invalid draft skill name '{_draft_rest}'. "
+                                "Draft names must match [A-Za-z0-9_-]+."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    )
+                _draft_md = SKILLS_DIR / ".drafts" / _draft_rest / "SKILL.md"
+                if not _draft_md.is_file():
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Draft skill '{_draft_rest}' not found under "
+                                "skills/.drafts/."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    )
+                preresolved_draft = _draft_md
         # ── Qualified name dispatch (plugin skills) ──────────────────
         # Names containing ':' are routed to the plugin skill registry.
         # Bare names fall through to the existing flat-tree scan below.
-        if ":" in name:
+        if ":" in name and preresolved_draft is None:
             from agent.skill_utils import is_valid_namespace, parse_qualified_name
             from janus_cli.plugins import discover_plugins, get_plugin_manager
 
@@ -990,6 +1029,8 @@ def skill_view(
 
         skill_dir = None
         skill_md = None
+        if preresolved_draft is not None:
+            skill_dir, skill_md = preresolved_draft.parent, preresolved_draft
 
         # Collision detection: collect ALL candidates across every dir using
         # every lookup strategy (direct path, recursive by parent dir name,
@@ -1012,7 +1053,7 @@ def skill_view(
             seen_md.add(key)
             candidates.append((sd, smd))
 
-        for search_dir in all_dirs:
+        for search_dir in (all_dirs if preresolved_draft is None else []):
             # Strategy 1: direct path (e.g., "mlops/axolotl" or bare "axolotl"
             # at the top of the dir).
             direct_path = search_dir / name

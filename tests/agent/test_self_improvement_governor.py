@@ -11,6 +11,7 @@ import pytest
 
 from agent import outcome_tracker as ot
 from agent import self_improvement_governor as gov
+from agent import skill_graph as sg
 
 
 def _enable(monkeypatch, **cfg):
@@ -103,6 +104,21 @@ def test_promotion_thresholds_caution_tightens(monkeypatch):
     # Defaults: graph min_uses 3 (+2), success 0.75 → floor 0.85.
     assert thr["min_uses"] >= 5
     assert thr["promo_thr"] >= 0.85
+
+
+def test_promotion_thresholds_caution_tightens_reward_floor_too(monkeypatch):
+    """CAUTION must raise EVERY promotion bar, not just the ones that predate it.
+
+    assess_promotability gates on the shaped mean reward as well as the boolean
+    success rate (gap G10). A bar the governor cannot tighten would sit at its
+    relaxed default exactly when the learning loop looks shaky — the opposite of
+    what CAUTION means.
+    """
+    _enable(monkeypatch)
+    thr = gov.promotion_thresholds(_metrics(forward_transfer=-0.15))
+    assert thr is not None
+    assert thr["reward_thr"] >= 0.75, "reward floor must rise under CAUTION"
+    assert thr["reward_thr"] > float(sg._graph_cfg("promotion_reward_threshold", 0.6))
 
 
 # ── fail-open on exceptions (vs freeze-on-bad-signal) ────────────────────

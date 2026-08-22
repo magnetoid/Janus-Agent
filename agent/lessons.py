@@ -258,12 +258,16 @@ def _outcome_tracking_on() -> bool:
 
 
 def log_recall(session_id: str, lesson_ids: List[str]) -> None:
-    """Record that ``lesson_ids`` were surfaced to ``session_id`` this turn, so a
-    later outcome can credit/debit them. No-op unless outcome tracking is on (the
-    reconcile side). Best-effort; accumulates across a session's turns."""
+    """Record that ``lesson_ids`` were surfaced to ``session_id`` this turn.
+
+    Serves two consumers: the efficacy loop (a later outcome credits/debits
+    the ids — only consumed when outcome tracking is on) and per-session
+    recall DEDUP in ``recall_context_for_turn`` (a lesson already in the
+    conversation is never re-injected). Recorded unconditionally so dedup
+    works even with tracking off. Best-effort; accumulates per session."""
     try:
         ids = [i for i in (lesson_ids or []) if i]
-        if not session_id or not ids or not _outcome_tracking_on():
+        if not session_id or not ids:
             return
         from agent.store_lock import locked_store
         with locked_store(get_recall_state_path()):
@@ -526,21 +530,33 @@ _MAX_LESSONS_CONTEXT_CHARS = 4000
 
 
 def recall_context_for_turn(query: str, *, n: int = 3, session_id: str = "") -> str:
-    """Fenced lessons block for per-turn user-message injection, or ``""``.
+    """Fenced lessons block for the current turn's user message, or ``""``.
 
     The push half of reflexion: instead of waiting for the model to call the
-    recall_lessons tool, the conversation loop injects the top-``n`` relevant
-    lessons into the current turn's user message (API-call-time only, never
-    persisted, never the system prompt). Pure local-file read — no aux calls.
-    Empty when disabled, the query is blank, or nothing relevant is stored.
+    recall_lessons tool, the conversation loop appends the top-``n`` relevant
+    lessons to the current turn's user message. The block is PERSISTED as part
+    of that message (never the system prompt): an API-copy-only injection made
+    the turn's user bytes differ from their replay on every later turn,
+    tearing the provider prompt-cache prefix at this message each turn. Pure
+    local-file read — no aux calls. Empty when disabled, the query is blank,
+    or nothing relevant is stored.
 
-    When ``session_id`` is given, the surfaced lesson ids are logged so the
-    session's eventual outcome can credit/debit them (move 4 efficacy loop).
+    When ``session_id`` is given, lessons already surfaced to this session are
+    EXCLUDED (they're still in the conversation from the earlier turn —
+    re-injecting them would only accrete duplicate persisted bytes), and the
+    surfaced ids are logged so the session's eventual outcome can credit/debit
+    them (move 4 efficacy loop).
     """
     try:
         if not str(query or "").strip() or not recall_injection_enabled():
             return ""
         hits = recall_lessons(query, n=n)
+        if session_id:
+            try:
+                _seen = set(_load_recall_state().get(session_id, []))
+                hits = [h for h in hits if h.get("id", "") not in _seen]
+            except Exception:
+                pass
         block = format_lessons_for_prompt(hits)
         if not block:
             return ""

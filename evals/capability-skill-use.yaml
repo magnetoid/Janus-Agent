@@ -1,0 +1,69 @@
+# Capability specs exercising the skill system: the agent should discover and
+# load the relevant bundled skill (skill_view) before answering. est_minutes
+# feeds the METR-style time-horizon KPI (`janus evals horizon`).
+evals:
+  - name: skill-github-pr-review
+    kind: capability
+    est_minutes: 10
+    prompt: "Using your available skills, describe the recommended workflow for reviewing a GitHub pull request. Load the most relevant skill with skill_view before answering."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skill_view"
+      - type: regex
+        value: "pull request|PR"
+
+  - name: skill-research-workflow
+    kind: capability
+    est_minutes: 15
+    prompt: "Using your available skills, outline how you would run a deep research task on a technical topic. Load the most relevant research skill with skill_view first."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skill_view"
+      - type: min_length
+        value: 100
+
+  - name: skill-devops-deploy
+    kind: capability
+    est_minutes: 20
+    prompt: "Using your available skills, summarize a safe deployment checklist for a web service. Load the most relevant devops skill with skill_view before answering."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skill_view"
+      - type: regex
+        value: "roll ?back|rollback|deploy"
+
+  - name: skill-data-science-eda
+    kind: capability
+    est_minutes: 15
+    prompt: "Using your available skills, describe the first steps of exploratory data analysis on a new dataset. Load the most relevant data-science skill with skill_view first."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skill_view"
+      - type: min_length
+        value: 80
+
+  - name: skill-software-dev-debugging
+    kind: capability
+    est_minutes: 15
+    prompt: "Using your available skills, explain a systematic approach to debugging a failing test. Load the most relevant software-development skill with skill_view first."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skill_view"
+      - type: regex
+        value: "reproduce|isolat|hypothes|root cause"
+
+  - name: skill-listing-awareness
+    kind: capability
+    est_minutes: 5
+    prompt: "List three skills you have available, by name, using your skills tools."
+    toolsets: ["skills"]
+    checks:
+      - type: tool_called
+        value: "skills_list"
+      - type: min_length
+        value: 20

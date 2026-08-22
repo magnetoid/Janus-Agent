@@ -93,7 +93,14 @@ Goal: make the reward signal harder to game / richer.
   anything that changes the skills tree.
 - **Invariant-style tests only** — no change-detector snapshots.
 
-## Stub-detector flags found during research (verify before relying on)
-- `agent/sleep.py` SYNTHESIZE step: documented, not implemented.
-- `plugins/memory/mem0` and `plugins/memory/hindsight`: hook-less stubs.
-- `lessons.recall_lessons`: lexical only, no recency (see Increment 2.1).
+## Stub-detector flags found during research (all resolved — kept for history)
+- ~~`agent/sleep.py` SYNTHESIZE step: documented, not implemented.~~ **Implemented** and
+  red-team-gated at `agent/sleep.py:186-237` (verified 2026-07-31).
+- ~~`lessons.recall_lessons`: lexical only, no recency (see Increment 2.1).~~ **Shipped** as
+  `92785e3` (recency-weighted recall).
+- `plugins/memory/mem0` and `plugins/memory/hindsight`: hook-less stubs. **Still the least
+  integrated providers** (re-verified 2026-07-31) — the `MemoryProvider` ABC exposes six
+  lifecycle hooks (`agent/memory_provider.py:156-279`); mem0 implements **0** of them and
+  hindsight implements **1** (`on_session_switch`). They are not empty files (374 / 1777
+  lines) so "stub" overstates it, but neither participates in the learning loop. The only
+  item on this list that remains open.

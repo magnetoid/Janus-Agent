@@ -29,8 +29,9 @@ class TestGatewayLifecyclePattern:
         "janus gateway stop",
         "janus gateway start",
         "janus  gateway  restart",         # double spaces
-        "Hermez Gateway Restart".lower().replace("z", "s"),  # case handled
+        "Janus Gateway Restart",           # mixed case
         "JANUS GATEWAY RESTART",           # uppercase
+        "then run janus gateway stop and wait",  # embedded in prose
     ])
     def test_janus_gateway_commands(self, text):
         assert _contains_gateway_lifecycle_command(text), f"Should match: {text!r}"

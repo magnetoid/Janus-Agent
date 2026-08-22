@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from tui_gateway import server
 
 
@@ -557,14 +559,21 @@ def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
         "read_raw_config",
         lambda: {"mcp_servers": {"mcp-off": {"enabled": False}}},
     )
-    monkeypatch.setattr(
-        config_mod, "load_config", lambda: {"platform_toolsets": {"cli": ["memory"]}}
-    )
+    cfg = {"platform_toolsets": {"cli": ["memory"]}}
+    monkeypatch.setattr(config_mod, "load_config", lambda: cfg)
 
-    # Sorted: ["kanban", "memory"]. `kanban` is auto-recovered by
-    # _get_platform_tools because it's a non-configurable platform toolset
-    # whose tools live in janus-cli's universe (see toolsets.py).
-    assert server._load_enabled_toolsets() == ["kanban", "memory"]
+    # A disabled MCP server is not a usable toolset, so the env override is
+    # rejected wholesale and we fall back to the configured CLI toolsets —
+    # i.e. exactly what _get_platform_tools resolves, sorted. (That set is
+    # more than just ["memory"]: non-configurable platform toolsets like
+    # `kanban` are auto-recovered because their tools live in janus-cli's
+    # universe. Deriving it keeps this test off the toolset catalog.)
+    from janus_cli.tools_config import _get_platform_tools
+
+    result = server._load_enabled_toolsets()
+    assert result == sorted(_get_platform_tools(cfg, "cli", include_default_mcp_servers=True))
+    assert "memory" in result
+    assert "mcp-off" not in result
     err = capsys.readouterr().err
     assert "ignoring disabled MCP servers" in err
     assert "mcp-off" in err
@@ -581,11 +590,18 @@ def test_load_enabled_toolsets_falls_back_when_tui_env_invalid(monkeypatch, caps
 
     import janus_cli.config as config_mod
 
-    monkeypatch.setattr(
-        config_mod, "load_config", lambda: {"platform_toolsets": {"cli": ["memory"]}}
-    )
+    cfg = {"platform_toolsets": {"cli": ["memory"]}}
+    monkeypatch.setattr(config_mod, "load_config", lambda: cfg)
 
-    assert server._load_enabled_toolsets() == ["kanban", "memory"]
+    # Unknown env entry → fall back to the configured CLI toolsets (see
+    # test_load_enabled_toolsets_rejects_disabled_mcp_env for why this is
+    # derived rather than spelled out).
+    from janus_cli.tools_config import _get_platform_tools
+
+    result = server._load_enabled_toolsets()
+    assert result == sorted(_get_platform_tools(cfg, "cli", include_default_mcp_servers=True))
+    assert "memory" in result
+    assert "nope" not in result
     assert "using configured CLI toolsets" in capsys.readouterr().err
 
 
@@ -4748,6 +4764,15 @@ def test_browser_manage_connect_defaults_to_loopback(monkeypatch):
 
 
 def test_browser_manage_connect_default_local_reports_launch_hint(monkeypatch):
+    """No launchable browser at all → connect fails with an install hint.
+
+    ``manual_chrome_debug_command`` is patched to ``None`` (rather than
+    relying on empty candidates) because it is host-OS dependent: on macOS
+    it falls back to a hardcoded ``open -a "Google Chrome"`` command even
+    with zero candidates, so "no candidates" only means "no command" on
+    Linux/Windows. Patching the function that decides makes the branch
+    under test reachable on every platform.
+    """
     monkeypatch.delenv("BROWSER_CDP_URL", raising=False)
     emitted: list[tuple[str, dict]] = []
     monkeypatch.setattr(
@@ -4768,6 +4793,10 @@ def test_browser_manage_connect_default_local_reports_launch_hint(monkeypatch):
             patch(
                 "janus_cli.browser_connect.get_chrome_debug_candidates",
                 return_value=[],
+            ),
+            patch(
+                "janus_cli.browser_connect.manual_chrome_debug_command",
+                return_value=None,
             ),
         ):
             resp = server.handle_request(

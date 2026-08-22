@@ -12,6 +12,7 @@ Windows runner.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import sys
 from pathlib import Path
@@ -452,11 +453,80 @@ class TestReadmeNoLongerSaysWindowsUnsupported:
             "install copy to reflect the PowerShell installer."
         )
 
-    def test_readme_mentions_powershell_installer(self):
+
+class TestWindowsInstallerShips:
+    """The native-Windows installer must ship alongside the POSIX one.
+
+    This replaces an earlier assertion that the string ``install.ps1``
+    appeared somewhere in ``README.md``.  That pinned documentation prose,
+    not behaviour: the README was rewritten (``8857e06``) to document the
+    manual ``uv``-based Windows install and the test failed even though
+    nothing about Windows support regressed.
+
+    What actually has to hold is the invariant CONTRIBUTING.md #13 states:
+    the PowerShell installer exists next to its POSIX counterpart and the
+    two are kept in lockstep.  A missing (or stubbed-out) ``install.ps1``
+    is the real regression — Windows users would have no installer at all.
+    """
+
+    def _installers(self):
         root = Path(__file__).resolve().parents[2]
-        source = (root / "README.md").read_text(encoding="utf-8")
-        assert "install.ps1" in source, (
-            "README.md must point at scripts/install.ps1 for Windows users"
+        return root / "scripts" / "install.sh", root / "scripts" / "install.ps1"
+
+    def test_powershell_installer_ships_with_the_posix_installer(self):
+        posix, powershell = self._installers()
+        assert posix.exists(), f"POSIX installer missing: {posix}"
+        assert powershell.exists(), (
+            f"Windows PowerShell installer missing: {powershell} — native "
+            "Windows support requires it (CONTRIBUTING.md #13: install.sh "
+            "and install.ps1 must stay in lockstep)."
+        )
+
+    def test_powershell_installer_is_not_a_stub(self):
+        """An empty placeholder would satisfy ``exists()`` while leaving
+        Windows users with nothing to run."""
+        posix, powershell = self._installers()
+        ps_text = powershell.read_text(encoding="utf-8")
+        # It must at least take the parameters an installer needs and
+        # define the install steps as functions — a marker file wouldn't.
+        assert "param(" in ps_text, "install.ps1 has no param() block"
+        assert "function " in ps_text, "install.ps1 defines no functions"
+        # Lockstep guard: the Windows installer having a tiny fraction of
+        # the POSIX installer's content means the two have diverged badly.
+        assert len(ps_text) > 0.2 * len(posix.read_text(encoding="utf-8")), (
+            "install.ps1 is drastically smaller than install.sh — the two "
+            "installers have drifted (CONTRIBUTING.md #13)."
+        )
+
+    @pytest.mark.skipif(
+        shutil.which("pwsh") is None and shutil.which("powershell") is None,
+        reason="no PowerShell available to parse install.ps1",
+    )
+    def test_powershell_installer_parses(self):
+        """When a PowerShell host is available, the installer must parse.
+
+        A syntax error in install.ps1 is invisible to every other test in
+        this repo (nothing else executes it) and fatal to Windows users.
+        """
+        import subprocess
+
+        _, powershell = self._installers()
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        script = (
+            "$errors = $null; "
+            "[System.Management.Automation.Language.Parser]::ParseFile("
+            f"'{powershell}', [ref]$null, [ref]$errors) > $null; "
+            "if ($errors) { $errors | ForEach-Object { $_.Message }; exit 1 }"
+        )
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"install.ps1 has PowerShell syntax errors:\n{result.stdout}\n"
+            f"{result.stderr}"
         )
 
 
@@ -476,12 +546,84 @@ class TestWebServerPtyBridgeGuard:
             "web_server.py must wrap the pty_bridge import in try/except ImportError"
         )
 
-    def test_pty_handler_checks_availability_flag(self):
-        """The /api/pty handler must short-circuit when the bridge is unavailable."""
-        root = Path(__file__).resolve().parents[2]
-        source = (root / "janus_cli" / "web_server.py").read_text(encoding="utf-8")
-        assert "if not _PTY_BRIDGE_AVAILABLE" in source, (
-            "/api/pty handler must return a friendly error when PTY is unavailable"
+    def test_pty_handler_refuses_cleanly_when_bridge_unavailable(self, monkeypatch):
+        """/api/pty must explain + close, not crash, when PTY is unavailable.
+
+        On native Windows ``janus_cli.pty_bridge`` can't import (fcntl,
+        termios, ptyprocess), so ``PtyBridge`` is None.  The handler has to
+        notice and refuse; touching ``PtyBridge.spawn`` would raise
+        ``AttributeError: 'NoneType'`` inside the WebSocket and the browser
+        would just see a dead socket.
+
+        Driven behaviourally through the real handler with a stand-in
+        WebSocket — the previous version of this test grepped
+        ``web_server.py`` for ``if not _PTY_BRIDGE_AVAILABLE``, which broke
+        (with the guard still fully in place) when the route moved into
+        ``janus_cli/routers/pty.py``.
+        """
+        pytest.importorskip("fastapi", reason="dashboard extra not installed")
+
+        import asyncio
+        from types import SimpleNamespace
+
+        # web_server must be imported first: routers.pty imports it back.
+        import janus_cli.web_server as web_server
+        from janus_cli.routers.pty import pty_ws
+
+        class _QueryParams:
+            def get(self, key, default=""):
+                return default
+
+        class _FakeWebSocket:
+            def __init__(self):
+                self.query_params = _QueryParams()
+                self.client = SimpleNamespace(host="127.0.0.1")
+                self.url = SimpleNamespace(path="/api/pty")
+                self.accepted = False
+                self.sent: list = []
+                self.close_code = None
+
+            async def accept(self):
+                self.accepted = True
+
+            async def send_text(self, text):
+                self.sent.append(text)
+
+            async def send_bytes(self, data):  # pragma: no cover - unused here
+                self.sent.append(data)
+
+            async def close(self, code=1000, reason=""):
+                self.close_code = code
+
+        def _spawn_attempted(*args, **kwargs):
+            raise AssertionError(
+                "handler tried to spawn a PTY even though the bridge is "
+                "unavailable"
+            )
+
+        # Gates that are exercised by the dashboard-auth suite; here we
+        # care only about the platform-availability branch behind them.
+        monkeypatch.setattr(
+            web_server, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True, raising=False
+        )
+        monkeypatch.setattr(web_server, "_ws_auth_reason", lambda ws: (None, "token"))
+        monkeypatch.setattr(web_server, "_ws_host_origin_reason", lambda ws: None)
+        monkeypatch.setattr(web_server, "_ws_client_reason", lambda ws: None)
+        # Simulate the native-Windows import failure.
+        monkeypatch.setattr(web_server, "_PTY_BRIDGE_AVAILABLE", False)
+        monkeypatch.setattr(web_server, "PtyBridge", None)
+        monkeypatch.setattr(web_server, "_resolve_chat_argv", _spawn_attempted)
+
+        ws = _FakeWebSocket()
+        asyncio.run(pty_ws(ws))
+
+        assert ws.sent, (
+            "client got no explanation — the PTY-unavailable branch must "
+            "tell the user why /chat can't start (e.g. suggest WSL2)"
+        )
+        assert ws.close_code not in (None, 1000), (
+            "socket must be closed with an error code when PTY is "
+            f"unavailable; got {ws.close_code!r}"
         )
 
 
@@ -491,18 +633,38 @@ class TestWebServerPtyBridgeGuard:
 
 
 class TestEntryPointsConfigureStdio:
-    """cli.py, janus_cli/main.py, gateway/run.py must call configure_windows_stdio."""
+    """Each process entry point must call configure_windows_stdio at startup.
+
+    Resolved through the actual ``main`` callable rather than by grepping a
+    file: ``gateway/run.py`` is now a re-export shim over ``gateway.runner``
+    (``gateway.run.main is gateway.runner.main``), so a file-text check
+    reported a regression that never happened.  Importing the module and
+    inspecting the function that really runs follows the code wherever it
+    is defined, and is strictly stricter than the old check — a stray
+    mention in an unrelated function or comment no longer satisfies it.
+    """
 
     @pytest.mark.parametrize(
-        "relpath",
-        ["cli.py", "janus_cli/main.py", "gateway/run.py"],
+        "dotted",
+        ["cli:main", "janus_cli.main:main", "gateway.run:main"],
     )
-    def test_entry_point_calls_configure_stdio(self, relpath):
-        root = Path(__file__).resolve().parents[2]
-        source = (root / relpath).read_text(encoding="utf-8")
+    def test_entry_point_calls_configure_stdio(self, dotted):
+        import importlib
+        import inspect
+
+        module_name, func_name = dotted.split(":")
+        module = importlib.import_module(module_name)
+        entry = getattr(module, func_name, None)
+        assert entry is not None, (
+            f"{dotted}: entry point callable missing — console_scripts and "
+            f"`python -m` both dispatch through it"
+        )
+
+        source = inspect.getsource(inspect.unwrap(entry))
         assert "configure_windows_stdio" in source, (
-            f"{relpath} must call janus_cli.stdio.configure_windows_stdio() "
-            "early in startup so Windows consoles render Unicode without crashing"
+            f"{dotted} (defined in {entry.__module__}) must call "
+            "janus_cli.stdio.configure_windows_stdio() early in startup so "
+            "Windows consoles render Unicode without crashing"
         )
 
 
@@ -924,13 +1086,107 @@ class TestGatewayDetachedWatcherWindowsFlags:
         # STRING the old pattern is replaced by explicit creationflags.
         assert "**windows_detach_popen_kwargs()" in source
 
-    def test_gateway_run_update_has_windows_branch(self):
-        root = Path(__file__).resolve().parents[2]
-        source = (root / "gateway" / "run.py").read_text(encoding="utf-8")
-        # Both the /restart and /update paths must have sys.platform=='win32' branches.
-        assert 'if sys.platform == "win32":' in source
-        # Windows branch uses windows_detach_popen_kwargs
-        assert "windows_detach_popen_kwargs" in source
+    def test_in_gateway_restart_respawn_detaches_on_windows(self, monkeypatch):
+        """``/restart``'s watcher must be spawned with Windows detach flags.
+
+        Exercised behaviourally: fake ``sys.platform``, capture the Popen.
+        The old version of this test grepped ``gateway/run.py`` for
+        ``if sys.platform == "win32":``; ``run.py`` became a re-export shim
+        and the spawn now lives in ``gateway.runner``, so the text check
+        failed while the behaviour was untouched.
+        """
+        import asyncio
+        import subprocess
+
+        from janus_cli import _subprocess_compat as sc
+        import gateway.runner as runner_mod
+
+        captured = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return MagicMock()
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sc, "IS_WINDOWS", True)
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(runner_mod, "_resolve_janus_bin", lambda: ["janus"])
+
+        # The method touches no instance state, so an uninitialised
+        # instance is enough (and avoids standing up a real gateway).
+        runner = runner_mod.GatewayRunner.__new__(runner_mod.GatewayRunner)
+        asyncio.run(runner._launch_detached_restart_command())
+
+        assert captured, "no watcher process was spawned"
+        kwargs = captured["kwargs"]
+        # Windows has no setsid; start_new_session is silently ignored there,
+        # which is exactly the bug this guards against.
+        assert "start_new_session" not in kwargs, (
+            "start_new_session is a no-op on Windows — the respawn watcher "
+            "would die with its parent console"
+        )
+        flags = kwargs.get("creationflags", 0)
+        assert flags & 0x00000200, "missing CREATE_NEW_PROCESS_GROUP"
+        assert flags & 0x00000008, "missing DETACHED_PROCESS"
+        assert flags & 0x08000000, "missing CREATE_NO_WINDOW"
+        assert flags & 0x01000000, "missing CREATE_BREAKAWAY_FROM_JOB"
+        # The watcher itself must be a python -c payload (no bash/setsid
+        # chain exists on native Windows).
+        assert captured["argv"][0] == sys.executable
+        assert captured["argv"][1] == "-c"
+
+    def test_in_gateway_restart_respawn_still_uses_setsid_semantics_on_posix(
+        self, monkeypatch
+    ):
+        """Do-no-harm: the POSIX path keeps its own-session detach."""
+        import asyncio
+        import subprocess
+
+        import gateway.runner as runner_mod
+
+        if sys.platform == "win32":  # pragma: no cover - POSIX-only assertion
+            pytest.skip("POSIX behaviour check")
+
+        captured = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return MagicMock()
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(runner_mod, "_resolve_janus_bin", lambda: ["janus"])
+
+        runner = runner_mod.GatewayRunner.__new__(runner_mod.GatewayRunner)
+        asyncio.run(runner._launch_detached_restart_command())
+
+        assert captured, "no watcher process was spawned"
+        assert captured["kwargs"].get("start_new_session") is True
+        assert "creationflags" not in captured["kwargs"]
+
+    def test_in_gateway_update_launcher_uses_detach_helper(self):
+        """``/update`` spawns ``janus update --gateway`` detached.
+
+        Anchored to the method rather than to a file: the update handler
+        cannot be driven headlessly (it needs a MessageEvent, a git
+        checkout, and writes update-marker files into JANUS_HOME), so this
+        stays a source check — but on the function object, so moving it
+        between modules doesn't produce a phantom failure.
+        """
+        import inspect
+
+        from gateway.runner import GatewayRunner
+
+        source = inspect.getsource(GatewayRunner._handle_update_command)
+        assert 'sys.platform == "win32"' in source, (
+            "/update has no native-Windows branch — the POSIX bash/setsid "
+            "chain it falls back to does not exist there"
+        )
+        assert "windows_detach_popen_kwargs" in source, (
+            "/update's Windows branch must spawn through the platform-aware "
+            "detach helper (start_new_session is a silent no-op on Windows)"
+        )
 
     def test_launch_detached_profile_gateway_restart_inlined_watcher_uses_breakaway(self):
         """The inlined respawn script (stringified Python passed to ``python -c``)

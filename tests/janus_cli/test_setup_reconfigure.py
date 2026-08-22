@@ -64,8 +64,24 @@ def _enter_existing_install_patches(stack, **extra):
         ("janus_cli.auth.get_active_provider", {"return_value": "openrouter"}),
         ("janus_cli.setup._print_setup_summary", {}),
         ("janus_cli.setup._offer_openclaw_migration", {"return_value": False}),
+        # Wizard sections this suite does not assert on, stubbed so the
+        # full-reconfigure run stays non-interactive.
+        ("janus_cli.setup.setup_consensus", {}),
     ]:
         stack.enter_context(patch(target, **kwargs))
+
+    # Any prompt the wizard reaches that isn't stubbed above would otherwise
+    # block on stdin (pytest raises an opaque "reading from stdin while output
+    # is captured" OSError). Fail with a message that names the culprit
+    # instead, so a newly added wizard section is obvious.
+    def _unstubbed_prompt(prompt=""):
+        raise AssertionError(
+            "setup wizard read stdin during a non-interactive test "
+            f"(prompt: {prompt!r}) — a wizard section is missing a stub in "
+            "_enter_existing_install_patches"
+        )
+
+    stack.enter_context(patch("builtins.input", _unstubbed_prompt))
 
     # Named mocks caller wants to assert on.
     named = {}

@@ -9480,6 +9480,10 @@ class GatewayRunner:
                         plabel = result.provider_label or result.target_provider
                         lines = [t("gateway.model.switched", model=result.new_model)]
                         lines.append(t("gateway.model.provider_label", provider=plabel))
+                        # Gateway sessions are persistent, so a switch is
+                        # almost always mid-conversation — surface the
+                        # cache-invalidation cost (model-keyed prompt cache).
+                        lines.append(t("gateway.model.cache_switch_warning"))
                         mi = result.model_info
                         from janus_cli.model_switch import resolve_display_context_length
                         _sw_config_ctx = None
@@ -9665,6 +9669,10 @@ class GatewayRunner:
         provider_label = result.provider_label or result.target_provider
         lines = [t("gateway.model.switched", model=result.new_model)]
         lines.append(t("gateway.model.provider_label", provider=provider_label))
+        # Gateway sessions are persistent, so a switch is almost always
+        # mid-conversation — surface the cache-invalidation cost
+        # (the provider prompt cache is model-keyed).
+        lines.append(t("gateway.model.cache_switch_warning"))
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
         # Copilot, and Nous-enforced caps win over the raw models.dev entry.

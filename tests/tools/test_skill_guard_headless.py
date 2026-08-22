@@ -52,3 +52,53 @@ def test_explicit_config_false_wins_even_headless(monkeypatch):
     monkeypatch.setattr("janus_cli.config.load_config",
                         lambda: {"skills": {"guard_agent_created": False}})
     assert smt._guard_agent_created_enabled() is False
+
+
+def _write_cfg(tmp_path, body: str):
+    (tmp_path / "config.yaml").write_text(body, encoding="utf-8")
+    return tmp_path / "config.yaml"
+
+
+def test_migration_reclaims_a_materialized_false_default(tmp_path, monkeypatch):
+    """Installs predating the "auto" sentinel must not be pinned off forever.
+
+    ``save_config`` writes the FULL merged config back to disk, so every install
+    that ever ran it has an explicit ``guard_agent_created: false`` materialized
+    from the old default. That literal is indistinguishable from a deliberate
+    user choice, so the context default would never apply to an existing user —
+    the fix would only help fresh installs. The migration reclaims it.
+    """
+    cfg = _write_cfg(tmp_path,
+                     "_config_version: 28\nskills:\n  guard_agent_created: false\n")
+    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
+    from janus_cli.config import migrate_config
+
+    migrate_config(interactive=False, quiet=True)
+    assert "guard_agent_created: auto" in cfg.read_text(encoding="utf-8")
+
+
+def test_migration_preserves_a_deliberate_true(tmp_path, monkeypatch):
+    """Only the stale `false` is reclaimed — an explicit opt-in must survive."""
+    cfg = _write_cfg(tmp_path,
+                     "_config_version: 28\nskills:\n  guard_agent_created: true\n")
+    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
+    from janus_cli.config import migrate_config
+
+    migrate_config(interactive=False, quiet=True)
+    assert "guard_agent_created: true" in cfg.read_text(encoding="utf-8")
+
+
+def test_context_default_survives_the_real_merged_config(monkeypatch):
+    """The headless default must hold against the REAL config, not just a stub.
+
+    Every other test in this file replaces ``load_config`` with a dict that
+    OMITS ``skills.guard_agent_created`` — a shape production never produces,
+    because ``load_config`` deep-merges ``DEFAULT_CONFIG`` into every result.
+    If the default carries a literal ``False`` there, ``cfg_get(...,
+    default=None)`` reads it as an explicit user choice, the "explicit value
+    wins" branch swallows it, and every context default above becomes dead
+    code. So this test deliberately does NOT patch ``load_config``.
+    """
+    _clear_ctx(monkeypatch)  # headless: no human present
+    assert smt._no_human_present() is True, "precondition: context is headless"
+    assert smt._guard_agent_created_enabled() is True

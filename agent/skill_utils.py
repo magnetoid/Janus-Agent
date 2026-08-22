@@ -665,3 +665,43 @@ def is_valid_namespace(candidate: Optional[str]) -> bool:
     if not candidate:
         return False
     return bool(_NAMESPACE_RE.match(candidate))
+
+
+# ── Active-skill resolution by frontmatter name ────────────────────────────
+
+
+def resolve_active_skill_md(skills_dir: Path, name: str) -> Optional[Path]:
+    """Path to the ACTIVE skill's SKILL.md whose frontmatter ``name`` (or,
+    absent frontmatter, directory name) equals *name* — or None.
+
+    Skills live at ``skills/<category>/<name>/SKILL.md`` (categorized) or
+    ``skills/<name>/SKILL.md`` (flat); callers must not assume either layout.
+    Drafts/archives are excluded by construction (``iter_skill_index_files``
+    prunes ``EXCLUDED_SKILL_DIRS``). Shared by the proposer (variant source),
+    the eval orchestrator (variant application in the isolated home), and
+    self-improve promotion (in-place apply target).
+    """
+    try:
+        skills_dir = Path(skills_dir)
+        if not skills_dir.is_dir():
+            return None
+        for md in iter_skill_index_files(skills_dir, "SKILL.md"):
+            try:
+                fm, _ = parse_frontmatter(md.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if (fm.get("name") or md.parent.name) == name:
+                return md
+    except Exception as exc:
+        logger.debug("resolve_active_skill_md failed: %s", exc)
+    return None
+
+
+def draft_skill_name_from_target(target) -> Optional[str]:
+    """``skills/.drafts/<name>/SKILL.md`` → ``<name>``, else None."""
+    parts = Path(str(target)).parts
+    try:
+        i = parts.index(".drafts")
+        return parts[i + 1] if i + 1 < len(parts) else None
+    except ValueError:
+        return None

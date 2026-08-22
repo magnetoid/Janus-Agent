@@ -438,11 +438,19 @@ janus config set skills.config.myplugin.path ~/myplugin-data
 
 ### Agent 创建技能写入的守卫
 
-当 agent 使用 `skill_manage` 创建、编辑、修补或删除技能时，Janus 可以选择扫描新/更新的内容以查找危险关键字模式（凭据收集、明显的 prompt 注入、数据外泄指令）。扫描器**默认关闭** —— 合法触及 `~/.ssh/` 或提及 `$OPENAI_API_KEY` 的真实 agent 工作流触发启发式规则过于频繁。如果您希望扫描器在 agent 的技能写入落地前提示您，请重新开启：
+当 agent 使用 `skill_manage` 创建、编辑、修补或删除技能时，Janus 可以选择扫描新/更新的内容以查找危险关键字模式（凭据收集、明显的 prompt 注入、数据外泄指令）。
+
+默认值为 **`auto`**，按上下文决定：
+
+- **交互式与网关会话 → 关闭。** 此时有人参与其中，且 agent 本就可以通过已批准的 `terminal()` 执行相同代码，因此扫描主要带来干扰 —— 合法触及 `~/.ssh/` 或提及 `$OPENAI_API_KEY` 的真实 agent 工作流触发启发式规则过于频繁。
+- **无人值守与 cron 会话 → 开启。** 在这些会话中，`terminal()` 与 `execute_code` 本身已被审批门拦截，因此未经扫描的 agent 自写技能便成为通向宿主机代码执行的唯一无防护路径。
+
+如果您不希望其随上下文变化，可固定为任一方向：
 
 ```yaml
 skills:
-  guard_agent_created: true   # 默认：false
+  guard_agent_created: true    # 始终扫描（默认：auto）
+  # guard_agent_created: false # 从不扫描
 ```
 
 开启后，任何被标记的 `skill_manage` 写入都会以审批提示的形式出现，并附带扫描器的理由。接受的写入落地；拒绝的写入向 agent 返回解释性错误。

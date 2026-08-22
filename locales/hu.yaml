@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Hiba: {error}"
     switched:               "Modell átváltva: `{model}`"
     provider_label:         "Szolgáltató: {provider}"
+    cache_switch_warning:   "⚠ Beszélgetés közbeni váltás: a prompt-gyorsítótár modellhez kötött, ezért a teljes kontextus a következő körben friss token díjszabással kerül újraszámlázásra (indíts új munkamenetet a /new paranccsal, ha modellek között szeretnél váltogatni)."
     context_label:          "Kontextus: {tokens} token"
     max_output_label:       "Max. kimenet: {tokens} token"
     cost_label:             "Költség: {cost}"

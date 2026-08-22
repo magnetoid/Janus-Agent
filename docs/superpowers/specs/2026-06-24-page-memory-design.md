@@ -43,7 +43,19 @@ then `recall(url)` (read) → append `format_recall(...)` to the returned snapsh
 ### 3. Tool `pagemem_remember(task, steps)` (toolset `browser`)
 The agent records a winning playbook for the current site after it succeeds.
 Explicit beats fuzzy success-detection. Registered in `toolsets.py` (`browser` +
-`_JANUS_CORE_TOOLS` if appropriate).
+~~`_JANUS_CORE_TOOLS` if appropriate~~ **`_JANUS_CORE_TOOLS`, and anywhere else
+`browser_navigate` is exposed — not optional**).
+
+> **Resolved 2026-07-31.** "If appropriate" was read as "leave it out," and it
+> shipped in the `browser` toolset only — which no composite includes. So on all
+> 22 toolsets that expose `browser_navigate` (including `janus-cli`, `janus-cron`,
+> `janus-acp`) the capture half ran by default and rendered a recalled
+> "playbooks" section that **nothing could ever populate**. The two seams are not
+> independent: navigate captures and recalls, `pagemem_remember` is the only
+> writer, so exposing one without the other ships a permanently half-dead
+> feature. The invariant is now pinned by
+> `tests/test_toolsets.py::TestPageMemSeamsShipTogether`. Cost of the fix: ~272
+> tokens of tool schema, once per session, in the cached prefix.
 
 ### 4. Bounding (eager, not sleep)
 `max_domains` is capped on every write (oldest domain files dropped); failing

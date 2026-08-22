@@ -308,7 +308,10 @@ markers = [
 addopts = "-m 'not integration' --timeout=30 --timeout-method=signal"
 
 [tool.ty.environment]
-python-version = "3.13"
+# Match the floor of requires-python (>=3.11,<3.14) and what CI installs —
+# type-checking against 3.13 while shipping/running 3.11 flags 3.13-only
+# stdlib as available and misses 3.11 incompatibilities.
+python-version = "3.11"
 
 [tool.ty.rules]
 unknown-argument = "warn"
@@ -325,7 +328,17 @@ preview = true  # required for PLW1514 (unspecified-encoding) — preview rule
 # which silently corrupts any non-ASCII file content.  We had three
 # separate Windows sandbox regressions in one debug session before
 # adding the explicit encoding.  This rule keeps new code honest.
-select = ["PLW1514"]
+# Plus the bug-catching pyflakes subset that is verifiably GREEN today:
+# undefined names (F821 — caught a NameError-on-invoke closure over a deleted
+# `except` var and an unimported `pytest` in a test guard), undefined exports
+# (F822), shadowing redefinitions (F811 — caught two whole test
+# classes/functions that never ran), duplicate dict keys (F601 — caught a
+# model-catalog entry silently overwritten), and loop-var import shadowing
+# (F402). The forward-ref annotation hits F821 surfaced are fixed with
+# TYPE_CHECKING imports. Still deliberately OFF:
+#   F401/F841/F403/F405/F541 — bulk cosmetic cleanup (>2000 hits); enabling
+#     them red just teaches everyone to ignore the lint.
+select = ["PLW1514", "F402", "F601", "F811", "F821", "F822"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests can intentionally exercise locale-encoding edge cases.
@@ -334,3 +347,9 @@ select = ["PLW1514"]
 "skills/**" = ["PLW1514"]
 "optional-skills/**" = ["PLW1514"]
 "plugins/**" = ["PLW1514"]
+# Contributor-map data file: repeated email keys are a data artifact, not code.
+"scripts/release.py" = ["F601"]
+# godmode red-team scripts load sibling modules via exec() into the caller's
+# globals, so their cross-module names are undefined to static analysis by
+# design — F821 can't see the runtime injection.
+"skills/red-teaming/godmode/**" = ["F821"]

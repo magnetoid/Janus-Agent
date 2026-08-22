@@ -1,5 +1,12 @@
-"""Tests for the optional semantic embeddings layer (agent/embeddings.py)."""
-import numpy as np
+"""Tests for the optional semantic embeddings layer (agent/embeddings.py).
+
+numpy is an opt-in dependency (the `voice` extra / LAZY_DEPS, deliberately not
+in `[all]`), and agent/embeddings.py imports it lazily so the module degrades to
+"no backend" without it. Only the one test that exercises the numpy-backed
+cosine math requires it — it importorskips, matching tests/tools/test_voice_mode.py.
+Everything else must run on a bare install, so nothing here may import numpy at
+module scope.
+"""
 import pytest
 
 from agent import embeddings as emb
@@ -15,6 +22,10 @@ def test_rerank_empty_candidates():
 
 
 def test_rerank_orders_by_cosine(monkeypatch):
+    # rerank()'s cosine math is numpy-backed in the module under test, so this
+    # is the one case that cannot run without the optional dependency.
+    np = pytest.importorskip("numpy", reason="numpy is an optional (voice extra) dep")
+
     # query vector points at candidate index 1 (the second candidate)
     def fake_embed(texts):
         # texts = [query, cand0, cand1, cand2]

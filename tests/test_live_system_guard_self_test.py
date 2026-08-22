@@ -204,51 +204,47 @@ def test_subprocess_killall_janus_blocked():
 # ──────────────────── pass-through cases (must NOT raise) ──────
 
 
+def _assert_guard_allows(argv):
+    """Assert the live-system guard does not block ``argv``.
+
+    The guard raises RuntimeError *before* exec, so a FileNotFoundError proves
+    the call got past the guard and reached the OS — which is exactly the
+    invariant these cases pin. Tolerating it keeps the allow/deny logic under
+    test on hosts without systemd (macOS/Windows dev boxes), where these tests
+    previously died on the missing binary while passing on the Linux runner.
+    """
+    try:
+        subprocess.run(argv, capture_output=True, text=True, check=False)
+    except RuntimeError as exc:  # pragma: no cover — the failure we are pinning
+        raise AssertionError(
+            f"live-system guard wrongly blocked a read-only command {argv}: {exc}"
+        ) from exc
+    except FileNotFoundError:
+        pass  # Past the guard; the binary just isn't installed on this host.
+
+
 def test_systemctl_status_passes_through():
     """Read-only systemctl probes (status/show/list-units) are fine."""
-    # Run with check=False so we don't fail on the gateway's exit code.
-    r = subprocess.run(
-        ["systemctl", "--user", "status", "janus-gateway", "--no-pager"],
-        capture_output=True,
-        text=True,
-        check=False,
+    _assert_guard_allows(
+        ["systemctl", "--user", "status", "janus-gateway", "--no-pager"]
     )
-    assert r is not None  # Did not raise — the guard let it through.
 
 
 def test_systemctl_show_passes_through():
-    r = subprocess.run(
-        ["systemctl", "--user", "show", "janus-gateway", "--no-pager"],
-        capture_output=True,
-        text=True,
-        check=False,
+    _assert_guard_allows(
+        ["systemctl", "--user", "show", "janus-gateway", "--no-pager"]
     )
-    assert r is not None
 
 
 def test_systemctl_list_units_passes_through():
-    r = subprocess.run(
-        ["systemctl", "--user", "list-units", "fake-not-real-unit*", "--no-pager"],
-        capture_output=True,
-        text=True,
-        check=False,
+    _assert_guard_allows(
+        ["systemctl", "--user", "list-units", "fake-not-real-unit*", "--no-pager"]
     )
-    assert r is not None
 
 
 def test_systemctl_unrelated_unit_passes_through():
-    """systemctl restart of a non-janus unit is allowed (we only protect janus)."""
-    # Use --dry-run so we don't actually try to restart anything; just
-    # verify the guard doesn't block the call. systemctl supports
-    # --dry-run via the privileged API; on user scope it usually fails
-    # quickly without side effects.
-    r = subprocess.run(
-        ["systemctl", "--user", "show", "fake-not-real-unit"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert r is not None
+    """systemctl probes of a non-janus unit are allowed (we only protect janus)."""
+    _assert_guard_allows(["systemctl", "--user", "show", "fake-not-real-unit"])
 
 
 def test_kill_own_subtree_passes_through():

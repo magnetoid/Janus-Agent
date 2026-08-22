@@ -251,3 +251,59 @@ class TestLogFiles:
         assert "errors" in LOG_FILES
         assert "gateway" in LOG_FILES
         assert "gui" in LOG_FILES
+
+
+# ---------------------------------------------------------------------------
+# JSONL log lines (logging.format: json)
+# ---------------------------------------------------------------------------
+
+class TestJSONLogLines:
+    """Filters must work identically whether agent.log is text or JSONL."""
+
+    LINE = (
+        '{"ts": "2026-07-30 12:00:00,123", "level": "WARNING", '
+        '"logger": "tools.terminal_tool", "message": "ran a command", '
+        '"session_id": "sess1", "turn_id": "sess1:task:abcd1234"}'
+    )
+
+    def test_timestamp_is_parsed(self):
+        ts = _parse_line_timestamp(self.LINE)
+        assert ts == datetime(2026, 7, 30, 12, 0, 0)
+
+    def test_level_is_extracted(self):
+        assert _extract_level(self.LINE) == "WARNING"
+
+    def test_logger_name_is_extracted(self):
+        assert _extract_logger_name(self.LINE) == "tools.terminal_tool"
+
+    def test_component_filter_matches(self):
+        assert _line_matches_component(self.LINE, ("tools.",)) is True
+
+    def test_component_filter_rejects_other_components(self):
+        assert _line_matches_component(self.LINE, ("gateway.",)) is False
+
+    def test_level_filter_excludes_below_minimum(self):
+        assert _matches_filters(self.LINE, min_level="ERROR") is False
+
+    def test_level_filter_includes_at_or_above_minimum(self):
+        assert _matches_filters(self.LINE, min_level="INFO") is True
+
+    def test_since_filter_excludes_old_lines(self):
+        assert _matches_filters(self.LINE, since=datetime(2026, 7, 31)) is False
+
+    def test_session_filter_still_matches_substring(self):
+        assert _matches_filters(self.LINE, session_filter="sess1") is True
+
+    def test_malformed_json_does_not_crash(self):
+        broken = '{"ts": "2026-07-30 12:00:00", "level": '
+        assert _extract_level(broken) is None
+        assert _parse_line_timestamp(broken) is None
+        assert _extract_logger_name(broken) is None
+
+    def test_text_lines_still_parse(self):
+        """The text path must be untouched."""
+        line = "2026-07-30 12:00:00,123 WARNING [sess1 t:abcd1234 #2] tools.terminal_tool: ran a command"
+        assert _extract_level(line) == "WARNING"
+        assert _extract_logger_name(line) == "tools.terminal_tool"
+        assert _parse_line_timestamp(line) == datetime(2026, 7, 30, 12, 0, 0)
+        assert _line_matches_component(line, ("tools.",)) is True

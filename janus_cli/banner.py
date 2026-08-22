@@ -566,6 +566,44 @@ def _build_open_banner(console, model: str, cwd: str,
     console.print()
 
 
+def _toolset_requirements() -> dict:
+    """Toolset requirement metadata, resolved from the live registry.
+
+    The old ``model_tools.TOOLSET_REQUIREMENTS`` was an import-time snapshot
+    that 70dbbfa left permanently empty when it moved tool discovery into the
+    entry points (since removed). Reading it here silently erased every
+    ``check_fn``, the only thing separating a lazy toolset from a broken one.
+    """
+    try:
+        from tools.registry import registry
+
+        return registry.get_toolset_requirements()
+    except Exception:
+        return {}
+
+
+def _classify_unavailable_tools(unavailable_toolsets):
+    """Split unavailable tools into (disabled, lazy).
+
+    A toolset with a ``check_fn`` is lazy-initialized (honcho, homeassistant):
+    it reads as unavailable at banner time only because the check has not run
+    yet, so it is NOT misconfigured. Anything else — including a toolset with
+    no requirement entry at all — is reported as disabled, since absence of
+    metadata is not evidence that it is merely lazy.
+    """
+    requirements = _toolset_requirements()
+    disabled: set = set()
+    lazy: set = set()
+    for item in unavailable_toolsets:
+        toolset_name = item.get("name", "")
+        tools_in_ts = item.get("tools", [])
+        if (requirements.get(toolset_name) or {}).get("check_fn"):
+            lazy.update(tools_in_ts)
+        else:
+            disabled.update(tools_in_ts)
+    return disabled, lazy
+
+
 def build_welcome_banner(console: "Console", model: str, cwd: str,
                          tools: List[dict] = None,
                          enabled_toolsets: List[str] = None,
@@ -594,7 +632,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     except Exception:
         pass  # any design/skin failure falls back to the legacy panel banner
 
-    from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
+    from model_tools import check_tool_availability
     from rich.panel import Panel
     from rich.table import Table
     if get_toolset_for_tool is None:
@@ -604,19 +642,10 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     enabled_toolsets = enabled_toolsets or []
 
     _, unavailable_toolsets = check_tool_availability(quiet=True)
-    disabled_tools = set()
     # Tools whose toolset has a check_fn are lazy-initialized (e.g. honcho,
     # homeassistant) — they show as unavailable at banner time because the
     # check hasn't run yet, but they aren't misconfigured.
-    lazy_tools = set()
-    for item in unavailable_toolsets:
-        toolset_name = item.get("name", "")
-        ts_req = TOOLSET_REQUIREMENTS.get(toolset_name, {})
-        tools_in_ts = item.get("tools", [])
-        if ts_req.get("check_fn"):
-            lazy_tools.update(tools_in_ts)
-        else:
-            disabled_tools.update(tools_in_ts)
+    disabled_tools, lazy_tools = _classify_unavailable_tools(unavailable_toolsets)
 
     layout_table = Table.grid(padding=(0, 2))
     layout_table.add_column("left", justify="center")

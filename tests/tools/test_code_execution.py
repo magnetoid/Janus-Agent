@@ -30,6 +30,41 @@ def _force_local_terminal(monkeypatch):
     ensures each test starts (and ends) with the correct value.
     """
     monkeypatch.setenv("TERMINAL_ENV", "local")
+
+
+@pytest.fixture(autouse=True)
+def _allow_execute_code_headlessly():
+    """Opt into headless execute_code via the documented config knob.
+
+    ``execute_code`` is gated by ``tools.approval.check_execute_code_guard``.
+    A test process is headless (no TTY/CLI, no gateway, no cron), so the guard
+    consults ``approvals.headless_mode``, which defaults to ``deny`` — every
+    execute_code call would come back ``{"status": "error", ...BLOCKED...}``
+    before a child is ever spawned.
+
+    These tests exercise sandbox *mechanics* (RPC, env scrubbing, truncation,
+    timeouts), not approval policy — the guard itself is covered by
+    ``tests/tools/test_execute_code_approval_cluster.py``.  So set the same
+    config an operator sets to run Janus headlessly, writing it into the
+    per-test ``JANUS_HOME`` the conftest already isolates.  Going through the
+    real config loader (rather than patching the guard) keeps this honest: if
+    the knob is renamed or stops being consulted, these tests fail loudly.
+    """
+    import yaml
+
+    from janus_constants import get_janus_home
+
+    config_path = get_janus_home() / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    if config_path.exists():
+        existing = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    approvals = dict(existing.get("approvals") or {})
+    approvals["headless_mode"] = "approve"
+    existing["approvals"] = approvals
+    config_path.write_text(yaml.safe_dump(existing), encoding="utf-8")
+
+
 import sys
 import threading
 import unittest

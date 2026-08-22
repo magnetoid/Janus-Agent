@@ -615,6 +615,11 @@ def _sync_bundled_skills_for_startup() -> bool:
     from tools.skills_sync import sync_skills
 
     sync_skills(quiet=True)
+    try:
+        from tools.evals_sync import sync_evals
+        sync_evals(quiet=True)
+    except Exception:
+        pass
     _mark_termux_bundled_skills_synced()
     return True
 
@@ -1965,6 +1970,12 @@ def _sync_bundled_skills_quietly() -> None:
         from tools.skills_sync import sync_skills
 
         sync_skills(quiet=True)
+    except Exception:
+        pass
+    try:
+        from tools.evals_sync import sync_evals
+
+        sync_evals(quiet=True)
     except Exception:
         pass
 
@@ -12658,8 +12669,8 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat", "secrets", "security",
         # Self-learning / proactive command families (see learning stack).
-        "aspire", "interest", "learning", "models", "persona", "sleep",
-        "team", "workflow", "corpus",
+        "aspire", "autonomy", "interest", "learning", "models", "persona",
+        "self-improve", "sleep", "team", "workflow", "corpus",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
         # expensive eager import of every bundled plugin module.
@@ -15535,7 +15546,7 @@ Examples:
                 print("\n  ⚠ Managed install — config.yaml is not writable here. "
                       "Set these via your system configuration instead:")
                 for key in ("learning.track_outcomes", "evals.trend.enabled",
-                            "learning.governor.enabled"):
+                            "learning.governor.enabled", "memory.session_mining"):
                     print(f"    {key} = {'true' if on else 'false'}")
                 print()
                 return
@@ -15543,6 +15554,7 @@ Examples:
                 ("learning.track_outcomes", "outcome classification + reflexion lessons"),
                 ("evals.trend.enabled", "longitudinal eval pass-rate curve"),
                 ("learning.governor.enabled", "self-improvement health assessment"),
+                ("memory.session_mining", "session-end memory mining (remembers you)"),
             ]
             for key, _ in preset:
                 set_config_value(key, "true" if on else "false")
@@ -15655,6 +15667,20 @@ Examples:
         print(f"\n  Sessions tracked:      {o['sessions']}")
         print(f"  Overall success rate:  {_pct(o['success_rate'])}")
         print(f"  Recent (last 20):      {_pct(ot.recent_success_rate(20))}")
+        try:
+            from agent.cost_ledger import cache_efficiency
+            ce = cache_efficiency()
+            if ce.get("hit_rate") is not None:
+                print(f"  Prompt-cache hits:     {_pct(ce['hit_rate'])} of context "
+                      f"served from cache over last {ce['turns']} turns "
+                      f"({ce['cache_read_tokens']:,} cached / "
+                      f"{ce['fresh_input_tokens']:,} fresh)")
+                if ce.get("sessions_with_model_switch"):
+                    print(f"    ⚠ {ce['sessions_with_model_switch']} recent session(s) "
+                          "switched models mid-conversation — each switch re-bills "
+                          "the whole context at fresh rates")
+        except Exception:
+            pass
         stats = ot.skill_stats()
         if stats:
             ranked = sorted(stats.items(),
@@ -15746,10 +15772,126 @@ Examples:
     _si_rj.add_argument("id")
     _si_rb = si_sub.add_parser("rollback", help="Undo a promoted proposal (restore backup)")
     _si_rb.add_argument("id")
+    si_sub.add_parser(
+        "doctor",
+        help="One-screen health check of the whole self-improvement loop",
+        description=(
+            "Read-only diagnosis of every precondition the loop needs to close: "
+            "eval suite size, trend history, per-proposal gate blockers, draft "
+            "trial trajectories, governor/autonomy state, and flag states — "
+            "each with the next command to run."
+        ),
+    )
+
+    def _cmd_si_doctor():
+        from agent import self_improve as si
+        print("\n  Self-improvement loop doctor (read-only)\n")
+
+        # ── flags ────────────────────────────────────────────────────────
+        from agent.feature_flags import flag_enabled
+        enabled = si.enabled()
+        trial = flag_enabled("learning", "governor.trial_drafts", default=False)
+        cfg = si._cfg()
+        print(f"  flags: enabled={enabled}  trial_drafts={trial}  "
+              f"auto_evaluate={bool(cfg.get('auto_evaluate', False))}  "
+              f"require_human_approval={bool(cfg.get('require_human_approval', True))}")
+        if not enabled:
+            print("    → enable: janus config set learning.self_improve.enabled true")
+
+        # ── eval suite ───────────────────────────────────────────────────
+        min_specs = int(cfg.get("min_eval_specs", 10) or 0)
+        n_specs = reg = cap = 0
+        try:
+            from agent.evals import load_eval_specs
+            specs = load_eval_specs()
+            n_specs = len(specs)
+            reg = sum(1 for s in specs if getattr(s, "kind", "regression") == "regression")
+            cap = n_specs - reg
+        except Exception:
+            pass
+        marker = "✓" if n_specs >= min_specs else "✗"
+        print(f"  {marker} eval suite: {n_specs} specs "
+              f"({reg} regression / {cap} capability), floor={min_specs}")
+        if n_specs < min_specs:
+            print("    → seed the bundled suite: janus evals init")
+
+        # ── trend history + gate ─────────────────────────────────────────
+        try:
+            from agent.eval_trend import learning_curve, regression_gate
+            lc = learning_curve()
+            pts = len(lc.get("points") or [])
+            gate = regression_gate(fail_closed=True)
+            marker = "✓" if gate.get("ok") else "✗"
+            print(f"  {marker} trend: {pts} point(s) on current suite — "
+                  f"{gate.get('message', '')}")
+            if not gate.get("ok"):
+                print("    → build history: janus evals trend   (run twice)")
+        except Exception as exc:
+            print(f"  ✗ trend: unavailable ({exc})")
+
+        # ── proposals ────────────────────────────────────────────────────
+        rows = si.load_archive()
+        by_status = {}
+        for r in rows:
+            by_status[r.get("status", "?")] = by_status.get(r.get("status", "?"), 0) + 1
+        promoted_ever = any(r.get("status") in ("promoted", "rolled_back") for r in rows)
+        pulse = "✓" if promoted_ever else "—"
+        counts = ", ".join(f"{k}={v}" for k, v in sorted(by_status.items())) or "none"
+        print(f"  {pulse} proposals: {counts}  "
+              f"(loop has {'closed at least once' if promoted_ever else 'NEVER closed'})")
+        for r in rows:
+            if r.get("status") in ("evaluated", "approved"):
+                ok, reason = si.can_promote(r["id"])
+                if ok:
+                    print(f"    ✓ {r['id']} ready → janus self-improve promote {r['id']}")
+                else:
+                    print(f"    ✗ {r['id']} blocked: {reason}")
+
+        # ── drafts ───────────────────────────────────────────────────────
+        from janus_constants import get_janus_home
+        drafts_dir = get_janus_home() / "skills" / ".drafts"
+        drafts = sorted(p for p in drafts_dir.iterdir()
+                        if (p / "SKILL.md").is_file()) if drafts_dir.is_dir() else []
+        print(f"  drafts: {len(drafts)} in quarantine")
+        if drafts:
+            try:
+                from agent.outcome_tracker import skill_success_trajectory
+                from agent.skill_graph import assess_promotability
+                for p in drafts[:10]:
+                    key = f"draft:{p.name}"
+                    traj = skill_success_trajectory(key)
+                    a = assess_promotability(p.name, skill_dir=p, trajectory_key=key)
+                    state = "promotable" if a.get("promotable") else (
+                        a.get("reason") or "needs uses")
+                    print(f"    - {key}: uses={len(traj)}  {state}")
+            except Exception:
+                pass
+            if not trial:
+                print("    → drafts can never accumulate uses while trial_drafts is off:")
+                print("      janus config set learning.governor.trial_drafts true")
+
+        # ── governor + autonomy ──────────────────────────────────────────
+        try:
+            from agent.self_improvement_governor import assess_admission_state
+            st = assess_admission_state()
+            print(f"  governor: {st.get('state', '?')}"
+                  + (f" ({', '.join(st.get('reasons', []))})" if st.get("reasons") else ""))
+        except Exception as exc:
+            print(f"  governor: unavailable ({exc})")
+        try:
+            from agent.autonomy_guard import blocked_reason
+            br = blocked_reason(None)
+            print(f"  autonomy floor: {'blocked — ' + br if br else 'clear'}")
+        except Exception as exc:
+            print(f"  autonomy floor: unavailable ({exc})")
+        print()
+        return 0
 
     def cmd_self_improve(args):
         from agent import self_improve as si
         sub = getattr(args, "si_command", None)
+        if sub == "doctor":
+            return _cmd_si_doctor()
         if sub in ("approve", "promote", "reject", "rollback"):
             pid = args.id
             if sub == "approve":

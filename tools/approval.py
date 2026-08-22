@@ -26,7 +26,26 @@ logger = logging.getLogger(__name__)
 # Freeze YOLO mode at module import time. Reading os.environ on every call
 # would allow any skill running inside the process to set this variable and
 # instantly bypass all approval checks — a prompt-injection escalation path.
+# The freeze is one-way: revoke_frozen_yolo() can turn it OFF at runtime
+# (so an operator can restore approvals without restarting the process),
+# but nothing can turn it back ON after import.
 _YOLO_MODE_FROZEN: bool = is_truthy_value(os.getenv("JANUS_YOLO_MODE", ""))
+
+
+def is_frozen_yolo_enabled() -> bool:
+    """Whether process-wide YOLO (JANUS_YOLO_MODE at startup) is in effect."""
+    return _YOLO_MODE_FROZEN
+
+
+def revoke_frozen_yolo() -> None:
+    """One-way revocation of process-wide YOLO mode.
+
+    Deliberately no counterpart to re-enable: post-import enablement is the
+    prompt-injection escalation path the import-time freeze exists to block.
+    Session-scoped YOLO (enable_session_yolo) is the sanctioned runtime opt-in.
+    """
+    global _YOLO_MODE_FROZEN
+    _YOLO_MODE_FROZEN = False
 
 # Per-thread/per-task gateway session identity.
 # Gateway runs agent turns concurrently in executor threads, so reading a

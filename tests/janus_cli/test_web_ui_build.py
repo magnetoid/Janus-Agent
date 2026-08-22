@@ -24,10 +24,19 @@ def _touch(path: Path, offset: float = 0.0) -> None:
 
 
 def _make_web_dir(tmp_path: Path) -> tuple[Path, Path]:
-    """Return (web_dir, dist_dir) matching real repo layout."""
+    """Return (web_dir, dist_dir) matching real repo layout.
+
+    ``package.json`` is backdated because ``_web_ui_build_needed`` compares
+    meta files with ``>=``: a sentinel touched immediately after this helper
+    lands on the same timestamp wherever the filesystem's mtime granularity is
+    coarser than the gap between the two calls, and the "dist is fresh" cases
+    then wrongly report a rebuild. That is host-dependent — it never triggered
+    on APFS but did on the Linux CI runner. Tests that need a *newer*
+    package.json re-touch it explicitly.
+    """
     web_dir = tmp_path / "web"
     web_dir.mkdir(parents=True)
-    (web_dir / "package.json").touch()
+    _touch(web_dir / "package.json", offset=-60)
     dist_dir = tmp_path / "janus_cli" / "web_dist"
     return web_dir, dist_dir
 

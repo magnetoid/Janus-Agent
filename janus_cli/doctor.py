@@ -1954,13 +1954,22 @@ def run_doctor(args):
     try:
         # Add project root to path for imports
         sys.path.insert(0, str(PROJECT_ROOT))
-        from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
-        
+        from model_tools import check_tool_availability
+        # Live registry. The old model_tools.TOOLSET_REQUIREMENTS was built at
+        # import time, before the entry point triggers discovery (70dbbfa), so it
+        # was permanently empty (since removed) and every toolset here fell back
+        # to printing its raw id instead of its display name.
+        try:
+            from tools.registry import registry
+            toolset_requirements = registry.get_toolset_requirements()
+        except Exception:
+            toolset_requirements = {}
+
         available, unavailable = check_tool_availability()
         available, unavailable = _apply_doctor_tool_availability_overrides(available, unavailable)
-        
+
         for tid in available:
-            info = TOOLSET_REQUIREMENTS.get(tid, {})
+            info = toolset_requirements.get(tid) or {}
             check_ok(info.get("name", tid), _doctor_tool_availability_detail(tid))
         
         for item in unavailable:

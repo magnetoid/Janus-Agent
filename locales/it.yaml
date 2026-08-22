@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Errore: {error}"
     switched:               "Modello cambiato a `{model}`"
     provider_label:         "Provider: {provider}"
+    cache_switch_warning:   "⚠ Cambio a metà conversazione: la cache dei prompt è legata al modello, quindi l'intero contesto verrà rifatturato alle tariffe dei token nuovi al prossimo turno (avvia una nuova sessione con /new se prevedi di alternare i modelli)."
     context_label:          "Contesto: {tokens} token"
     max_output_label:       "Output massimo: {tokens} token"
     cost_label:             "Costo: {cost}"

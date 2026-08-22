@@ -1,7 +1,37 @@
 """Tests for /personality none — clearing personality overlay."""
+from contextlib import contextmanager
+
 import pytest
 from unittest.mock import MagicMock, patch
 import yaml
+
+
+@contextmanager
+def _gateway_janus_home(tmp_path):
+    """Point the gateway's janus home at ``tmp_path`` for the duration.
+
+    ``_janus_home`` is bound at import time in ``gateway.core`` and re-bound
+    into ``gateway.runner`` (``from gateway.core import _janus_home``), which is
+    where the /personality handler and ``_load_gateway_config()`` read it from.
+    ``gateway.run`` is only a back-compat shim that *copies* private names into
+    its own namespace, so patching ``gateway.run._janus_home`` patches a dead
+    copy and the handler keeps reading the process-wide home — the config the
+    test wrote is never seen.
+    """
+    import gateway.core
+    import gateway.runner
+
+    with patch.object(gateway.core, "_janus_home", tmp_path), \
+         patch.object(gateway.runner, "_janus_home", tmp_path):
+        yield
+
+
+def _write_config(tmp_path, config_data):
+    (tmp_path / "config.yaml").write_text(yaml.dump(config_data))
+
+
+def _read_config(tmp_path):
+    return yaml.safe_load((tmp_path / "config.yaml").read_text()) or {}
 
 
 # ── CLI tests ──────────────────────────────────────────────────────────────
@@ -92,69 +122,79 @@ class TestGatewayPersonalityNone:
         return runner
 
     @pytest.mark.asyncio
-    async def test_none_clears_ephemeral_prompt(self, tmp_path):
+    @pytest.mark.parametrize("clear_word", ["none", "default", "neutral"])
+    async def test_clearing_word_clears_prompt_and_persists(self, tmp_path, clear_word):
         runner = self._make_runner()
-        config_data = {"agent": {"personalities": {"helpful": "You are helpful."}, "system_prompt": "kawaii"}}
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml.dump(config_data))
+        _write_config(tmp_path, {
+            "agent": {
+                "personalities": {"helpful": "You are helpful."},
+                "system_prompt": "You are kawaii~",
+            }
+        })
 
-        with patch("gateway.run._janus_home", tmp_path):
-            event = self._make_event("none")
-            result = await runner._handle_personality_command(event)
+        with _gateway_janus_home(tmp_path):
+            result = await runner._handle_personality_command(self._make_event(clear_word))
 
+        # In-memory overlay is dropped for the next message …
         assert runner._ephemeral_system_prompt == ""
+        # … and the change is persisted, so a gateway restart stays cleared.
+        assert _read_config(tmp_path)["agent"]["system_prompt"] == ""
         assert "cleared" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_default_clears_ephemeral_prompt(self, tmp_path):
+    async def test_known_personality_sets_and_persists_prompt(self, tmp_path):
+        """The counterpart of clearing: a named personality becomes the overlay."""
         runner = self._make_runner()
-        config_data = {"agent": {"personalities": {"helpful": "You are helpful."}}}
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml.dump(config_data))
+        _write_config(tmp_path, {"agent": {"personalities": {"helpful": "You are helpful."}}})
 
-        with patch("gateway.run._janus_home", tmp_path):
-            event = self._make_event("default")
-            result = await runner._handle_personality_command(event)
+        with _gateway_janus_home(tmp_path):
+            result = await runner._handle_personality_command(self._make_event("helpful"))
 
-        assert runner._ephemeral_system_prompt == ""
+        assert runner._ephemeral_system_prompt == "You are helpful."
+        assert _read_config(tmp_path)["agent"]["system_prompt"] == "You are helpful."
+        assert "helpful" in result
 
     @pytest.mark.asyncio
     async def test_list_includes_none(self, tmp_path):
         runner = self._make_runner()
-        config_data = {"agent": {"personalities": {"helpful": "You are helpful."}}}
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml.dump(config_data))
+        _write_config(tmp_path, {"agent": {"personalities": {"helpful": "You are helpful."}}})
 
-        with patch("gateway.run._janus_home", tmp_path):
-            event = self._make_event("")
-            result = await runner._handle_personality_command(event)
+        with _gateway_janus_home(tmp_path):
+            result = await runner._handle_personality_command(self._make_event(""))
 
+        # Anchor on the configured personality first: that proves we are looking
+        # at the real listing and not an error/fallback string that happens to
+        # contain "none" (a tmp-path name did exactly that before).
+        assert "helpful" in result
         assert "none" in result.lower()
 
     @pytest.mark.asyncio
     async def test_unknown_shows_none_in_available(self, tmp_path):
         runner = self._make_runner()
-        config_data = {"agent": {"personalities": {"helpful": "You are helpful."}}}
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml.dump(config_data))
+        _write_config(tmp_path, {"agent": {"personalities": {"helpful": "You are helpful."}}})
 
-        with patch("gateway.run._janus_home", tmp_path):
-            event = self._make_event("nonexistent")
-            result = await runner._handle_personality_command(event)
+        with _gateway_janus_home(tmp_path):
+            # deliberately free of the substring "none" so the assertion below
+            # can only be satisfied by the offered clearing option
+            result = await runner._handle_personality_command(self._make_event("bogus-persona"))
 
+        assert "bogus-persona" in result
+        assert "helpful" in result
         assert "none" in result.lower()
+        # An unknown name must not silently change the overlay.
+        assert runner._ephemeral_system_prompt == "You are kawaii~"
 
     @pytest.mark.asyncio
     async def test_empty_personality_list_uses_profile_display_path(self, tmp_path):
         runner = self._make_runner(personalities={})
-        (tmp_path / "config.yaml").write_text(yaml.dump({"agent": {"personalities": {}}}))
+        _write_config(tmp_path, {"agent": {"personalities": {}}})
 
-        with patch("gateway.run._janus_home", tmp_path), \
+        with _gateway_janus_home(tmp_path), \
              patch("janus_constants.display_janus_home", return_value="~/.janus/profiles/coder"):
-            event = self._make_event("")
-            result = await runner._handle_personality_command(event)
+            result = await runner._handle_personality_command(self._make_event(""))
 
-        assert result == "No personalities configured in `~/.janus/profiles/coder/config.yaml`"
+        # The message must point at the *profile's* config, not a hardcoded ~/.janus.
+        assert "~/.janus/profiles/coder/config.yaml" in result
 
 
 class TestPersonalityDictFormat:

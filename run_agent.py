@@ -91,7 +91,7 @@ def _launch_cwd_for_session(source: str) -> Optional[str]:
 
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
-# The other `# noqa: F401` re-exports below cover names accessed via
+# The other F401-suppressed re-exports below cover names accessed via
 # `mock.patch("run_agent.<X>")`, `from run_agent import <X>` in production
 # siblings, or the `_ra().<X>` indirection in agent/system_prompt.py — none
 # of which ruff's in-module usage scan can see.
@@ -3981,7 +3981,10 @@ class AIAgent:
                         try:
                             cb(think_tail)
                         except Exception:
-                            pass
+                            logger.debug(
+                                "stream callback error in _reset_stream_delivery_tracking "
+                                "(think tail)", exc_info=True,
+                            )
                     self._record_streamed_assistant_text(think_tail)
         # Flush any benign partial-tag tail held by the context scrubber so it
         # reaches the UI before we clear state for the next model call.  If
@@ -3995,7 +3998,10 @@ class AIAgent:
                     try:
                         cb(tail)
                     except Exception:
-                        pass
+                        logger.debug(
+                            "stream callback error in _reset_stream_delivery_tracking "
+                            "(context tail)", exc_info=True,
+                        )
                 self._record_streamed_assistant_text(tail)
         self._current_streamed_assistant_text = ""
 
@@ -4087,7 +4093,7 @@ class AIAgent:
                 cb(text)
                 delivered = True
             except Exception:
-                pass
+                logger.debug("stream callback error in _fire_stream_delta", exc_info=True)
         if delivered:
             self._record_streamed_assistant_text(text)
 
@@ -4098,7 +4104,7 @@ class AIAgent:
             try:
                 cb(text)
             except Exception:
-                pass
+                logger.debug("reasoning_callback error in _fire_reasoning_delta", exc_info=True)
 
     def _fire_tool_gen_started(self, tool_name: str) -> None:
         """Notify display layer that the model is generating tool call arguments.
@@ -4113,7 +4119,7 @@ class AIAgent:
             try:
                 cb(tool_name)
             except Exception:
-                pass
+                logger.debug("tool_gen_callback error in _fire_tool_gen_started", exc_info=True)
 
     def _has_stream_consumers(self) -> bool:
         """Return True if any streaming consumer is registered."""

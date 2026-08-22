@@ -78,13 +78,21 @@ def _synthetic_worker_script() -> str:
     )
 
 
-def _is_alive_like_dispatcher(pid: int) -> bool:
+def _is_alive_like_dispatcher(pid: int, proc: subprocess.Popen | None = None) -> bool:
     """Mirrors janus_cli/kanban_db.py:_pid_alive on Linux.
 
     A zombie is treated as dead — the dispatcher's _pid_alive checks
     /proc/<pid>/status for State: Z. We replicate that here so a clean
     os._exit followed by zombie-state is correctly counted as dead.
+
+    ``proc`` makes that portable. There is no /proc on macOS/BSD, so an exited
+    but unreaped child still answers ``os.kill(pid, 0)`` and would look alive
+    forever — the worker exits promptly, but the probe could never see it, so
+    this failed off-Linux while passing on the CI runner. Reaping through
+    ``Popen.poll()`` first settles it without weakening the Linux semantics.
     """
+    if proc is not None and proc.poll() is not None:
+        return False
     if pid <= 0:
         return False
     try:
@@ -154,7 +162,7 @@ def test_sigterm_with_kanban_task_env_terminates_quickly():
         # is immediate. Give generous headroom for slow CI runners.
         deadline = t0 + 2.0
         while time.time() < deadline:
-            if not _is_alive_like_dispatcher(proc.pid):
+            if not _is_alive_like_dispatcher(proc.pid, proc):
                 elapsed = time.time() - t0
                 assert elapsed < 2.0
                 return

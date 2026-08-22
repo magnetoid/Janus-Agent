@@ -268,7 +268,8 @@ def replay_compression_warning(agent: Any) -> None:
             pass
 
 
-def _route_precompress_insight_to_lessons(insight: Any, session_id: str = "") -> bool:
+def _route_precompress_insight_to_lessons(insight: Any, session_id: str = "",
+                                          task_type: str = "") -> bool:
     """Persist a pre-compression distilled insight into the lessons store so it
     isn't lost when compression discards the context (previously the
     ``on_pre_compress`` return value was dropped). Best-effort and cache-safe:
@@ -290,6 +291,7 @@ def _route_precompress_insight_to_lessons(insight: Any, session_id: str = "") ->
             logger.debug("compression insight rejected by red-team gate")
             return False
         rec = record_lesson(screened_text, source="compression",
+                            task_type=task_type,
                             session_id=session_id or "", screened=screened)
         return rec is not None
     except Exception as exc:
@@ -498,8 +500,19 @@ def compress_context(
 
     # Compression committed (not aborted): route the captured pre-compression
     # insight into the durable lessons store now — cache-safe (post-mutation).
+    # Cheap task_type from the first user turn (same pattern as auto_mine's
+    # topic) so compression-sourced lessons carry retrieval signal instead of
+    # all landing in the "general" bucket.
+    _first_user = next(
+        (str(m.get("content", "")).strip()[:60]
+         for m in messages
+         if isinstance(m, dict) and m.get("role") == "user"
+         and str(m.get("content", "")).strip()),
+        "",
+    )
     _route_precompress_insight_to_lessons(
-        _precompress_insight, session_id=getattr(agent, "session_id", "") or "")
+        _precompress_insight, session_id=getattr(agent, "session_id", "") or "",
+        task_type=_first_user)
 
     summary_error = getattr(agent.context_compressor, "_last_summary_error", None)
     if summary_error:

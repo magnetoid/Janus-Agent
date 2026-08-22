@@ -39,6 +39,19 @@ class TestUserSystemdPrivateSocketPreflight:
 
 
 class TestSystemdServiceRefresh:
+    @pytest.fixture(autouse=True)
+    def _skip_user_systemd_preflight(self, monkeypatch):
+        """Bypass the live user-systemd/D-Bus probe.
+
+        ``systemd_start``/``systemd_restart`` call ``_preflight_user_systemd()``,
+        which probes the real ``systemctl --user`` D-Bus session and raises
+        ``UserSystemdUnavailableError`` on any host without one — so these tests
+        died on a macOS dev box while passing on the Linux CI runner. The probe
+        has dedicated coverage in TestUserSystemdPrivateSocketPreflight; these
+        classes are about unit refresh and restart routing.
+        """
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda *a, **k: None)
+
     def test_systemd_install_repairs_outdated_unit_without_force(self, tmp_path, monkeypatch):
         unit_path = tmp_path / "janus-gateway.service"
         unit_path.write_text("old unit\n", encoding="utf-8")
@@ -894,6 +907,19 @@ class TestGatewayServiceDetection:
         assert gateway_cli._is_service_running() is False
 
 class TestGatewaySystemServiceRouting:
+    @pytest.fixture(autouse=True)
+    def _skip_user_systemd_preflight(self, monkeypatch):
+        """Bypass the live user-systemd/D-Bus probe.
+
+        ``systemd_start``/``systemd_restart`` call ``_preflight_user_systemd()``,
+        which probes the real ``systemctl --user`` D-Bus session and raises
+        ``UserSystemdUnavailableError`` on any host without one — so these tests
+        died on a macOS dev box while passing on the Linux CI runner. The probe
+        has dedicated coverage in TestUserSystemdPrivateSocketPreflight; these
+        classes are about unit refresh and restart routing.
+        """
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda *a, **k: None)
+
     def test_systemd_restart_gracefully_restarts_running_service_and_waits(self, monkeypatch, capsys):
         calls = []
 

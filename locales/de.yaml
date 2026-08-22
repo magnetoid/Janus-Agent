@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Fehler: {error}"
     switched:               "Modell gewechselt zu `{model}`"
     provider_label:         "Anbieter: {provider}"
+    cache_switch_warning:   "⚠ Wechsel mitten im Gespräch: Der Prompt-Cache ist modellgebunden, daher wird der gesamte Kontext in der nächsten Runde erneut zu Frisch-Token-Tarifen berechnet (starte mit /new eine neue Sitzung, wenn du zwischen Modellen wechseln willst)."
     context_label:          "Kontext: {tokens} Tokens"
     max_output_label:       "Max. Ausgabe: {tokens} Tokens"
     cost_label:             "Kosten: {cost}"

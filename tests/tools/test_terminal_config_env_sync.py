@@ -1,297 +1,331 @@
 """Regression tests for terminal config -> env-var bridging.
 
-terminal_tool._get_env_config() reads ALL terminal settings from os.environ
-(TERMINAL_*).  config.yaml values therefore have to be bridged into env vars
-at startup, by THREE separate code paths:
+``terminal_tool._get_env_config()`` reads ALL terminal settings from
+``os.environ`` (``TERMINAL_*``).  ``config.yaml`` values therefore have to be
+bridged into env vars by THREE separate code paths:
 
-  1. cli.py            -> ``env_mappings`` dict (CLI / TUI startup)
-  2. gateway/run.py    -> ``_terminal_env_map`` dict (gateway / messaging
-                          platforms)
-  3. janus_cli/config.py:save_config_value
-                       -> ``_config_to_env_sync`` dict (one-shot when the
-                          user runs ``janus config set …``)
+  1. ``cli.load_cli_config()``           — CLI / TUI startup
+  2. the ``gateway.core`` import-time bridge — gateway / messaging platforms
+  3. ``janus_cli.config.set_config_value`` — one-shot ``janus config set …``
 
-If any one of these is missing a key, the corresponding config.yaml setting
-silently does nothing for that entry-point.  This bug already shipped once
-for ``docker_run_as_host_user`` (gateway and CLI maps) and once for
-``docker_mount_cwd_to_workspace`` (gateway map).
+If any one of these is missing a key, the corresponding ``config.yaml``
+setting silently does nothing for that entry-point.  This bug already shipped
+for ``docker_run_as_host_user`` (gateway + CLI), ``docker_mount_cwd_to_workspace``
+(gateway), ``docker_env``, ``docker_volumes`` and ``docker_forward_env``
+(``janus config set``).
 
-This test guards against future drift by extracting all three maps via source
-inspection and asserting they all bridge the same set of writable
-``terminal.*`` keys.  Source inspection (rather than importing the live
-dicts) keeps the test independent of the user's ~/.janus/config.yaml and
-mirrors the pattern used in tests/janus_cli/test_config_drift.py.
+These tests exercise the *behavior*: write a real ``config.yaml`` into an
+isolated ``JANUS_HOME``, run each bridge for real, and assert the setting
+comes back out of ``terminal_tool._get_env_config()``.  They deliberately do
+**not** inspect the source of the bridging dicts — the earlier source-literal
+version of this file broke the moment the gateway bridge moved from
+``gateway/run.py`` to ``gateway/core.py`` even though nothing about the
+behavior changed.
 """
 
-import ast
-import inspect
+from __future__ import annotations
+
+import importlib
+import os
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+from dotenv import dotenv_values
+
+import cli as cli_mod
+import tools.terminal_tool as terminal_tool
+from janus_cli.config import DEFAULT_CONFIG, set_config_value
+
+_TERMINAL_PREFIX = "TERMINAL_"
 
 
-def _extract_dict_values(source: str, dict_name: str) -> set[str]:
-    """Return the set of *value* strings in `dict_name = { "k": "VALUE", ... }`.
+# -------------------------------------------------------------------------
+# Fixtures / plumbing
+# -------------------------------------------------------------------------
 
-    We parse the source with ast (so multi-line dicts and comments are
-    handled) instead of regex.  The first matching assignment wins.
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """Snapshot ``os.environ`` around each test.
+
+    The bridges under test mutate ``os.environ`` directly (that is the whole
+    point of them), and reloading ``gateway.core`` additionally sets
+    ``_JANUS_GATEWAY``.  Restore everything so tests stay independent.
     """
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        targets = [t for t in node.targets if isinstance(t, ast.Name)]
-        if not any(t.id == dict_name for t in targets):
-            continue
-        if not isinstance(node.value, ast.Dict):
-            continue
-        out: set[str] = set()
-        for k, v in zip(node.value.keys, node.value.values):
-            if isinstance(k, ast.Constant) and isinstance(v, ast.Constant):
-                if isinstance(v.value, str):
-                    out.add(v.value)
-        return out
-    raise AssertionError(f"Could not find `{dict_name} = {{...}}` literal in source")
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
 
 
-def _extract_dict_keys(source: str, dict_name: str) -> set[str]:
-    """Return the set of *key* strings in `dict_name = { "KEY": "v", ... }`."""
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        targets = [t for t in node.targets if isinstance(t, ast.Name)]
-        if not any(t.id == dict_name for t in targets):
-            continue
-        if not isinstance(node.value, ast.Dict):
-            continue
-        out: set[str] = set()
-        for k in node.value.keys:
-            if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                out.add(k.value)
-        return out
-    raise AssertionError(f"Could not find `{dict_name} = {{...}}` literal in source")
+@pytest.fixture
+def janus_home(monkeypatch, tmp_path) -> Path:
+    """An isolated JANUS_HOME that all three bridges read from."""
+    home = tmp_path / "bridge_home"
+    home.mkdir()
+    monkeypatch.setenv("JANUS_HOME", str(home))
+    # cli.py resolves its home once at import time.
+    monkeypatch.setattr(cli_mod, "_janus_home", home)
+    return home
 
 
-def _cli_env_map_keys() -> set[str]:
-    """terminal config keys bridged by cli.load_cli_config()."""
-    import cli
-    source = inspect.getsource(cli.load_cli_config)
-    return _extract_dict_keys(source, "env_mappings")
-
-
-def _gateway_env_map_keys() -> set[str]:
-    """terminal config keys bridged by gateway/run.py at module load."""
-    # gateway/run.py builds the dict at module top-level (not inside a
-    # function), so inspect the whole module source.
-    import gateway.run as gr
-    source = inspect.getsource(gr)
-    return _extract_dict_keys(source, "_terminal_env_map")
-
-
-def _save_config_env_sync_keys() -> set[str]:
-    """terminal config keys bridged by ``janus config set foo bar``."""
-    from janus_cli import config as hc_config
-    source = inspect.getsource(hc_config.set_config_value)
-    keys = _extract_dict_keys(source, "_config_to_env_sync")
-    # set_config_value uses fully-qualified ``terminal.foo`` keys; strip the
-    # prefix so we can compare against the other two maps which use bare
-    # leaf keys.
-    return {k.split(".", 1)[1] for k in keys if k.startswith("terminal.")}
-
-
-# Keys present in cli.py env_mappings but intentionally absent from
-# gateway/run.py or set_config_value.  Each entry must be justified.
-_CLI_ONLY_OK = frozenset({
-    # `env_type` is a legacy YAML key alias for `backend` that cli.py
-    # accepts for backwards-compat with older cli-config.yaml.  The
-    # gateway path normalizes on the canonical `backend` key, which is
-    # also in the map and handles the same bridging.  See cli.py ~line 515.
-    "env_type",
-    # sudo_password is not a terminal-backend option — it's a credential
-    # used across backends, bridged to $SUDO_PASSWORD (not TERMINAL_*).
-    # Treating it as terminal-only would be misleading.
-    "sudo_password",
-})
-
-
-def _terminal_tool_env_var_names() -> set[str]:
-    """All TERMINAL_* env vars actually consumed by terminal_tool."""
-    import tools.terminal_tool as tt
-    source = inspect.getsource(tt)
-    # Naive scan: every os.getenv("TERMINAL_X", ...) and _parse_env_var("TERMINAL_X", ...).
-    import re
-    pat = re.compile(r'["\'](TERMINAL_[A-Z0-9_]+)["\']')
-    return set(pat.findall(source))
-
-
-def test_cli_and_gateway_env_maps_agree():
-    """cli.py and gateway/run.py must bridge the same set of terminal keys.
-
-    Both feed the same downstream consumer (terminal_tool).  Drift between
-    them means a config.yaml setting that "works in CLI mode but not gateway
-    mode" (or vice-versa) — the bug class that shipped twice already.
-    """
-    cli_keys = _cli_env_map_keys() - _CLI_ONLY_OK
-    gw_keys = _gateway_env_map_keys()
-
-    # Normalize the legacy `env_type` alias: cli.py accepts both `env_type`
-    # and `backend` as source keys for TERMINAL_ENV; gateway only accepts
-    # `backend`.  Since cli.py copies `backend` → `env_type` before the
-    # lookup, they're equivalent.  Remove `backend` from the gateway side
-    # to avoid a spurious "backend missing from cli" failure.
-    gw_keys = gw_keys - {"backend"}
-
-    missing_in_gateway = cli_keys - gw_keys
-    missing_in_cli = gw_keys - cli_keys
-
-    assert not missing_in_gateway, (
-        f"Keys in cli.py env_mappings but missing from gateway/run.py "
-        f"_terminal_env_map: {sorted(missing_in_gateway)}.  Add them to "
-        f"both maps (same bug class as docker_run_as_host_user shipping "
-        f"wired in cli but not gateway in April 2026)."
-    )
-    assert not missing_in_cli, (
-        f"Keys in gateway/run.py _terminal_env_map but missing from cli.py "
-        f"env_mappings: {sorted(missing_in_cli)}.  Add them to both maps."
+def _write_terminal_config(home: Path, terminal_cfg: dict[str, Any]) -> None:
+    (home / "config.yaml").write_text(
+        yaml.safe_dump({"terminal": terminal_cfg}, sort_keys=False),
+        encoding="utf-8",
     )
 
 
-def test_save_config_set_supports_critical_bridged_keys():
-    """``janus config set terminal.X true`` must propagate to .env for
-    known-critical keys.  This used to be an all-keys invariant but the SSH
-    terminal keys (ssh_*) aren't in _config_to_env_sync and are instead
-    handled via the separate api_keys TERMINAL_SSH_* fallback path or
-    user-edits-yaml-directly.
+def _clear_terminal_env() -> None:
+    for name in [n for n in os.environ if n.startswith(_TERMINAL_PREFIX)]:
+        del os.environ[name]
 
-    Until those gaps are audited and fixed, pin the specific keys that are
-    load-bearing for the docker backend so the bugs we fixed cannot silently
-    regress.  (docker_volumes / docker_forward_env, previously listed here as
-    gaps, are now bridged — see the dedicated tests below.)
+
+def _terminal_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k.startswith(_TERMINAL_PREFIX)}
+
+
+def _bridge_via_cli(home: Path, terminal_cfg: dict[str, Any]) -> dict[str, str]:
+    """Run the CLI/TUI startup bridge and return the TERMINAL_* vars it set."""
+    _write_terminal_config(home, terminal_cfg)
+    _clear_terminal_env()
+    # cli.py suppresses its TERMINAL_CWD export when it detects it is running
+    # inside a gateway process; make sure a previous gateway probe in this
+    # same process doesn't leak that marker in.
+    os.environ.pop("_JANUS_GATEWAY", None)
+    cli_mod.load_cli_config()
+    return _terminal_env()
+
+
+def _bridge_via_gateway(home: Path, terminal_cfg: dict[str, Any]) -> dict[str, str]:
+    """Run the gateway startup bridge and return the TERMINAL_* vars it set.
+
+    The gateway bridges config at module-import time, so re-importing the
+    module *is* the public way to exercise it.
     """
-    save_keys = _save_config_env_sync_keys()
-    required = {
-        "docker_run_as_host_user",
-        "docker_mount_cwd_to_workspace",
-        "backend",
-        "docker_image",
-        "container_cpu",
-        "container_memory",
-        "container_disk",
-        "container_persistent",
+    _write_terminal_config(home, terminal_cfg)
+    _clear_terminal_env()
+    import gateway.core as gateway_core
+
+    importlib.reload(gateway_core)
+    return _terminal_env()
+
+
+def _bridge_via_config_set(home: Path, key: str, value: str) -> dict[str, str]:
+    """Run ``janus config set terminal.<key> <value>`` and return the
+    ``TERMINAL_*`` vars it persisted to ``.env``."""
+    _clear_terminal_env()
+    set_config_value(f"terminal.{key}", value)
+    env_path = home / ".env"
+    assert env_path.exists(), "`janus config set` should have written a .env"
+    return {
+        k: v
+        for k, v in dotenv_values(env_path).items()
+        if k.startswith(_TERMINAL_PREFIX) and v is not None
     }
-    missing = required - save_keys
-    assert not missing, (
-        f"`janus config set terminal.X` doesn't sync these load-bearing "
-        f"keys to .env: {sorted(missing)}.  Add them to _config_to_env_sync "
-        f"in janus_cli/config.py:set_config_value."
+
+
+def _terminal_tool_view(terminal_env: dict[str, str]) -> dict[str, Any]:
+    """What terminal_tool sees given exactly these TERMINAL_* vars."""
+    _clear_terminal_env()
+    os.environ.update(terminal_env)
+    return terminal_tool._get_env_config()
+
+
+# -------------------------------------------------------------------------
+# CLI vs gateway agreement
+# -------------------------------------------------------------------------
+
+def _probe_terminal_keys() -> set[str]:
+    """Candidate ``terminal.*`` config keys, derived from production sources.
+
+    Union of the documented config surface (``DEFAULT_CONFIG['terminal']``)
+    and everything ``terminal_tool`` resolves, plus the handful of keys that
+    are real config but absent from both.  Keys that no bridge handles simply
+    produce no env var on either side, so an over-broad probe is harmless —
+    but a key wired into one bridge and not the other shows up immediately.
+    """
+    keys = set(DEFAULT_CONFIG.get("terminal", {}))
+    keys |= set(terminal_tool._get_env_config())
+    keys |= {
+        "sandbox_dir",
+        "lifetime_seconds",
+        "docker_persist_across_processes",
+        "docker_orphan_reaper",
+        "persistent_shell",
+        "sudo_password",
+        "ssh_host",
+        "ssh_user",
+        "ssh_port",
+        "ssh_key",
+    }
+    # Derived outputs of _get_env_config(), not config keys.
+    keys -= {"host_cwd", "ssh_persistent", "local_persistent"}
+    return keys
+
+
+def test_cli_and_gateway_bridge_the_same_terminal_settings(janus_home):
+    """The CLI and gateway bridges must turn the same config.yaml into the
+    same ``TERMINAL_*`` environment.
+
+    Drift between them means a config.yaml setting that "works in CLI mode but
+    not gateway mode" (or vice-versa) — the bug class that shipped twice for
+    ``docker_run_as_host_user`` / ``docker_mount_cwd_to_workspace``.
+
+    Every probed key gets a unique sentinel value so the comparison ignores
+    anything the environment (or a ``.env``) contributed on its own; only
+    values that provably came from *our* config.yaml are compared.
+    """
+    probe = {key: f"probe-{key}" for key in _probe_terminal_keys()}
+    sentinels = set(probe.values())
+    # Reverse map for a legible failure message.
+    by_sentinel = {v: k for k, v in probe.items()}
+
+    cli_env = {
+        k: v for k, v in _bridge_via_cli(janus_home, probe).items() if v in sentinels
+    }
+    gw_env = {
+        k: v for k, v in _bridge_via_gateway(janus_home, probe).items() if v in sentinels
+    }
+
+    only_cli = {k: by_sentinel[v] for k, v in cli_env.items() if k not in gw_env}
+    only_gw = {k: by_sentinel[v] for k, v in gw_env.items() if k not in cli_env}
+
+    assert not only_cli, (
+        f"config.yaml keys bridged by cli.load_cli_config() but NOT by the "
+        f"gateway bridge in gateway/core.py: {sorted(only_cli.values())} "
+        f"(env vars {sorted(only_cli)}).  Wire them into both."
+    )
+    assert not only_gw, (
+        f"config.yaml keys bridged by gateway/core.py but NOT by "
+        f"cli.load_cli_config(): {sorted(only_gw.values())} "
+        f"(env vars {sorted(only_gw)}).  Wire them into both."
+    )
+    assert cli_env == gw_env, (
+        "cli and gateway bridge the same keys but disagree on the values "
+        f"they write: {sorted(k for k in cli_env if cli_env[k] != gw_env[k])}"
     )
 
 
-def test_docker_run_as_host_user_is_bridged_everywhere():
-    """Explicit pin for the bug we just fixed.
+def test_cli_and_gateway_actually_bridge_something(janus_home):
+    """Guard the guard: if both bridges silently stopped working, the equality
+    test above would pass vacuously."""
+    probe = {key: f"probe-{key}" for key in _probe_terminal_keys()}
+    sentinels = set(probe.values())
 
-    docker_run_as_host_user was added to terminal_tool._get_env_config and
-    DockerEnvironment but NOT to cli.py's env_mappings or gateway/run.py's
-    _terminal_env_map, so ``terminal.docker_run_as_host_user: true`` in
-    config.yaml had no effect at runtime.  This guard makes the regression
-    impossible to reintroduce silently.
-    """
-    assert "docker_run_as_host_user" in _cli_env_map_keys()
-    assert "docker_run_as_host_user" in _gateway_env_map_keys()
-    assert "docker_run_as_host_user" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_RUN_AS_HOST_USER" in _terminal_tool_env_var_names()
-
-
-def test_docker_mount_cwd_to_workspace_is_bridged_everywhere():
-    """Same regression class — docker_mount_cwd_to_workspace was missing from
-    gateway/run.py's _terminal_env_map until the docker_run_as_host_user
-    audit caught it.
-    """
-    assert "docker_mount_cwd_to_workspace" in _cli_env_map_keys()
-    assert "docker_mount_cwd_to_workspace" in _gateway_env_map_keys()
-    assert "docker_mount_cwd_to_workspace" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE" in _terminal_tool_env_var_names()
+    cli_env = {
+        k: v for k, v in _bridge_via_cli(janus_home, probe).items() if v in sentinels
+    }
+    assert len(cli_env) >= 10, (
+        f"expected the CLI bridge to export many TERMINAL_* vars, got {cli_env}"
+    )
 
 
-def test_docker_env_is_bridged_everywhere():
-    """Regression pin for docker_env config key being silently ignored.
+# -------------------------------------------------------------------------
+# Per-key end-to-end pins: config.yaml / `janus config set` -> terminal_tool
+# -------------------------------------------------------------------------
 
-    ``terminal.docker_env`` in config.yaml specifies extra env vars to inject
-    into the Docker container at runtime.  The key was present in
-    _create_environment's container_config consumer (line ~1130) but never
-    bridged from config.yaml to TERMINAL_DOCKER_ENV, so the dict was always
-    empty regardless of what the user set.  Guard all four bridging points so
-    this cannot regress.
-    """
-    assert "docker_env" in _cli_env_map_keys()
-    assert "docker_env" in _gateway_env_map_keys()
-    assert "docker_env" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_ENV" in _terminal_tool_env_var_names()
+# (config key, config.yaml value, `janus config set` argument,
+#  _get_env_config() key, expected resolved value)
+#
+# Every probe value differs from the built-in default, so a bridge that drops
+# the key fails instead of accidentally matching.
+_LOAD_BEARING_KEYS = [
+    ("backend", "docker", "docker", "env_type", "docker"),
+    ("docker_image", "probe/img:1", "probe/img:1", "docker_image", "probe/img:1"),
+    ("docker_run_as_host_user", True, "true", "docker_run_as_host_user", True),
+    (
+        "docker_mount_cwd_to_workspace",
+        True,
+        "true",
+        "docker_mount_cwd_to_workspace",
+        True,
+    ),
+    (
+        "docker_persist_across_processes",
+        False,
+        "false",
+        "docker_persist_across_processes",
+        False,
+    ),
+    ("docker_orphan_reaper", False, "false", "docker_orphan_reaper", False),
+    ("docker_env", {"PROBE": "1"}, '{"PROBE": "1"}', "docker_env", {"PROBE": "1"}),
+    (
+        "docker_volumes",
+        ["/probe:/workspace"],
+        '["/probe:/workspace"]',
+        "docker_volumes",
+        ["/probe:/workspace"],
+    ),
+    (
+        "docker_forward_env",
+        ["PROBE_TOKEN"],
+        '["PROBE_TOKEN"]',
+        "docker_forward_env",
+        ["PROBE_TOKEN"],
+    ),
+    ("container_cpu", 3, "3", "container_cpu", 3.0),
+    ("container_memory", 2048, "2048", "container_memory", 2048),
+    ("container_disk", 4096, "4096", "container_disk", 4096),
+    ("container_persistent", False, "false", "container_persistent", False),
+]
 
-
-def test_docker_persist_across_processes_is_bridged_everywhere():
-    """Regression pin for the cross-process container reuse toggle.
-
-    ``terminal.docker_persist_across_processes`` (issue #20561) controls
-    whether ``DockerEnvironment.__init__`` probes for and reuses an existing
-    labeled container at startup, and whether ``cleanup()`` removes the
-    container on Janus exit or just stops it (keeping it for the next
-    process).  Same four-bridge invariant as docker_run_as_host_user /
-    docker_env / docker_mount_cwd_to_workspace — drift between any of the
-    four sites means ``terminal.docker_persist_across_processes: false`` in
-    config.yaml silently does nothing for that entry point, leaving the
-    user unable to opt out of the documented "ONE long-lived container
-    shared across sessions" behavior.
-    """
-    assert "docker_persist_across_processes" in _cli_env_map_keys()
-    assert "docker_persist_across_processes" in _gateway_env_map_keys()
-    assert "docker_persist_across_processes" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES" in _terminal_tool_env_var_names()
-
-
-def test_docker_orphan_reaper_is_bridged_everywhere():
-    """Regression pin for the startup orphan reaper toggle (issue #20561).
-
-    ``terminal.docker_orphan_reaper`` controls whether Janus sweeps stale
-    Exited containers from prior SIGKILL'd processes at startup.  Same
-    four-site bridge invariant — drift means
-    ``terminal.docker_orphan_reaper: false`` silently does nothing for one
-    entry point, and the reaper either runs when the operator disabled it
-    or fails to run when they enabled it.
-    """
-    assert "docker_orphan_reaper" in _cli_env_map_keys()
-    assert "docker_orphan_reaper" in _gateway_env_map_keys()
-    assert "docker_orphan_reaper" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_ORPHAN_REAPER" in _terminal_tool_env_var_names()
-
-
-def test_docker_volumes_is_bridged_everywhere():
-    """Regression pin for ``terminal.docker_volumes`` being silently dropped by
-    ``janus config set``.
-
-    The JSON list of ``host:container`` bind mounts was bridged by cli.py and
-    gateway/run.py and consumed by terminal_tool (via json.loads), but was
-    missing from set_config_value's _config_to_env_sync.  So
-    ``janus config set terminal.docker_volumes '["/host:/workspace"]'`` wrote
-    config.yaml yet left the running process's TERMINAL_DOCKER_VOLUMES stale —
-    the mounts didn't apply until a full restart.  Same four-site bridge
-    invariant as docker_env / docker_run_as_host_user.
-    """
-    assert "docker_volumes" in _cli_env_map_keys()
-    assert "docker_volumes" in _gateway_env_map_keys()
-    assert "docker_volumes" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_VOLUMES" in _terminal_tool_env_var_names()
+_LOAD_BEARING_IDS = [row[0] for row in _LOAD_BEARING_KEYS]
 
 
-def test_docker_forward_env_is_bridged_everywhere():
-    """Regression pin for ``terminal.docker_forward_env`` — the sibling gap to
-    docker_volumes.
+@pytest.mark.parametrize(
+    "config_key, yaml_value, _cli_arg, result_key, expected",
+    _LOAD_BEARING_KEYS,
+    ids=_LOAD_BEARING_IDS,
+)
+def test_cli_startup_bridges_key_to_terminal_tool(
+    janus_home, config_key, yaml_value, _cli_arg, result_key, expected
+):
+    """``terminal.<key>`` in config.yaml must reach terminal_tool in CLI/TUI mode."""
+    env = _bridge_via_cli(janus_home, {config_key: yaml_value})
+    resolved = _terminal_tool_view(env)
+    assert resolved[result_key] == expected, (
+        f"terminal.{config_key}={yaml_value!r} in config.yaml did not reach "
+        f"terminal_tool via the CLI bridge (got {resolved[result_key]!r}). "
+        f"Add it to cli.load_cli_config()'s terminal env mapping."
+    )
 
-    The JSON list of host env-var names forwarded into the container was
-    bridged by cli.py and gateway/run.py and consumed by terminal_tool (via
-    json.loads), but missing from set_config_value's _config_to_env_sync, so
-    ``janus config set terminal.docker_forward_env '["GITHUB_TOKEN"]'`` had no
-    effect on the running process until restart.
-    """
-    assert "docker_forward_env" in _cli_env_map_keys()
-    assert "docker_forward_env" in _gateway_env_map_keys()
-    assert "docker_forward_env" in _save_config_env_sync_keys()
-    assert "TERMINAL_DOCKER_FORWARD_ENV" in _terminal_tool_env_var_names()
+
+@pytest.mark.parametrize(
+    "config_key, yaml_value, _cli_arg, result_key, expected",
+    _LOAD_BEARING_KEYS,
+    ids=_LOAD_BEARING_IDS,
+)
+def test_gateway_startup_bridges_key_to_terminal_tool(
+    janus_home, config_key, yaml_value, _cli_arg, result_key, expected
+):
+    """``terminal.<key>`` in config.yaml must reach terminal_tool in gateway mode."""
+    env = _bridge_via_gateway(janus_home, {config_key: yaml_value})
+    resolved = _terminal_tool_view(env)
+    assert resolved[result_key] == expected, (
+        f"terminal.{config_key}={yaml_value!r} in config.yaml did not reach "
+        f"terminal_tool via the gateway bridge (got {resolved[result_key]!r}). "
+        f"Add it to the terminal env mapping in gateway/core.py."
+    )
+
+
+@pytest.mark.parametrize(
+    "config_key, _yaml_value, cli_arg, result_key, expected",
+    _LOAD_BEARING_KEYS,
+    ids=_LOAD_BEARING_IDS,
+)
+def test_config_set_bridges_key_to_terminal_tool(
+    janus_home, config_key, _yaml_value, cli_arg, result_key, expected
+):
+    """``janus config set terminal.<key> <value>`` must sync to .env so the
+    running process (and its children) pick the change up without a restart."""
+    env = _bridge_via_config_set(janus_home, config_key, cli_arg)
+    resolved = _terminal_tool_view(env)
+    assert resolved[result_key] == expected, (
+        f"`janus config set terminal.{config_key} {cli_arg}` did not reach "
+        f"terminal_tool (got {resolved[result_key]!r}). Add it to "
+        f"_config_to_env_sync in janus_cli/config.py:set_config_value."
+    )

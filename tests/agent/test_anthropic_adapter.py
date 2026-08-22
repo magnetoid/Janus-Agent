@@ -31,6 +31,25 @@ from agent.anthropic_adapter import (
 from agent.transports import get_transport
 
 
+@pytest.fixture(autouse=True)
+def _no_keychain(monkeypatch):
+    """Neutralize the macOS Keychain credential source for every test here.
+
+    ``read_claude_code_credentials()`` checks the Keychain BEFORE
+    ``~/.claude/.credentials.json``, and that lookup shells out to
+    ``security find-generic-password`` — so it ignores the ``Path.home()``
+    patching the token tests rely on. On a macOS box with Claude Code logged
+    in, the real OAuth token therefore leaked into these tests and every
+    resolution-order assertion failed against it; on Linux CI there is no
+    Keychain, so the same tests passed. Module-scoped autouse so no future
+    test can reintroduce that host dependency by forgetting the guard.
+    """
+    monkeypatch.setattr(
+        "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
+        lambda: None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
@@ -196,13 +215,6 @@ class TestBuildAnthropicClient:
 
 
 class TestReadClaudeCodeCredentials:
-    @pytest.fixture(autouse=True)
-    def no_keychain(self, monkeypatch):
-        monkeypatch.setattr(
-            "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
-            lambda: None,
-        )
-
     def test_reads_valid_credentials(self, tmp_path, monkeypatch):
         cred_file = tmp_path / ".claude" / ".credentials.json"
         cred_file.parent.mkdir(parents=True)

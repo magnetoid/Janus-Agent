@@ -1196,7 +1196,7 @@ def anthropic_prompt_cache_policy(
     # Cloud Industry Portal proxies to OpenRouter behind the scenes — identical
     # OpenAI-wire envelope cache_control semantics. Treat it as an
     # OpenRouter-equivalent endpoint for caching layout purposes.
-    is_nous_portal = "imbalabs" in eff_base_url.lower()
+    is_nous_portal = base_url_host_matches(eff_base_url, "cloud-industry.com")
     is_anthropic_wire = eff_api_mode == "anthropic_messages"
     is_native_anthropic = (
         is_anthropic_wire

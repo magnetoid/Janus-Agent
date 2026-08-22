@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "エラー: {error}"
     switched:               "モデルを `{model}` に切り替えました"
     provider_label:         "プロバイダー: {provider}"
+    cache_switch_warning:   "⚠ 会話の途中での切り替え: プロンプトキャッシュはモデルごとに管理されるため、次のターンでコンテキスト全体が新規トークン料金で再課金されます (モデルを切り替えながら使う場合は /new で新しいセッションを開始してください)。"
     context_label:          "コンテキスト: {tokens} トークン"
     max_output_label:       "最大出力: {tokens} トークン"
     cost_label:             "コスト: {cost}"

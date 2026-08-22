@@ -25,6 +25,19 @@ Session context:
     Call ``set_session_context(session_id)`` at the start of a conversation
     and ``clear_session_context()`` when done.  All log lines emitted on
     that thread will include ``[session_id]`` for filtering/correlation.
+
+Turn context:
+    ``set_turn_context(turn_id=…, request_id=…)`` narrows that correlation
+    to one turn and one API call.  The conversation loop calls it once per
+    turn and once per API call, so the text tag becomes
+    ``[session t:<turn> #<call>]`` and every record carries the full ids on
+    ``session_id_ctx`` / ``turn_id`` / ``request_id``.
+
+Output format:
+    ``logging.format: json`` in config.yaml switches the rotating file
+    handlers to ``RedactingJSONFormatter`` — one redacted JSON object per
+    line, with the correlation ids as discrete queryable fields.  The
+    default ``text`` keeps the human-readable format.
 """
 
 import io
@@ -118,9 +131,27 @@ def set_session_context(session_id: str) -> None:
     _session_context.session_id = session_id
 
 
+def set_turn_context(turn_id: Optional[str] = None,
+                     request_id: Optional[str] = None) -> None:
+    """Bind the current turn and/or API-request id for this thread.
+
+    The agent already computes ``_current_turn_id`` (once per turn) and
+    ``_current_api_request_id`` (once per API call); mirroring them here
+    threads them onto every record, so "the agent stalled mid-turn" logs can
+    be filtered down to the exact turn or the exact API call.  Pass only the
+    argument you are updating — the other is left unchanged.
+    """
+    if turn_id is not None:
+        _session_context.turn_id = turn_id
+    if request_id is not None:
+        _session_context.request_id = request_id
+
+
 def clear_session_context() -> None:
-    """Clear the session ID for the current thread."""
+    """Clear session, turn and request context for the current thread."""
     _session_context.session_id = None
+    _session_context.turn_id = None
+    _session_context.request_id = None
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +178,29 @@ def _install_session_record_factory() -> None:
     def _session_record_factory(*args, **kwargs):
         record = current_factory(*args, **kwargs)
         sid = getattr(_session_context, "session_id", None)
-        record.session_tag = f" [{sid}]" if sid else ""  # type: ignore[attr-defined]
+        tid = getattr(_session_context, "turn_id", None)
+        rid = getattr(_session_context, "request_id", None)
+        # Full ids as discrete fields, for structured consumers (the JSONL
+        # formatter, log aggregation).  ``session_id`` would collide with
+        # LogRecord's own attribute space in %-format strings, hence the
+        # ``_ctx`` suffix.
+        record.session_id_ctx = sid or ""    # type: ignore[attr-defined]
+        record.turn_id = tid or ""           # type: ignore[attr-defined]
+        record.request_id = rid or ""        # type: ignore[attr-defined]
+        # Compact human tag: [sid t:<hex8> #<call>].  Only the short trailing
+        # segments ride the text line so it stays readable; anyone needing to
+        # correlate precisely reads the full ids off the fields above.
+        if sid or tid or rid:
+            parts = []
+            if sid:
+                parts.append(str(sid))
+            if tid:
+                parts.append("t:" + str(tid).rsplit(":", 1)[-1])
+            if rid:
+                parts.append("#" + str(rid).rsplit(":", 1)[-1])
+            record.session_tag = " [" + " ".join(parts) + "]"  # type: ignore[attr-defined]
+        else:
+            record.session_tag = ""          # type: ignore[attr-defined]
         return record
 
     _session_record_factory._janus_session_injector = True  # type: ignore[attr-defined]
@@ -248,7 +301,7 @@ def setup_logging(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Read config defaults (best-effort — config may not be loaded yet).
-    cfg_level, cfg_max_size, cfg_backup = _read_logging_config()
+    cfg_level, cfg_max_size, cfg_backup, cfg_format = _read_logging_config()
 
     level_name = (log_level or cfg_level or "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -256,7 +309,17 @@ def setup_logging(
     backups = backup_count or cfg_backup or 3
 
     # Lazy import to avoid circular dependency at module load time.
-    from agent.redact import RedactingFormatter
+    from agent.redact import RedactingFormatter, RedactingJSONFormatter
+
+    _json_logs = str(cfg_format or "").strip().lower() == "json"
+
+    def _file_formatter() -> logging.Formatter:
+        """Formatter for the rotating file handlers: JSON-per-line when
+        ``logging.format: json``, else the human text format.  Both redact
+        identically — only the shape differs."""
+        if _json_logs:
+            return RedactingJSONFormatter()
+        return RedactingFormatter(_LOG_FORMAT)
 
     root = logging.getLogger()
 
@@ -267,7 +330,7 @@ def setup_logging(
         level=level,
         max_bytes=max_bytes,
         backup_count=backups,
-        formatter=RedactingFormatter(_LOG_FORMAT),
+        formatter=_file_formatter(),
     )
 
     # --- errors.log (WARNING+) — quick triage log --------------------------
@@ -277,7 +340,7 @@ def setup_logging(
         level=logging.WARNING,
         max_bytes=2 * 1024 * 1024,
         backup_count=2,
-        formatter=RedactingFormatter(_LOG_FORMAT),
+        formatter=_file_formatter(),
     )
 
     # --- gateway.log (INFO+, gateway component only) ------------------------
@@ -288,7 +351,7 @@ def setup_logging(
             level=logging.INFO,
             max_bytes=5 * 1024 * 1024,
             backup_count=3,
-            formatter=RedactingFormatter(_LOG_FORMAT),
+            formatter=_file_formatter(),
             log_filter=_ComponentFilter(COMPONENT_PREFIXES["gateway"]),
         )
 
@@ -300,7 +363,7 @@ def setup_logging(
             level=logging.INFO,
             max_bytes=10 * 1024 * 1024,
             backup_count=5,
-            formatter=RedactingFormatter(_LOG_FORMAT),
+            formatter=_file_formatter(),
             log_filter=_ComponentFilter(COMPONENT_PREFIXES["gui"]),
         )
 
@@ -516,7 +579,9 @@ def _add_rotating_handler(
 def _read_logging_config():
     """Best-effort read of ``logging.*`` from config.yaml.
 
-    Returns ``(level, max_size_mb, backup_count)`` — any may be ``None``.
+    Returns ``(level, max_size_mb, backup_count, format)`` — any may be
+    ``None``.  ``format`` is ``"json"`` for one-JSON-object-per-line output,
+    anything else (including ``None``) means the human text format.
     """
     try:
         import yaml
@@ -530,7 +595,8 @@ def _read_logging_config():
                     log_cfg.get("level"),
                     log_cfg.get("max_size_mb"),
                     log_cfg.get("backup_count"),
+                    log_cfg.get("format"),
                 )
     except Exception:
         pass
-    return (None, None, None)
+    return (None, None, None, None)

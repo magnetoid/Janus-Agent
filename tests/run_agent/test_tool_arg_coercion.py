@@ -400,7 +400,20 @@ class TestCoerceToolArgs:
 
     def test_real_read_file_schema(self):
         """Test against the actual read_file schema from the registry."""
-        # This uses the real registry — read_file should be registered
+        # Tools self-register on import and nothing else in this file touches
+        # the real registry, so a freshly-spawned process has an empty one
+        # (`registry.get_schema("read_file")` -> None -> args pass through
+        # uncoerced). Import the owning module explicitly rather than relying
+        # on some earlier import having populated the registry ambiently.
+        import tools.file_tools  # noqa: F401  (import registers read_file)
+
+        from model_tools import registry
+
+        assert registry.get_schema("read_file") is not None, (
+            "read_file is not registered — importing tools.file_tools no longer "
+            "self-registers it"
+        )
+
         args = {"path": "foo.py", "offset": "10", "limit": "100"}
         result = coerce_tool_args("read_file", args)
         assert result["path"] == "foo.py"

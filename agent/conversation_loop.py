@@ -58,7 +58,7 @@ from agent.trajectory import has_incomplete_scratchpad
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from agent import cost_ledger
 from janus_constants import PARTIAL_STREAM_STUB_ID
-from janus_logging import set_session_context
+from janus_logging import set_session_context, set_turn_context
 from tools.skill_provenance import set_current_write_origin
 from utils import base_url_host_matches, env_var_enabled
 
@@ -452,6 +452,10 @@ def run_conversation(
     turn_id = f"{agent.session_id or 'session'}:{effective_task_id}:{uuid.uuid4().hex[:8]}"
     agent._current_turn_id = turn_id
     agent._current_api_request_id = ""
+    # Thread the turn id onto every log record emitted on this thread for the
+    # rest of the turn.  Reset the request id too — otherwise the previous
+    # turn's last API call id tags this turn's lines until the first API call.
+    set_turn_context(turn_id=turn_id, request_id="")
     
     # Reset retry counters and iteration budget at the start of each turn
     # so subagent usage from a previous turn doesn't eat into the next one.
@@ -826,9 +830,18 @@ def run_conversation(
             pass
 
     # Reflexion lesson recall — the push half of the learning loop. Computed
-    # ONCE per turn (like the prefetch above) so the injected bytes are
-    # identical across every API rebuild within this turn; rides the current
-    # user message, never the system prompt. Local-file read only.
+    # ONCE per turn (like the prefetch above); rides the current user message,
+    # never the system prompt. Local-file read only.
+    #
+    # PERSISTED into the canonical message (same pattern as skill preloads),
+    # NOT injected into the per-call API copy: an API-copy-only suffix makes
+    # this turn's user bytes differ from their replay on every later turn,
+    # tearing the provider prompt-cache prefix at this message on EVERY
+    # subsequent turn — and the gateway rebuilds history from the session DB
+    # each turn, so only persisted bytes can ever be replay-stable there
+    # (sanitize_context leaves <lessons-context> intact on reload).
+    # Accretion is bounded by recall_context_for_turn's per-session dedup:
+    # a lesson already surfaced to this session is never injected again.
     _lessons_context = ""
     try:
         from agent.lessons import recall_context_for_turn
@@ -838,6 +851,16 @@ def run_conversation(
         )
     except Exception:
         _lessons_context = ""
+    if _lessons_context:
+        try:
+            _cur_msg = messages[current_turn_user_idx]
+            if (_cur_msg.get("role") == "user"
+                    and isinstance(_cur_msg.get("content"), str)
+                    and _lessons_context not in _cur_msg["content"]):
+                _cur_msg["content"] = (
+                    _cur_msg["content"] + "\n\n" + _lessons_context)
+        except (IndexError, KeyError, TypeError):
+            pass
 
     # Optional opt-in runtime: if api_mode == codex_app_server, hand the
     # turn to the codex app-server subprocess (terminal/file ops/patching
@@ -1030,15 +1053,17 @@ def run_conversation(
             # Sources: memory manager prefetch + plugin pre_llm_call hooks
             # with target="user_message" (the default).  Both are
             # API-call-time only — the original message in `messages` is
-            # never mutated, so nothing leaks into session persistence.
+            # never mutated, so nothing leaks into session persistence
+            # (memory-context is deliberately stripped on DB reload).
+            # Lesson recall does NOT ride here: it is persisted into the
+            # canonical user message at turn start (see the recall block
+            # above the tool loop) so its bytes replay cache-stably.
             if idx == current_turn_user_idx and msg.get("role") == "user":
                 _injections = []
                 if _ext_prefetch_cache:
                     _fenced = build_memory_context_block(_ext_prefetch_cache)
                     if _fenced:
                         _injections.append(_fenced)
-                if _lessons_context:
-                    _injections.append(_lessons_context)
                 if _plugin_user_context:
                     _injections.append(_plugin_user_context)
                 if _injections:
@@ -1242,6 +1267,7 @@ def run_conversation(
         api_kwargs = None  # Guard against UnboundLocalError in except handler
         api_request_id = f"{turn_id}:api:{api_call_count}"
         agent._current_api_request_id = api_request_id
+        set_turn_context(request_id=api_request_id)
 
         while retry_count < max_retries:
             # ── Cloud Industry Portal rate limit guard ──────────────────────

@@ -25,6 +25,30 @@ from tools import approval as A
 from tools.thread_context import propagate_context_to_thread
 
 
+@pytest.fixture(autouse=True)
+def _clean_approval_store():
+    """Start every test from an empty session/permanent approval store.
+
+    ``tools.approval`` calls ``load_permanent_allowlist()`` at import time,
+    and import happens during collection — before conftest's per-test
+    ``JANUS_HOME`` redirect is in effect — so the *real* ``config.yaml``'s
+    ``command_allowlist`` lands in ``_permanent_approved``.  On any machine
+    where an operator once answered "Always" to an execute_code prompt,
+    ``is_approved()`` short-circuits ``check_execute_code_guard`` to approved
+    before it ever reaches the branch under test, and the whole decision
+    matrix below silently stops testing anything.  Clear it both ways so the
+    guard's behavior — not the host's approval history — decides the result.
+    """
+    def _reset():
+        with A._lock:
+            A._permanent_approved.clear()
+            A._session_approved.clear()
+
+    _reset()
+    yield
+    _reset()
+
+
 # ---------------------------------------------------------------------------
 # 1. Context + callback propagation helper
 # ---------------------------------------------------------------------------
@@ -147,14 +171,46 @@ def test_guard_isolated_backend_approved():
     assert A.check_execute_code_guard("import os", "docker")["approved"] is True
 
 
-def test_guard_headless_local_approved(monkeypatch):
-    # Documented #30882 limitation: no approval surface → preserve auto-run.
+def _make_headless(monkeypatch):
+    """Strip every marker that would give the guard an approval surface."""
     monkeypatch.delenv("JANUS_GATEWAY_SESSION", raising=False)
     monkeypatch.delenv("JANUS_INTERACTIVE", raising=False)
     monkeypatch.delenv("JANUS_CRON_SESSION", raising=False)
     monkeypatch.delenv("JANUS_EXEC_ASK", raising=False)
     monkeypatch.setattr(A, "_get_approval_mode", lambda: "manual")
-    assert A.check_execute_code_guard("import os", "local")["approved"] is True
+
+
+@pytest.mark.parametrize("headless_mode, approved", [("approve", True), ("deny", False)])
+def test_guard_headless_local_follows_headless_mode(monkeypatch, headless_mode, approved):
+    """Headless local (#30882): nobody is present to prompt, so the outcome is
+    whatever the operator pre-declared in ``approvals.headless_mode`` — the
+    guard must never invent consent, and must never hang waiting for it."""
+    _make_headless(monkeypatch)
+    monkeypatch.setattr(A, "_get_headless_approval_mode", lambda: headless_mode)
+
+    res = A.check_execute_code_guard("import os", "local")
+    assert res["approved"] is approved
+    if not approved:
+        assert res["outcome"] == "blocked"
+        assert res["user_consent"] is False
+
+
+def test_guard_headless_require_gateway_defers_instead_of_deciding(monkeypatch):
+    """``require_gateway`` is the third headless choice: don't decide locally,
+    push the script onto the approval queue for whatever surface picks it up."""
+    _make_headless(monkeypatch)
+    monkeypatch.setattr(A, "_get_headless_approval_mode", lambda: "require_gateway")
+
+    session_key = "cluster-headless-require-gateway"
+    token = A.set_current_session_key(session_key)
+    try:
+        res = A.check_execute_code_guard("import os", "local")
+        assert res["approved"] is False
+        assert res["status"] == "pending_approval"
+    finally:
+        A.reset_current_session_key(token)
+        with A._lock:
+            A._gateway_queues.pop(session_key, None)
 
 
 def test_guard_cron_deny_blocks(monkeypatch):

@@ -87,8 +87,24 @@ class TestQuietModeCacheIsolation:
             f"baseline={baseline}, final={len(final)}."
         )
 
-    def test_non_quiet_mode_does_not_use_cache(self):
-        """Sanity: quiet_mode=False (TUI path) skips the cache entirely \u2014
-        explains why the bug only hit Gateway."""
-        model_tools.get_tool_definitions(quiet_mode=False)
-        assert len(model_tools._tool_defs_cache) == 0
+    def test_non_quiet_mode_is_also_isolated_from_caller_mutation(self):
+        """Non-quiet callers memoize too since a43d225, so they need the same
+        no-aliasing guarantee.
+
+        This used to assert that quiet_mode=False bypassed the cache entirely,
+        which is why the original bug only hit Gateway. That is no longer true,
+        and the non-quiet path is precisely the one that mutates the returned
+        list (run_agent appends memory + LCM context-engine schemas), so the
+        isolation invariant matters more here, not less.
+        """
+        baseline = len(model_tools.get_tool_definitions(quiet_mode=False))
+        first = model_tools.get_tool_definitions(quiet_mode=False)
+        first.append({"type": "function", "function": {"name": "lcm_grep"}})
+
+        second = model_tools.get_tool_definitions(quiet_mode=False)
+        assert len(second) == baseline, (
+            "non-quiet cache was polluted by caller mutation: "
+            f"baseline={baseline}, second-call len={len(second)}."
+        )
+        names = [t.get("function", {}).get("name") for t in second]
+        assert "lcm_grep" not in names

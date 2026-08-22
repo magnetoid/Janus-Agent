@@ -82,15 +82,22 @@ def _guard_agent_created_enabled() -> bool:
     """Whether to security-scan agent-created skills before they're written.
 
     An explicit ``skills.guard_agent_created`` config value always wins. When
-    unset, the guard defaults ON in headless / cron contexts (no human present,
-    and terminal()/execute_code are approval-blocked there anyway) and OFF in
-    interactive / gateway sessions, where a human is in the loop and the agent
-    can already run the same code via an approved terminal() (gap G5)."""
+    it is absent or ``"auto"``, the guard defaults ON in headless / cron
+    contexts (no human present, and terminal()/execute_code are approval-blocked
+    there anyway) and OFF in interactive / gateway sessions, where a human is in
+    the loop and the agent can already run the same code via an approved
+    terminal() (gap G5).
+
+    ``"auto"`` is what ``DEFAULT_CONFIG`` ships, and it is load-bearing: because
+    ``load_config`` deep-merges the defaults into every result, a literal
+    ``False`` there would be indistinguishable from a user who typed ``false``
+    and would silently shadow the context default on every install. Keep the
+    default a sentinel, not a boolean."""
     try:
         from janus_cli.config import load_config
         cfg = load_config()
         raw = cfg_get(cfg, "skills", "guard_agent_created", default=None)
-        if raw is not None:
+        if raw is not None and str(raw).strip().lower() != "auto":
             return is_truthy_value(raw, default=False)
         return _no_human_present()
     except Exception:

@@ -12,12 +12,22 @@
 # failures (dashboard/gateway/service/model-picker/LSP/…), all reproducible
 # on `main` before this workflow existed. Rather than a permanently-red
 # required check (which trains everyone to ignore CI), the gate is staged:
-#   * lint          — HARD gate (ruff policy + Windows footgun scan)
-#   * tests-changed — HARD gate: the learning-store + cache tests this track
-#                     owns; keeps the self-improvement substrate honest now.
-#   * tests-full    — INFORMATIONAL (continue-on-error): runs the whole suite
-#                     so the baseline is visible and shrinkable, not blocking.
-# Flip tests-full to a hard gate once the baseline reaches zero.
+#   * lint          — HARD gate: ruff (PLW1514 + the green bug-catching
+#                     pyflakes subset F402/F601/F811/F821/F822) + Windows
+#                     footgun scan.
+#   * tests-changed — HARD gate: the learning-store + cache invariants AND
+#                     the full self-improvement loop (propose→evaluate→
+#                     promote→rollback, eval suite, draft trial lane). This
+#                     is the substrate every self-modification gate depends
+#                     on, so it stays green and blocking.
+#   * tests-full    — HARD gate: the whole suite. The 40-file baseline was
+#                     driven to zero (6f30e4e), the failures outside it were
+#                     fixed (3984a77, ae191cc), and the runner then reported
+#                     1455 files / 30,377 tests / 0 failed, so this stopped
+#                     being informational.
+# If this job goes red, fix the test or the code — do NOT re-add
+# continue-on-error. A gate people are allowed to ignore is not a gate, and
+# re-softening it silently restores the baseline this replaced.
 #
 # Deliberately NOT here yet: `janus evals gate --fail-closed` (needs
 # execution-based checks + a persistent trend store) and `ty check` (~9.4k
@@ -50,7 +60,7 @@ jobs:
         run: |
           uv venv .venv --python 3.11
           uv pip install -e ".[dev]" --python .venv/bin/python
-      - name: ruff (PLW1514 repo-wide policy)
+      - name: ruff (encoding policy + bug-catching pyflakes subset)
         run: .venv/bin/ruff check .
       - name: Windows cross-platform footguns
         run: .venv/bin/python scripts/check-windows-footguns.py --all
@@ -68,7 +78,8 @@ jobs:
           uv venv .venv --python 3.11
           uv pip install -e ".[all,dev]" --python .venv/bin/python
       # The learning-store locking + cache-prefix invariant this track owns,
-      # plus the existing tests for the modules it touched. HARD gate.
+      # plus the full self-improvement loop it depends on. HARD gate — these
+      # stay green, so a regression in the self-modification substrate blocks.
       - name: Owned tests
         run: |
           scripts/run_tests.sh \
@@ -78,13 +89,22 @@ jobs:
             tests/agent/test_outcome_tracker.py \
             tests/agent/test_model_strengths.py \
             tests/agent/test_auto_mine.py \
-            tests/agent/test_sleep.py
+            tests/agent/test_sleep.py \
+            tests/agent/test_self_improve.py \
+            tests/agent/test_eval_orchestrator.py \
+            tests/agent/test_skill_graph.py \
+            tests/agent/test_proposer.py \
+            tests/agent/test_bundled_evals.py \
+            tests/agent/test_draft_trial_lane.py \
+            tests/agent/test_self_improve_loop_e2e.py \
+            tests/agent/test_eval_trend.py \
+            tests/agent/test_evals.py \
+            tests/tools/test_evals_sync.py \
+            tests/agent/test_cost_ledger.py
 
   tests-full:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # INFORMATIONAL until the pre-existing baseline is driven to zero.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -100,5 +120,5 @@ jobs:
       # scripts/run_tests.sh is the ONLY sanctioned runner: hermetic env
       # (env -i, TZ=UTC, credentials blanked), one subprocess per test file.
       # tests/{integration,e2e,docker} are excluded by its default discovery.
-      - name: Full suite (baseline visibility)
+      - name: Full suite
         run: scripts/run_tests.sh

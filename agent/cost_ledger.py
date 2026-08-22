@@ -247,3 +247,34 @@ def spend_cap_exceeded(config: Optional[Dict[str, Any]] = None, *,
         return None
     except Exception:
         return None
+
+
+def cache_efficiency(last_n: int = 200) -> Dict[str, Any]:
+    """Prompt-cache efficiency over the last ``last_n`` ledger turns.
+
+    ``hit_rate`` = cache_read / (cache_read + fresh input) — the fraction of
+    prompt context served from the provider cache instead of re-billed at the
+    fresh-token rate. The #1 per-turn cost lever: cache discipline beats
+    context minimalism (a cache-cold agent pays several times more per turn
+    than a cache-warm one with a LARGER context). None when no tokens
+    recorded. Also reports how many distinct models the window saw per
+    session — mid-session model switching silently invalidates the entire
+    provider cache, so >1 is a cost smell worth surfacing.
+    """
+    rows = load_ledger()[-max(1, int(last_n)):]
+    read = sum(int(r.get("cache_read_tokens", 0) or 0) for r in rows)
+    fresh = sum(int(r.get("input_tokens", 0) or 0) for r in rows)
+    total = read + fresh
+    models_per_session: Dict[str, set] = {}
+    for r in rows:
+        sid = str(r.get("session_id", "") or "")
+        if sid and r.get("model"):
+            models_per_session.setdefault(sid, set()).add(str(r["model"]))
+    switched = sum(1 for models in models_per_session.values() if len(models) > 1)
+    return {
+        "turns": len(rows),
+        "cache_read_tokens": read,
+        "fresh_input_tokens": fresh,
+        "hit_rate": (read / total) if total else None,
+        "sessions_with_model_switch": switched,
+    }

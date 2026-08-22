@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "错误：{error}"
     switched:               "已切换模型为 `{model}`"
     provider_label:         "提供方：{provider}"
+    cache_switch_warning:   "⚠ 对话中途切换：提示缓存按模型绑定，因此下一轮整个上下文将按新 token 价格重新计费（若打算交替使用模型，请用 /new 开启新会话）。"
     context_label:          "上下文：{tokens} tokens"
     max_output_label:       "最大输出：{tokens} tokens"
     cost_label:             "费用：{cost}"

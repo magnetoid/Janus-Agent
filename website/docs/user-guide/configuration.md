@@ -524,11 +524,19 @@ For details on declaring config settings in your own skills, see [Creating Skill
 
 ### Guard on agent-created skill writes
 
-When the agent uses `skill_manage` to create, edit, patch, or delete a skill, Janus can optionally scan the new/updated content for dangerous keyword patterns (credential harvesting, obvious prompt injection, exfil instructions). The scanner is **off by default** — real agent workflows that legitimately touch `~/.ssh/` or mention `$OPENAI_API_KEY` were tripping the heuristic too often. Turn it back on if you want the scanner to prompt you before the agent's skill writes land:
+When the agent uses `skill_manage` to create, edit, patch, or delete a skill, Janus can optionally scan the new/updated content for dangerous keyword patterns (credential harvesting, obvious prompt injection, exfil instructions).
+
+The default is **`auto`**, which decides by context:
+
+- **Interactive and gateway sessions → off.** A human is in the loop, and the agent can already run the same code through an approved `terminal()` call, so scanning mainly adds friction — real workflows that legitimately touch `~/.ssh/` or mention `$OPENAI_API_KEY` were tripping the heuristic too often.
+- **Headless and cron sessions → on.** There `terminal()` and `execute_code` are themselves blocked by the approval gate, which makes an unscanned agent-written skill the one remaining unguarded path to host code execution.
+
+Pin it in either direction if you'd rather not have it vary:
 
 ```yaml
 skills:
-  guard_agent_created: true   # default: false
+  guard_agent_created: true    # always scan  (default: auto)
+  # guard_agent_created: false # never scan
 ```
 
 When on, any flagged `skill_manage` write surfaces as an approval prompt with the scanner's rationale. Accepted writes land; denied writes return an explanatory error to the agent.

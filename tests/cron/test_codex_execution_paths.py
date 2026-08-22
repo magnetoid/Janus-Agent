@@ -9,7 +9,14 @@ sys.modules.setdefault("firecrawl", types.SimpleNamespace(Firecrawl=object))
 sys.modules.setdefault("fal_client", types.SimpleNamespace())
 
 import cron.scheduler as cron_scheduler
-import gateway.run as gateway_run
+
+# Patch against gateway.runner, not gateway.run: the latter is a back-compat
+# shim that *copies* private names (``_resolve_runtime_agent_kwargs`` & co.)
+# into its own namespace at import time. Rebinding the copy leaves the real
+# handler in gateway.runner resolving live provider credentials, which silently
+# routes the turn through the chat-completions path instead of the codex one
+# under test.
+import gateway.runner as gateway_runner
 import run_agent
 from gateway.config import Platform
 from gateway.session import SessionSource
@@ -128,7 +135,7 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     monkeypatch.setattr(run_agent, "OpenAI", _FakeOpenAI)
     monkeypatch.setattr(run_agent, "AIAgent", _Codex401ThenSuccessAgent)
     monkeypatch.setattr(
-        gateway_run,
+        gateway_runner,
         "_resolve_runtime_agent_kwargs",
         lambda: {
             "provider": "openai-codex",
@@ -143,7 +150,7 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     _Codex401ThenSuccessAgent.refresh_attempts = 0
     _Codex401ThenSuccessAgent.last_init = {}
 
-    runner = gateway_run.GatewayRunner.__new__(gateway_run.GatewayRunner)
+    runner = gateway_runner.GatewayRunner.__new__(gateway_runner.GatewayRunner)
     runner.adapters = {}
     runner._ephemeral_system_prompt = ""
     runner._prefill_messages = []
@@ -159,7 +166,7 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     # Ensure model resolution returns the codex model even if xdist
     # leaked env vars cleared JANUS_MODEL.
     monkeypatch.setattr(
-        gateway_run.GatewayRunner,
+        gateway_runner.GatewayRunner,
         "_resolve_turn_agent_config",
         lambda self, msg, model, runtime: {
             "model": model or "gpt-5.3-codex",

@@ -13,6 +13,21 @@ except ImportError:
 _needs_tiktoken = pytest.mark.skipif(not _has_tiktoken, reason="tiktoken not installed")
 
 
+@pytest.fixture(autouse=True)
+def _tools_discovered():
+    """Populate the tool registry the way every real entry point does.
+
+    Importing ``model_tools`` no longer self-registers the built-in tools —
+    ``cli.py``, ``janus_cli/main.py`` and ``gateway/runner.py`` each call
+    ``discover_builtin_tools()`` explicitly at startup. Every test in this
+    file inspects the registry (schemas, token estimates, toolset sizing),
+    so it has to do the same or it sees only the handful of modules that
+    ``model_tools`` happens to import directly.
+    """
+    from tools.registry import discover_builtin_tools
+    discover_builtin_tools()
+
+
 # ─── Token Estimation Tests ──────────────────────────────────────────────────
 
 
@@ -264,9 +279,6 @@ def test_curses_checklist_numbered_fallback_without_status(monkeypatch, capsys):
 def test_registry_get_schema_returns_schema():
     """registry.get_schema() should return a tool's schema dict."""
     from tools.registry import registry
-
-    # Import to trigger discovery
-    import model_tools  # noqa: F401
 
     schema = registry.get_schema("terminal")
     assert schema is not None

@@ -1,7 +1,13 @@
-"""Regression tests for dashboard cron job profile routing."""
+"""Regression tests for dashboard cron job profile routing.
+
+These drive the dashboard's public HTTP surface (``/api/cron/jobs*``) rather
+than importing the handler coroutines by name. The handlers have moved between
+modules before (``janus_cli.web_server`` -> ``janus_cli.routers.cron``) and the
+contract the desktop/dashboard depends on is the route + profile query
+parameter, not where the coroutine happens to live.
+"""
 
 import pytest
-from fastapi import HTTPException
 
 
 @pytest.fixture()
@@ -20,6 +26,34 @@ def isolated_profiles(tmp_path, monkeypatch):
     monkeypatch.setattr(profiles, "_get_default_janus_home", lambda: default_home)
     monkeypatch.setattr(profiles, "_get_profiles_root", lambda: profiles_root)
     return {"default": default_home, "worker_alpha": worker_home}
+
+
+@pytest.fixture()
+def client(isolated_profiles):
+    """Authenticated dashboard client bound to the isolated profile tree."""
+    starlette_testclient = pytest.importorskip("starlette.testclient")
+
+    from janus_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
+    test_client = starlette_testclient.TestClient(app)
+    test_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+    return test_client
+
+
+def _create_job(client, profile, *, prompt, schedule, name):
+    resp = client.post(
+        "/api/cron/jobs",
+        params={"profile": profile},
+        json={"prompt": prompt, "schedule": schedule, "name": name},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _list_jobs(client, profile):
+    resp = client.get("/api/cron/jobs", params={"profile": profile})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 def test_call_cron_for_profile_routes_storage_and_restores_globals(isolated_profiles):
@@ -50,27 +84,23 @@ def test_call_cron_for_profile_routes_storage_and_restores_globals(isolated_prof
     assert cron_jobs.OUTPUT_DIR == old_output_dir
 
 
-@pytest.mark.asyncio
-async def test_list_cron_jobs_all_includes_default_and_named_profiles(isolated_profiles):
-    from janus_cli import web_server
-
-    default_job = web_server._call_cron_for_profile(
+def test_list_cron_jobs_all_includes_default_and_named_profiles(isolated_profiles, client):
+    default_job = _create_job(
+        client,
         "default",
-        "create_job",
         prompt="default heartbeat",
         schedule="every 2h",
         name="default-heartbeat",
     )
-    worker_job = web_server._call_cron_for_profile(
+    worker_job = _create_job(
+        client,
         "worker_alpha",
-        "create_job",
         prompt="worker heartbeat",
         schedule="every 3h",
         name="worker-alpha-heartbeat",
     )
 
-    jobs = await web_server.list_cron_jobs(profile="all")
-    by_id = {job["id"]: job for job in jobs}
+    by_id = {job["id"]: job for job in _list_jobs(client, "all")}
 
     assert set(by_id) >= {default_job["id"], worker_job["id"]}
     assert by_id[default_job["id"]]["profile"] == "default"
@@ -81,119 +111,104 @@ async def test_list_cron_jobs_all_includes_default_and_named_profiles(isolated_p
     assert by_id[worker_job["id"]]["janus_home"] == str(isolated_profiles["worker_alpha"])
 
 
-@pytest.mark.asyncio
-async def test_list_cron_jobs_specific_profile_filters_results(isolated_profiles):
-    from janus_cli import web_server
-
-    web_server._call_cron_for_profile(
+def test_list_cron_jobs_specific_profile_filters_results(isolated_profiles, client):
+    _create_job(
+        client,
         "default",
-        "create_job",
         prompt="default only",
         schedule="every 2h",
         name="default-only",
     )
-    worker_job = web_server._call_cron_for_profile(
+    worker_job = _create_job(
+        client,
         "worker_alpha",
-        "create_job",
         prompt="worker only",
         schedule="every 3h",
         name="worker-only",
     )
 
-    jobs = await web_server.list_cron_jobs(profile="worker_alpha")
+    jobs = _list_jobs(client, "worker_alpha")
 
     assert [job["id"] for job in jobs] == [worker_job["id"]]
     assert jobs[0]["profile"] == "worker_alpha"
 
 
-@pytest.mark.asyncio
-async def test_cron_mutation_without_profile_finds_named_profile_job(isolated_profiles):
-    from janus_cli import web_server
-
-    worker_job = web_server._call_cron_for_profile(
+def test_cron_mutation_without_profile_finds_named_profile_job(isolated_profiles, client):
+    worker_job = _create_job(
+        client,
         "worker_alpha",
-        "create_job",
         prompt="managed by named profile",
         schedule="every 1h",
         name="named-profile-job",
     )
 
-    paused = await web_server.pause_cron_job(worker_job["id"])
+    # No ?profile= — the handler must locate the owning profile itself.
+    resp = client.post(f"/api/cron/jobs/{worker_job['id']}/pause")
+    assert resp.status_code == 200, resp.text
+    paused = resp.json()
     assert paused["profile"] == "worker_alpha"
     assert paused["enabled"] is False
 
-    default_jobs = await web_server.list_cron_jobs(profile="default")
-    worker_jobs = await web_server.list_cron_jobs(profile="worker_alpha")
-
-    assert default_jobs == []
+    assert _list_jobs(client, "default") == []
+    worker_jobs = _list_jobs(client, "worker_alpha")
     assert len(worker_jobs) == 1
     assert worker_jobs[0]["id"] == worker_job["id"]
     assert worker_jobs[0]["enabled"] is False
 
 
-@pytest.mark.asyncio
-async def test_update_cron_job_rejects_id_mutation(isolated_profiles):
+def test_update_cron_job_rejects_id_mutation(isolated_profiles, client):
     """Dashboard surfaces a 400 (not a 500 or silent rename) when an
     id-mutation attempt is rejected by cron/jobs.update_job."""
-    from janus_cli import web_server
-
-    worker_job = web_server._call_cron_for_profile(
+    worker_job = _create_job(
+        client,
         "worker_alpha",
-        "create_job",
         prompt="managed by named profile",
         schedule="every 1h",
         name="immutable-id-job",
     )
 
-    with pytest.raises(HTTPException) as exc:
-        await web_server.update_cron_job(
-            worker_job["id"],
-            web_server.CronJobUpdate(updates={"id": "../escape"}),
-            profile="worker_alpha",
-        )
+    resp = client.put(
+        f"/api/cron/jobs/{worker_job['id']}",
+        params={"profile": "worker_alpha"},
+        json={"updates": {"id": "../escape"}},
+    )
 
-    assert exc.value.status_code == 400
-    assert "id" in exc.value.detail
-    worker_jobs = await web_server.list_cron_jobs(profile="worker_alpha")
-    assert [job["id"] for job in worker_jobs] == [worker_job["id"]]
+    assert resp.status_code == 400
+    assert "id" in resp.json()["detail"]
+    assert [job["id"] for job in _list_jobs(client, "worker_alpha")] == [worker_job["id"]]
 
 
-@pytest.mark.asyncio
-async def test_cron_delete_with_profile_deletes_only_target_profile(isolated_profiles):
-    from janus_cli import web_server
-
-    default_job = web_server._call_cron_for_profile(
+def test_cron_delete_with_profile_deletes_only_target_profile(isolated_profiles, client):
+    default_job = _create_job(
+        client,
         "default",
-        "create_job",
         prompt="same-ish default",
         schedule="every 1h",
         name="shared-name",
     )
-    worker_job = web_server._call_cron_for_profile(
+    worker_job = _create_job(
+        client,
         "worker_alpha",
-        "create_job",
         prompt="same-ish worker",
         schedule="every 1h",
         name="shared-name-worker",
     )
 
-    deleted = await web_server.delete_cron_job(worker_job["id"], profile="worker_alpha")
-    assert deleted == {"ok": True}
+    resp = client.request(
+        "DELETE",
+        f"/api/cron/jobs/{worker_job['id']}",
+        params={"profile": "worker_alpha"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True}
 
-    remaining_default = await web_server.list_cron_jobs(profile="default")
-    remaining_worker = await web_server.list_cron_jobs(profile="worker_alpha")
-    assert [job["id"] for job in remaining_default] == [default_job["id"]]
-    assert remaining_worker == []
+    assert [job["id"] for job in _list_jobs(client, "default")] == [default_job["id"]]
+    assert _list_jobs(client, "worker_alpha") == []
 
 
-@pytest.mark.asyncio
-async def test_cron_profile_validation_errors(isolated_profiles):
-    from janus_cli import web_server
-
-    with pytest.raises(HTTPException) as bad_name:
-        await web_server.list_cron_jobs(profile="../bad")
-    assert bad_name.value.status_code == 400
-
-    with pytest.raises(HTTPException) as missing:
-        await web_server.list_cron_jobs(profile="missing_profile")
-    assert missing.value.status_code == 404
+def test_cron_profile_validation_errors(isolated_profiles, client):
+    assert client.get("/api/cron/jobs", params={"profile": "../bad"}).status_code == 400
+    assert (
+        client.get("/api/cron/jobs", params={"profile": "missing_profile"}).status_code
+        == 404
+    )

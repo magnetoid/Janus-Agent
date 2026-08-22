@@ -19,6 +19,7 @@ Usage examples::
     janus logs --since 30m -f     # follow, starting 30 min ago
 """
 
+import json
 import re
 import sys
 import time
@@ -77,9 +78,30 @@ def _parse_since(since_str: str) -> Optional[datetime]:
     return datetime.now() - delta
 
 
+def _json_fields(line: str) -> Optional[dict]:
+    """Decode a ``logging.format: json`` line into its fields.
+
+    Returns ``None`` for the human text format (the default) and for any
+    line that isn't a well-formed JSON object, so every caller can fall
+    back to the regex path.
+    """
+    stripped = line.lstrip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        payload = json.loads(stripped)
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _parse_line_timestamp(line: str) -> Optional[datetime]:
     """Extract timestamp from a log line. Returns None if not parseable."""
-    m = _TS_RE.match(line)
+    fields = _json_fields(line)
+    raw = fields.get("ts") if fields else line
+    if not isinstance(raw, str):
+        return None
+    m = _TS_RE.match(raw)
     if not m:
         return None
     try:
@@ -90,12 +112,20 @@ def _parse_line_timestamp(line: str) -> Optional[datetime]:
 
 def _extract_level(line: str) -> Optional[str]:
     """Extract the log level from a line."""
+    fields = _json_fields(line)
+    if fields is not None:
+        level = fields.get("level")
+        return level if isinstance(level, str) and level in _LEVEL_ORDER else None
     m = _LEVEL_RE.search(line)
     return m.group(1) if m else None
 
 
 def _extract_logger_name(line: str) -> Optional[str]:
     """Extract the logger name from a log line."""
+    fields = _json_fields(line)
+    if fields is not None:
+        name = fields.get("logger")
+        return name if isinstance(name, str) and name else None
     m = _LOGGER_NAME_RE.search(line)
     return m.group(1) if m else None
 

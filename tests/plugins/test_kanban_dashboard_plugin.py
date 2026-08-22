@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -2211,13 +2212,36 @@ def test_dashboard_search_includes_body_and_result():
     assert "t.latest_summary || \"\"" in dist
 
 
+def _styled_classes(js: str, css: str, name_suffix: str) -> set[str]:
+    """Classes ending in ``name_suffix`` that the bundle emits *and* the
+    stylesheet defines.
+
+    The dashboard bundle's class prefix is branding — it still ships the
+    pre-rebrand ``hermes-`` prefix, and a repo-wide rename swept the prefix in
+    tests but (correctly) left the built asset alone. Pinning a fully-qualified
+    class name therefore detects rebrands, not regressions. The invariant that
+    actually matters is that the class the JS renders is the class the CSS
+    styles, so assert that agreement and let the prefix be whatever it is.
+    """
+    pattern = re.compile(rf"[A-Za-z0-9_-]*{re.escape(name_suffix)}")
+    return set(pattern.findall(js)) & set(pattern.findall(css))
+
+
 def test_dashboard_bulk_actions_include_reclaim_first():
     """Bulk action bar must expose reclaim_first checkbox and expanded status buttons."""
     repo_root = Path(__file__).resolve().parents[2]
-    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+    dashboard = repo_root / "plugins" / "kanban" / "dashboard" / "dist"
+    dist = (dashboard / "index.js").read_text()
+    css = (dashboard / "style.css").read_text()
 
+    # The toggle is wired into the bulk-reassign payload…
     assert "reclaim_first: reclaimFirst" in dist
-    assert "janus-kanban-bulk-reclaim-first" in dist
+    # …rendered as a styled control (prefix-agnostic: JS and CSS must agree)…
+    assert _styled_classes(dist, css, "kanban-bulk-reclaim-first"), (
+        "the bulk reclaim-first control is missing, or its class is emitted by "
+        "index.js without a matching rule in style.css"
+    )
+    # …next to the expanded status buttons.
     assert '"→ todo"' in dist
     assert '"Block"' in dist
     assert '"Unblock"' in dist
@@ -2249,6 +2273,10 @@ def test_dashboard_failed_card_highlight_class_exists():
     js = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
     css = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "style.css").read_text()
 
-    assert "janus-kanban-card--failed" in js
-    assert "janus-kanban-card--failed" in css
+    # Prefix-agnostic (see `_styled_classes`): what must hold is that the card
+    # modifier the JS applies on a partial bulk failure is styled in the sheet.
+    assert _styled_classes(js, css, "card--failed"), (
+        "no failed-card modifier class is both emitted by index.js and styled "
+        "in style.css — partial bulk failures would not be highlighted"
+    )
     assert "failedIds" in js

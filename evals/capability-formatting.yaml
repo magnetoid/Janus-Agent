@@ -1,0 +1,47 @@
+# Structured-output capabilities.
+evals:
+  - name: markdown-table
+    kind: capability
+    est_minutes: 3
+    prompt: "Create a markdown table with columns Name and Age containing two rows: Alice 30 and Bob 25. Reply with only the table."
+    checks:
+      - type: contains
+        value: "|"
+      - type: contains
+        value: "Alice"
+      - type: contains
+        value: "25"
+
+  - name: csv-output
+    kind: capability
+    est_minutes: 2
+    prompt: "Output CSV data with the header row fruit,color and exactly two data rows: apple,red and lime,green. Reply with only the CSV."
+    checks:
+      - type: contains
+        value: "fruit,color"
+      - type: contains
+        value: "apple,red"
+      - type: max_length
+        value: 120
+
+  - name: numbered-steps
+    kind: capability
+    est_minutes: 3
+    prompt: "Give exactly three numbered steps for making tea. Use the format '1.', '2.', '3.'."
+    checks:
+      - type: contains
+        value: "1."
+      - type: contains
+        value: "3."
+      - type: not_contains
+        value: "4."
+
+  - name: yaml-output
+    kind: capability
+    est_minutes: 3
+    prompt: "Output a YAML mapping with key server set to localhost and key port set to 8080. Reply with only the YAML."
+    checks:
+      - type: regex
+        value: "server:\\s*localhost"
+      - type: regex
+        value: "port:\\s*8080"

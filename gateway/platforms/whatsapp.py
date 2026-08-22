@@ -27,7 +27,10 @@ import subprocess
 
 _IS_WINDOWS = platform.system() == "Windows"
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import TYPE_CHECKING, Dict, Optional, Any
+
+if TYPE_CHECKING:
+    import aiohttp
 
 from janus_constants import get_janus_dir
 

@@ -35,6 +35,18 @@
 >
 > Treat the roadmap below as aspirational and enterprise-aimed; the near-term priorities are
 > cost-aware routing and conversational reliability, not the SaaS/cloud sequence.
+>
+> **Second re-grounding pass — 2026-07-31.** Two more §1.3 gaps have since closed:
+> **#4 ("no built-in observability stack")** — [plugins/observability/otlp/](../plugins/observability/otlp/)
+> ships an OTLP exporter, and turn-level log correlation + optional JSON logs landed in
+> `91d9ad1`; and the "supply-chain guards in CI" claim in §1.5 is now actually true
+> ([.github/workflows/tests.yml](../.github/workflows/tests.yml) hard-gates lint + the full
+> ~30.4k-test suite). Gaps **#1 (monoliths), #2 (sync loop), #5 (single-tenant),
+> #6 (no collaboration primitives), #11 (three parallel chat surfaces), #13
+> (deterministic-only evals)** were re-checked and **still hold**. For the self-improvement
+> subsystem specifically, prefer
+> [docs/self-improvement-evaluation-2026.md](self-improvement-evaluation-2026.md) §2.5 —
+> its Status column is maintained; this document's §1.3 is not.
 
 ---
 

@@ -1,6 +1,12 @@
-import asyncio
+"""Ordering/dedup contract for the dashboard session-search endpoint.
 
-from janus_cli import web_server
+Driven through the mounted ``/api/sessions/search`` route rather than by
+importing the handler coroutine: the handler has already moved once
+(``janus_cli.web_server`` -> ``janus_cli.routers.sessions``) and the route plus
+its response shape is what the desktop session picker actually consumes.
+"""
+
+import pytest
 
 
 class _FakeSessionDB:
@@ -59,14 +65,28 @@ class _FakeSessionDB:
         self.closed = True
 
 
-def test_desktop_session_search_merges_id_matches_before_content_matches(monkeypatch):
+@pytest.fixture()
+def client():
+    starlette_testclient = pytest.importorskip("starlette.testclient")
+
+    from janus_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
+    test_client = starlette_testclient.TestClient(app)
+    test_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+    return test_client
+
+
+def test_desktop_session_search_merges_id_matches_before_content_matches(
+    client, monkeypatch
+):
     monkeypatch.setattr("janus_state.SessionDB", _FakeSessionDB)
 
-    response = asyncio.run(web_server.search_sessions(q="20260603", limit=2))
+    resp = client.get("/api/sessions/search", params={"q": "20260603", "limit": 2})
+    assert resp.status_code == 200, resp.text
 
     # ID match surfaces first; the content hit on the SAME session is deduped
     # by lineage root (not double-listed); the unrelated content hit follows.
-    assert response == {
+    assert resp.json() == {
         "results": [
             {
                 "session_id": "20260603_090200_exact",

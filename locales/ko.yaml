@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "오류: {error}"
     switched:               "모델이 `{model}`(으)로 전환되었습니다"
     provider_label:         "제공자: {provider}"
+    cache_switch_warning:   "⚠ 대화 도중 전환: 프롬프트 캐시는 모델별로 관리되므로 다음 턴에 전체 컨텍스트가 신규 토큰 요금으로 다시 청구됩니다 (모델을 번갈아 사용할 계획이라면 /new 로 새 세션을 시작하세요)."
     context_label:          "컨텍스트: {tokens} 토큰"
     max_output_label:       "최대 출력: {tokens} 토큰"
     cost_label:             "비용: {cost}"

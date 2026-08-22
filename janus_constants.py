@@ -221,6 +221,26 @@ def get_bundled_skills_dir(default: Path | None = None) -> Path:
     return get_janus_home() / "skills"
 
 
+def get_bundled_evals_dir(default: Path | None = None) -> Path:
+    """Return the bundled eval-spec directory for source and packaged installs.
+
+    Mirrors ``get_bundled_skills_dir``:
+        1. ``JANUS_BUNDLED_EVALS`` env var (Nix wrapper / explicit override)
+        2. Wheel-installed ``<sysconfig data>/evals`` (pip install path)
+        3. Caller-supplied ``default`` (typically the source-checkout path)
+        4. ``<JANUS_HOME>/evals`` last-resort
+    """
+    override = os.getenv("JANUS_BUNDLED_EVALS", "").strip()
+    if override:
+        return Path(override)
+    packaged = _get_packaged_data_dir("evals")
+    if packaged is not None:
+        return packaged
+    if default is not None:
+        return default
+    return get_janus_home() / "evals"
+
+
 def get_janus_dir(new_subpath: str, old_name: str) -> Path:
     """Resolve a Janus subdirectory with backward compatibility.
 

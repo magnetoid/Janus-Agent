@@ -1732,13 +1732,62 @@ class TestBuildSchemaFromConfig:
         assert "privacy" not in categories  # merged into security
         assert "context" not in categories  # merged into agent
 
-    def test_no_single_field_categories(self):
-        """After merging, no category should have just 1 field."""
-        from janus_cli.web_server import CONFIG_SCHEMA
-        from collections import Counter
-        cats = Counter(e["category"] for e in CONFIG_SCHEMA.values())
-        for cat, count in cats.items():
-            assert count >= 2, f"Category '{cat}' has only {count} field(s) — should be merged"
+    # NOTE: there used to be a `test_no_single_field_categories` here asserting
+    # that every category ends up with >= 2 fields. That is a grooming
+    # preference, not an invariant: the config page renders a one-field
+    # category perfectly well (ConfigPage.tsx derives its tab list from the
+    # categories actually present), and DEFAULT_CONFIG legitimately contains
+    # deliberate single-key groups — `autonomy.frozen` (the master unattended
+    # -operation kill switch) and `agreements.*`. The only way to satisfy the
+    # old assertion is to edit `_CATEGORY_MERGE` for cosmetic reasons every
+    # time a small config group is added, which makes it a change-detector.
+    # What actually has to hold is that the merge table is coherent — the three
+    # tests below assert that.
+
+    def test_merge_map_is_fully_applied_and_terminal(self):
+        """No category listed as a merge *source* survives in the schema.
+
+        `_build_schema_from_config` applies `_CATEGORY_MERGE` with a single
+        dict lookup per field, so a chained entry (`a → b` where `b → c` is
+        also in the table) would strand fields in `b` — a category the table
+        itself declares must not exist. Asserting the surviving categories are
+        disjoint from the merge keys catches both a chain and a merge that
+        silently stopped being applied.
+        """
+        from janus_cli.web_server import CONFIG_SCHEMA, _CATEGORY_MERGE
+
+        categories = {e["category"] for e in CONFIG_SCHEMA.values()}
+        stranded = categories & set(_CATEGORY_MERGE)
+        assert not stranded, (
+            f"Categories that _CATEGORY_MERGE folds away are still in the "
+            f"schema: {sorted(stranded)}"
+        )
+
+    def test_merge_targets_are_real_categories(self):
+        """Every merge destination is a category that exists in the schema.
+
+        A typo'd or renamed target (`privacy → secuirty`) would quietly move
+        fields into a tab that nothing else populates, so guard the mapping's
+        right-hand side against the schema it is merging into.
+        """
+        from janus_cli.web_server import CONFIG_SCHEMA, _CATEGORY_MERGE
+
+        categories = {e["category"] for e in CONFIG_SCHEMA.values()}
+        missing = set(_CATEGORY_MERGE.values()) - categories
+        assert not missing, f"_CATEGORY_MERGE points at unknown categories: {sorted(missing)}"
+
+    def test_category_order_entries_exist_in_schema(self):
+        """The curated tab order only names categories the schema produces.
+
+        The dashboard filters `category_order` against the categories it sees,
+        so a stale entry (from a renamed config group) doesn't error — it just
+        drops that tab back into the alphabetical tail without anyone noticing.
+        """
+        from janus_cli.web_server import CONFIG_SCHEMA, _CATEGORY_ORDER
+
+        categories = {e["category"] for e in CONFIG_SCHEMA.values()}
+        stale = [c for c in _CATEGORY_ORDER if c not in categories]
+        assert not stale, f"_CATEGORY_ORDER names categories no field uses: {stale}"
 
 
 # ---------------------------------------------------------------------------

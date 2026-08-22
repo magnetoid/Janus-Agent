@@ -31,6 +31,7 @@ gateway:
     error_prefix:           "Earráid: {error}"
     switched:               "Athraíodh an tsamhail go `{model}`"
     provider_label:         "Soláthraí: {provider}"
+    cache_switch_warning:   "⚠ Athrú i lár an chomhrá: tá an taisce leideanna ceangailte leis an tsamhail, mar sin déanfar an comhthéacs iomlán a athbhilleáil ar rátaí comharthaí úra an chéad seal eile (tosaigh seisiún nua le /new má tá sé i gceist agat malartú idir samhlacha)."
     context_label:          "Comhthéacs: {tokens} comhartha"
     max_output_label:       "Aschur uasta: {tokens} comhartha"
     cost_label:             "Costas: {cost}"

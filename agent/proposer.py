@@ -66,22 +66,11 @@ def _resolve_skill_md(name: str) -> Optional[Path]:
     """Path to an active skill's SKILL.md by its frontmatter name, or None."""
     try:
         from janus_constants import get_janus_home
-        from agent.skill_utils import iter_skill_index_files, parse_frontmatter
-        skills_dir = get_janus_home() / "skills"
-        if not skills_dir.is_dir():
-            return None
-        for md in iter_skill_index_files(skills_dir, "SKILL.md"):
-            if ".drafts" in md.parts or ".archive" in md.parts:
-                continue
-            try:
-                fm, _ = parse_frontmatter(md.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            if (fm.get("name") or md.parent.name) == name:
-                return md
+        from agent.skill_utils import resolve_active_skill_md
+        return resolve_active_skill_md(get_janus_home() / "skills", name)
     except Exception as exc:
         logger.debug("_resolve_skill_md failed: %s", exc)
-    return None
+        return None
 
 
 _VARIANT_SYSTEM = (

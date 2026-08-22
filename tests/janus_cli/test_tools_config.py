@@ -234,21 +234,52 @@ def test_get_platform_tools_x_search_respects_explicit_config(monkeypatch):
     assert "spotify" in enabled
 
 
-def test_get_platform_tools_expands_composite_when_mixed_with_configurable():
-    """``[janus-cli, spotify]`` (composite + configurable) must keep the full
-    ``janus-cli`` toolset alongside the explicit Spotify opt-in. The
-    has_explicit_config branch used to drop ``janus-cli`` on the floor,
-    leaving sessions with only ``{spotify, kanban}``."""
-    config = {"platform_toolsets": {"cli": ["janus-cli", "spotify"]}}
+def test_get_platform_tools_expands_composite_when_mixed_with_configurable(monkeypatch):
+    """``[janus-cli, spotify]`` (composite + configurable) must keep everything
+    the ``janus-cli`` composite already granted, alongside the explicit Spotify
+    opt-in. The has_explicit_config branch used to drop ``janus-cli`` on the
+    floor, leaving sessions with only ``{spotify, kanban}``.
 
-    enabled = _get_platform_tools(config, "cli", include_default_mcp_servers=False)
+    Stated as a relationship against the composite-only resolution rather than
+    a hand-written list of toolset names: *which* configurable toolsets
+    ``janus-cli`` grants is data that legitimately moves whenever a tool joins
+    a toolset (e.g. ``pagemem_remember`` joining ``browser`` took ``browser``
+    out of the composite's subset closure). The rule — adding an explicit
+    opt-in is purely additive — must not move.
+    """
+    # x_search auto-enables from ambient xAI credentials, but only on the
+    # no-explicit-config path; pin it off so the two resolutions differ by the
+    # opt-in alone rather than by dev-box credentials.
+    monkeypatch.setattr(
+        "janus_cli.tools_config._xai_credentials_present", lambda: False
+    )
 
-    # Native tools must reappear.
-    for ts in ("terminal", "file", "web", "browser", "memory", "delegation",
-               "code_execution", "todo", "session_search", "skills"):
-        assert ts in enabled, f"{ts} should be enabled when janus-cli is listed"
-    # User explicitly opted into Spotify — must survive _DEFAULT_OFF_TOOLSETS subtraction.
-    assert "spotify" in enabled
+    composite_only = _get_platform_tools(
+        {"platform_toolsets": {"cli": ["janus-cli"]}},
+        "cli",
+        include_default_mcp_servers=False,
+    )
+    mixed = _get_platform_tools(
+        {"platform_toolsets": {"cli": ["janus-cli", "spotify"]}},
+        "cli",
+        include_default_mcp_servers=False,
+    )
+
+    # Guard against a vacuous pass: ``janus-cli`` must really grant a
+    # non-trivial set of toolsets, otherwise the subset assertion is empty.
+    assert len(composite_only) > 1, (
+        "janus-cli granted almost nothing — the comparison below would be vacuous"
+    )
+
+    # The regression: listing a configurable next to the composite must not
+    # discard what the composite grants on its own.
+    assert composite_only <= mixed, (
+        f"opting into spotify dropped composite-granted toolsets: "
+        f"{sorted(composite_only - mixed)}"
+    )
+    # ...and the explicit opt-in survives the _DEFAULT_OFF_TOOLSETS subtraction,
+    # without dragging in anything else.
+    assert mixed == composite_only | {"spotify"}
 
 
 def test_get_platform_tools_composite_only_unchanged():
@@ -1175,7 +1206,7 @@ def test_save_platform_tools_clears_no_mcp_sentinel():
     assert "no_mcp" not in saved
 
 
-def test_save_platform_tools_preserves_mcp_server_names():
+def test_save_platform_tools_preserves_non_sentinel_passthrough():
     """Non-sentinel passthrough entries (MCP server names) must still survive
     the save — we only clear `no_mcp`, not every non-configurable entry.
     """

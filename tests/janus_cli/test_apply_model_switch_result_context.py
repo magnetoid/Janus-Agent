@@ -41,6 +41,9 @@ class _StubCLI:
     _explicit_base_url = ""
     api_mode = ""
     _pending_model_switch_note = ""
+    # Empty by default so the mid-conversation cache warning stays quiet; the
+    # context assertions below are about the switch summary, not that warning.
+    conversation_history = ()
 
 
 def _run_display(monkeypatch, result):

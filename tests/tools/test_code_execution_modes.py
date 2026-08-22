@@ -30,6 +30,33 @@ def _force_local_terminal(monkeypatch):
     monkeypatch.setenv("TERMINAL_ENV", "local")
 
 
+@pytest.fixture(autouse=True)
+def _allow_execute_code_headlessly():
+    """Opt into headless execute_code via the documented config knob.
+
+    Mirrors test_code_execution.py.  ``check_execute_code_guard`` blocks
+    execute_code in a headless context (no CLI/gateway/cron) unless
+    ``approvals.headless_mode`` says otherwise, and it defaults to ``deny``.
+    These tests are about *where* the child runs (cwd/interpreter) and what it
+    can see (env scrubbing, tool whitelist) — the approval decision itself is
+    covered by tests/tools/test_execute_code_approval_cluster.py — so set the
+    real config knob in the per-test isolated ``JANUS_HOME``.
+    """
+    import yaml
+
+    from janus_constants import get_janus_home
+
+    config_path = get_janus_home() / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    if config_path.exists():
+        existing = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    approvals = dict(existing.get("approvals") or {})
+    approvals["headless_mode"] = "approve"
+    existing["approvals"] = approvals
+    config_path.write_text(yaml.safe_dump(existing), encoding="utf-8")
+
+
 from tools.code_execution_tool import (
     SANDBOX_ALLOWED_TOOLS,
     DEFAULT_EXECUTION_MODE,

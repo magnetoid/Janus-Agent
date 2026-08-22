@@ -136,3 +136,25 @@ def test_spend_cap_exceeded_reason():
     assert reason and "24h" in reason and "cap" in reason
     assert cl.spend_cap_exceeded({"budget": {"daily_usd": 100.0}}) is None  # under cap
     assert cl.spend_cap_exceeded({"budget": {}}) is None                    # unset
+
+
+def test_cache_efficiency_hit_rate_and_switch_detection():
+    # 3 turns: 80k cached / 20k fresh → 80% hit; session s2 switches models.
+    cl.record_turn("s1", "model-a", input_tokens=10_000, cache_read_tokens=40_000,
+                   cost_usd=0.01, status="actual")
+    cl.record_turn("s2", "model-a", input_tokens=5_000, cache_read_tokens=40_000,
+                   cost_usd=0.01, status="actual")
+    cl.record_turn("s2", "model-b", input_tokens=5_000, cache_read_tokens=0,
+                   cost_usd=0.01, status="actual")
+    ce = cl.cache_efficiency()
+    assert ce["turns"] == 3
+    assert ce["cache_read_tokens"] == 80_000
+    assert ce["fresh_input_tokens"] == 20_000
+    assert abs(ce["hit_rate"] - 0.8) < 1e-9
+    assert ce["sessions_with_model_switch"] == 1     # only s2 alternated
+
+
+def test_cache_efficiency_empty_ledger_is_none():
+    ce = cl.cache_efficiency()
+    assert ce["hit_rate"] is None
+    assert ce["turns"] == 0

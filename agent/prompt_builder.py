@@ -1079,6 +1079,37 @@ def _skill_should_show(
     return True
 
 
+def _trial_drafts_enabled() -> bool:
+    """learning.governor.trial_drafts — the shadow-trial lane opt-in."""
+    try:
+        from agent.feature_flags import flag_enabled
+        return flag_enabled("learning", "governor.trial_drafts", default=False)
+    except Exception:
+        return False
+
+
+def _draft_trial_entries(skills_dir) -> "list[tuple[str, str]]":
+    """(dir_name, description) for every draft with a SKILL.md.
+
+    The DIRECTORY name is the draft's handle (``skill_view("draft:<dir>")``
+    resolves by directory), so it is what the index must advertise.
+    """
+    entries: "list[tuple[str, str]]" = []
+    try:
+        drafts = skills_dir / ".drafts"
+        if not drafts.is_dir():
+            return entries
+        for md in sorted(drafts.glob("*/SKILL.md")):
+            try:
+                fm, _ = parse_frontmatter(md.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            entries.append((md.parent.name, extract_skill_description(fm)))
+    except Exception as exc:
+        logger.debug("draft trial scan failed: %s", exc)
+    return entries
+
+
 def build_skills_system_prompt(
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
@@ -1113,6 +1144,14 @@ def build_skills_system_prompt(
         or ""
     )
     disabled = get_disabled_skill_names()
+    # Shadow-trial lane (learning.governor.trial_drafts): quarantined drafts
+    # surface under an explicit `draft:` alias so they can accumulate the
+    # usage trajectory the promotion gate demands. Default off → this block
+    # is empty and the prompt is byte-identical to the pre-feature output.
+    # Computed here, at session-start build time only — never mid-conversation
+    # (prompt-cache invariant); a draft added mid-process affects new sessions.
+    trial_drafts = _trial_drafts_enabled()
+    draft_entries = _draft_trial_entries(skills_dir) if trial_drafts else []
     cache_key = (
         str(skills_dir.resolve()),
         tuple(str(d) for d in external_dirs),
@@ -1120,6 +1159,8 @@ def build_skills_system_prompt(
         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
         _platform_hint,
         tuple(sorted(disabled)),
+        trial_drafts,
+        tuple(draft_entries),
     )
     with _SKILLS_PROMPT_CACHE_LOCK:
         cached = _SKILLS_PROMPT_CACHE.get(cache_key)
@@ -1301,6 +1342,23 @@ def build_skills_system_prompt(
             "\n"
             "Only proceed without loading a skill if genuinely none are relevant to the task."
         )
+
+    # ── Shadow-trial drafts block (flag-gated, separate from the index) ──
+    if draft_entries:
+        draft_lines = []
+        for _dname, _ddesc in draft_entries:
+            suffix = f": {_ddesc}" if _ddesc else ""
+            draft_lines.append(f"  - draft:{_dname}{suffix}")
+        result = (result + ("\n\n" if result else "") +
+            "## Draft skills under trial (experimental)\n"
+            "Unproven agent-created skills on probation. Load one with "
+            "skill_view(\"draft:<name>\") only when it is clearly relevant and "
+            "no active skill covers the task — when an active skill shares the "
+            "name, the active version wins the bare name and should be "
+            "preferred.\n"
+            "<draft_skills>\n"
+            + "\n".join(draft_lines) + "\n"
+            "</draft_skills>")
 
     # ── Store in LRU cache ────────────────────────────────────────────
     with _SKILLS_PROMPT_CACHE_LOCK:

@@ -253,3 +253,30 @@ class TestDefaultPlatformWebSearchCoverage:
 
     def test_janus_api_server_toolset_includes_web_search(self):
         assert "web_search" in resolve_toolset("janus-api-server")
+
+
+class TestPageMemSeamsShipTogether:
+    """PageMem's two halves must be exposed together.
+
+    ``browser_navigate`` auto-captures page structure and then RECALLS, folding a
+    "playbooks" section into its output — and ``page_memory.enabled`` defaults
+    True, so this runs on a stock install. Playbooks can only ever be created by
+    ``pagemem_remember``. A toolset that exposes navigate without it therefore
+    ships a default-on feature whose recording half is unreachable and whose
+    recall section is permanently empty — the design's primary goal ("stable
+    element structure + successful task playbooks") half-dead.
+
+    This asserts the relationship, not a tool count, so adding browser tools or
+    new platform toolsets keeps it honest.
+    """
+
+    def test_every_toolset_exposing_navigate_can_also_record(self):
+        offenders = sorted(
+            name for name in TOOLSETS
+            if "browser_navigate" in set(resolve_toolset(name))
+            and "pagemem_remember" not in set(resolve_toolset(name))
+        )
+        assert not offenders, (
+            "these toolsets auto-capture page memory but cannot record a "
+            f"playbook, so their recall section is always empty: {offenders}"
+        )

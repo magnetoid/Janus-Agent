@@ -155,19 +155,15 @@ class TestSessionKeyContext:
             approval_module.reset_current_session_key(token)
 
     def test_gateway_runner_binds_session_key_to_context_before_agent_run(self):
-        run_py = Path(__file__).resolve().parents[2] / "gateway" / "run.py"
-        module = ast.parse(run_py.read_text(encoding="utf-8"))
-
-        run_sync = None
-        for node in ast.walk(module):
-            if isinstance(node, ast.FunctionDef) and node.name == "run_sync":
-                run_sync = node
-                break
-
-        assert run_sync is not None, "gateway.run.run_sync not found"
+        # The gateway implementation lives in gateway/runner.py (gateway/run.py
+        # is a launcher shim). The invariant: the runner both binds AND resets
+        # the approval session-key contextvar around the agent run — a bind
+        # without a paired reset would leak identity across pooled threads.
+        runner_py = Path(__file__).resolve().parents[2] / "gateway" / "runner.py"
+        module = ast.parse(runner_py.read_text(encoding="utf-8"))
 
         called_names = set()
-        for node in ast.walk(run_sync):
+        for node in ast.walk(module):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 called_names.add(node.func.id)
 
@@ -1570,3 +1566,30 @@ class TestApprovalTimeoutIsNotConsent:
         assert last_post.get("choice") == "timeout", (
             f"hook choice should be 'timeout' on no-response, got {last_post.get('choice')!r}"
         )
+
+
+class TestFrozenYoloRevocation:
+    """Process-wide YOLO freeze is one-way revocable (Tier-0 hardening)."""
+
+    def test_revoke_turns_frozen_yolo_off(self, monkeypatch):
+        import tools.approval as mod
+        monkeypatch.setattr(mod, "_YOLO_MODE_FROZEN", True)
+        assert mod.is_frozen_yolo_enabled() is True
+        mod.revoke_frozen_yolo()
+        assert mod.is_frozen_yolo_enabled() is False
+
+    def test_no_reenable_api_exists(self):
+        # The escalation path (post-import enablement) must stay closed:
+        # nothing in the module's public API may set the frozen flag True.
+        import tools.approval as mod
+        enablers = [n for n in dir(mod)
+                    if "yolo" in n.lower() and "enable" in n.lower()
+                    and not n.startswith("is_")]
+        # Only the session-scoped opt-in is sanctioned.
+        assert enablers == ["enable_session_yolo"]
+
+    def test_env_change_after_import_is_ignored(self, monkeypatch):
+        import tools.approval as mod
+        monkeypatch.setattr(mod, "_YOLO_MODE_FROZEN", False)
+        monkeypatch.setenv("JANUS_YOLO_MODE", "1")
+        assert mod.is_frozen_yolo_enabled() is False

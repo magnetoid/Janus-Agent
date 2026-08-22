@@ -10,6 +10,16 @@ from janus_cli.prompt_size import (
     render_breakdown,
 )
 
+# Overrides the global --timeout=30. Every test here builds a real AIAgent,
+# and whichever one runs first absorbs the whole process bootstrap: importing
+# the OpenAI SDK, the env-probe subprocesses, and the models.dev context-length
+# fetch (a network round trip plus a multi-MB cache write into the per-test
+# JANUS_HOME). That one-time cost alone lands within a few seconds of the 30s
+# cap, so the first test flakes on a cold or slow runner while the remaining
+# six take ~1s each. Raise the cap rather than let bootstrap latency decide
+# whether the suite is green.
+pytestmark = pytest.mark.timeout(120)
+
 
 def _seed_memory(janus_home, memory_text="", user_text=""):
     mem_dir = janus_home / "memories"
@@ -35,6 +45,15 @@ def isolated_home(tmp_path, monkeypatch):
     janus_home.mkdir()
     monkeypatch.setenv("JANUS_HOME", str(janus_home))
     monkeypatch.chdir(tmp_path)  # avoid picking up the repo's AGENTS.md
+    # The inspection agent only emits the ``<available_skills>`` block when
+    # skills tools are in its schema, and tool modules no longer self-register
+    # on ``import model_tools`` — real entry points (``janus_cli/main.py``,
+    # which dispatches ``janus prompt-size``, plus ``cli.py`` and
+    # ``gateway/runner.py``) call ``discover_builtin_tools()`` at startup.
+    # Import just the skills tool module here: it registers exactly the
+    # dependency these assertions have, without paying for every other tool's
+    # check_fn probing Docker/Modal/playwright/provider endpoints.
+    import tools.skills_tool  # noqa: F401
     return janus_home
 
 

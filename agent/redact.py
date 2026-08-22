@@ -7,6 +7,7 @@ Short tokens (< 18 chars) are fully masked. Longer tokens preserve
 the first 6 and last 4 characters for debuggability.
 """
 
+import json
 import logging
 import os
 import re
@@ -494,3 +495,44 @@ class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         original = super().format(record)
         return redact_sensitive_text(original)
+
+
+class RedactingJSONFormatter(logging.Formatter):
+    """One redacted JSON object per line — for log aggregation / querying.
+
+    The text formatter renders session/turn/request as a compact ``[…]`` tag
+    with only the trailing id segments; this emits them as discrete fields
+    (``session_id`` / ``turn_id`` / ``request_id``, injected by
+    janus_logging's record factory) carrying the FULL ids, so a collector can
+    answer "every line for turn X" or "how long did API call #3 take".
+    Message and exception text are redacted with the same rules as the text
+    formatter.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": redact_sensitive_text(record.getMessage()),
+        }
+        # Correlation fields are absent on records created before the factory
+        # was installed, and empty outside a conversation — omit them rather
+        # than emitting nulls a collector would have to filter.
+        for field in ("session_id_ctx", "turn_id", "request_id"):
+            value = getattr(record, field, "")
+            if value:
+                payload["session_id" if field == "session_id_ctx" else field] = str(value)
+        if record.exc_info:
+            payload["exception"] = redact_sensitive_text(
+                self.formatException(record.exc_info)
+            )
+        elif record.exc_text:
+            payload["exception"] = redact_sensitive_text(record.exc_text)
+        if record.stack_info:
+            payload["stack"] = redact_sensitive_text(
+                self.formatStack(record.stack_info)
+            )
+        # ensure_ascii=False keeps non-ASCII readable; default=str stops a
+        # non-serializable extra from killing the log line.
+        return json.dumps(payload, ensure_ascii=False, default=str)

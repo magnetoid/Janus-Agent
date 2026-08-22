@@ -164,7 +164,10 @@ def tool_failure_rate(snapshot: List[Dict[str, Any]]) -> float:
     return round(failed / total, 4) if total else 0.0
 
 
-_SKILL_VIEW = re.compile(r"skill_view\s*\(\s*name\s*=\s*['\"]([\w./-]+)['\"]", re.I)
+# ':' admits qualified names — plugin skills ("plugin:skill") and the
+# shadow-trial alias ("draft:<name>"), whose drafts must accrue their OWN
+# usage trajectory for the promotion gate.
+_SKILL_VIEW = re.compile(r"skill_view\s*\(\s*name\s*=\s*['\"]([\w./:-]+)['\"]", re.I)
 
 
 def skills_used_in(messages: List[Dict[str, Any]]) -> List[str]:

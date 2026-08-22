@@ -14,9 +14,13 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from gateway.run import GatewayRunner
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
 from gateway.platforms.base import MessageEvent, SendResult

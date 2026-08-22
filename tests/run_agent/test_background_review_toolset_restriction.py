@@ -95,6 +95,20 @@ def test_background_review_installs_thread_local_whitelist():
     """
     import run_agent
     from janus_cli import plugins as _plugins
+    from model_tools import discover_builtin_tools, registry
+
+    # The production whitelist is derived from ``get_tool_definitions()``,
+    # i.e. from the live tool registry. Tools self-register on import, and a
+    # freshly-spawned test process has imported none of them — without this
+    # the registry is empty, the whitelist comes back as ``set()``, and every
+    # assertion below passes or fails for the wrong reason (the "not in
+    # whitelist" ones would be vacuously true).
+    discover_builtin_tools()
+    for _dangerous in ("terminal", "send_message", "delegate_task", "web_search", "execute_code"):
+        assert registry.get_schema(_dangerous) is not None, (
+            f"{_dangerous} is not registered — the exclusion assertions below "
+            "would be vacuous"
+        )
 
     captured = {}
 

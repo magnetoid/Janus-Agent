@@ -140,6 +140,28 @@ class TestCodeExecutionTZ:
     """Verify TZ env var is passed to sandboxed child process via real execute_code."""
 
     @pytest.fixture(autouse=True)
+    def _allow_headless_execute_code(self):
+        """Opt the isolated JANUS_HOME into headless execute_code approval.
+
+        ``execute_code`` runs arbitrary local Python, so its approval guard
+        blocks it outright in a non-interactive context unless the operator
+        has set ``approvals.headless_mode: approve`` (default: ``deny``).
+        The test suite *is* such a context, so write that documented config
+        into the per-test JANUS_HOME rather than mocking the guard away —
+        this is the same knob a headless operator would set.
+        """
+        import yaml
+        from janus_cli.config import get_config_path
+
+        config_path = get_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if config_path.exists():
+            existing = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        existing.setdefault("approvals", {})["headless_mode"] = "approve"
+        config_path.write_text(yaml.safe_dump(existing), encoding="utf-8")
+
+    @pytest.fixture(autouse=True)
     def _import_execute_code(self, monkeypatch):
         """Lazy-import execute_code to avoid pulling in firecrawl at collection time."""
         # Force local backend — other tests in the same xdist worker may leak
@@ -182,7 +204,7 @@ class TestCodeExecutionTZ:
                 task_id="tz-combined-test",
                 enabled_tools=[],
             ))
-        assert result["status"] == "success"
+        assert result["status"] == "success", result
         assert "TZ=Asia/Kolkata" in result["output"]
         assert "JANUS_TIMEZONE=NOT_SET" in result["output"], (
             "JANUS_TIMEZONE should not leak into child env (only TZ)"
@@ -199,7 +221,7 @@ class TestCodeExecutionTZ:
                 task_id="tz-test-empty",
                 enabled_tools=[],
             ))
-        assert result["status"] == "success"
+        assert result["status"] == "success", result
         assert "NOT_SET" in result["output"]
 
 

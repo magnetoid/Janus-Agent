@@ -92,8 +92,13 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
         # If the node module fails to import for any reason (optional dep
         # missing at import time etc.), leave the subparser present but
         # flag it. The argparse dispatch will surface a clear error.
+        # Capture the message NOW: Python deletes the `except ... as e`
+        # binding at block exit, so the closure below would raise NameError
+        # when actually invoked if it referenced `e` directly.
+        _node_err = str(e)
+
         def _node_unavailable(args):
-            print(f"janus meet node: module unavailable ({e})")
+            print(f"janus meet node: module unavailable ({_node_err})")
             return 1
         node_p.set_defaults(func=_node_unavailable)
 

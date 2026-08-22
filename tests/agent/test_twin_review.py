@@ -104,12 +104,17 @@ def test_revise_is_also_a_veto(home):
     assert self_improve.get(rec["id"])["status"] == "rejected"
 
 
-def test_pass_never_approves_and_never_promotes(home):
+def test_pass_never_approves_and_never_promotes(home, monkeypatch):
     """The whole point: a passing review does NOT approve or set gate_ok. It only
     records that the second core didn't object; a human still gates promotion."""
     rec = _propose(home)
     # Give it eval evidence so the ONLY thing between it and promotion is approval.
     self_improve.record_evaluation(rec["id"], score_before=0.0, score_after=1.0)
+    # ...and satisfy the suite-floor + trend-history preconditions, which
+    # otherwise refuse first (they're covered in test_self_improve).
+    monkeypatch.setattr("agent.evals.load_eval_specs", lambda *a, **k: [object()] * 10)
+    monkeypatch.setattr("agent.eval_trend.regression_gate",
+                        lambda *a, **k: {"ok": True, "message": "OK"})
     out = twin_review.review_proposal(
         rec["id"], llm_caller=_caller(rec["id"], "accept"), config=CFG)
     assert out["reviewed"] is True

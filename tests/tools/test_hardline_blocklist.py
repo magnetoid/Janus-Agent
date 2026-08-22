@@ -162,6 +162,18 @@ def clean_session(monkeypatch):
     monkeypatch.delenv("JANUS_GATEWAY_SESSION", raising=False)
     monkeypatch.delenv("JANUS_CRON_SESSION", raising=False)
     monkeypatch.delenv("JANUS_EXEC_ASK", raising=False)
+
+    # tools.approval runs load_permanent_allowlist() at import time, and this
+    # module is imported during collection — before the conftest hermetic
+    # fixture redirects JANUS_HOME. On a developer machine that pulls the real
+    # ~/.janus/config.yaml `command_allowlist` into _permanent_approved, so
+    # commands the maintainer once answered "always" to are silently
+    # pre-approved here and the tests decide differently than they do on a
+    # clean runner. Start every test from an empty approval state.
+    import tools.approval as approval_mod
+    monkeypatch.setattr(approval_mod, "_permanent_approved", set())
+    monkeypatch.setattr(approval_mod, "_session_approved", {})
+
     token = set_current_session_key("hardline_test")
     try:
         disable_session_yolo("hardline_test")
@@ -169,6 +181,53 @@ def clean_session(monkeypatch):
     finally:
         disable_session_yolo("hardline_test")
         reset_current_session_key(token)
+
+
+@pytest.fixture
+def process_yolo(monkeypatch, clean_session):
+    """Turn on process-wide YOLO the way ``janus --yolo`` does.
+
+    ``tools.approval`` freezes ``JANUS_YOLO_MODE`` into the module-level
+    ``_YOLO_MODE_FROZEN`` at import time on purpose: post-import enablement
+    (an injected prompt talking the agent into exporting the variable) is
+    exactly the escalation path the freeze exists to block, and
+    ``revoke_frozen_yolo()`` is deliberately one-way. So a test cannot turn
+    process YOLO on with ``monkeypatch.setenv`` — it has to set the frozen
+    flag, which is what a ``--yolo`` process really looks like.
+    """
+    import tools.approval as approval_mod
+    monkeypatch.setattr(approval_mod, "_YOLO_MODE_FROZEN", True)
+
+
+@pytest.fixture(params=["process", "session"])
+def any_yolo(request, monkeypatch, clean_session):
+    """Enable YOLO via each of the two sanctioned mechanisms in turn."""
+    import tools.approval as approval_mod
+    if request.param == "process":
+        monkeypatch.setattr(approval_mod, "_YOLO_MODE_FROZEN", True)
+    else:
+        enable_session_yolo("hardline_test")
+    return request.param
+
+
+def test_setting_yolo_env_var_after_import_does_not_enable_yolo(clean_session, monkeypatch):
+    """The process-wide YOLO switch is read once, at import.
+
+    Guards the freeze itself: if ``JANUS_YOLO_MODE`` ever goes back to being
+    read live, anything that can write the agent's environment mid-run can
+    disable every approval prompt.
+    """
+    import tools.approval as approval_mod
+
+    assert approval_mod.is_frozen_yolo_enabled() is False
+    monkeypatch.setenv("JANUS_YOLO_MODE", "1")
+    assert approval_mod.is_frozen_yolo_enabled() is False, (
+        "JANUS_YOLO_MODE must not be honored after import"
+    )
+
+    # And a merely-dangerous (non-hardline) command is still gated.
+    result = check_dangerous_command("chmod -R 777 .", "local")
+    assert result["approved"] is False
 
 
 def test_check_dangerous_command_blocks_hardline(clean_session):
@@ -185,10 +244,8 @@ def test_check_all_command_guards_blocks_hardline(clean_session):
     assert "BLOCKED (hardline)" in result["message"]
 
 
-def test_yolo_env_var_cannot_bypass_hardline(clean_session, monkeypatch):
-    """JANUS_YOLO_MODE=1 must not bypass the hardline floor."""
-    monkeypatch.setenv("JANUS_YOLO_MODE", "1")
-
+def test_process_yolo_cannot_bypass_hardline(process_yolo):
+    """Process-wide YOLO (``janus --yolo``) must not bypass the hardline floor."""
     for cmd in ["rm -rf /", "shutdown -h now", "mkfs.ext4 /dev/sda", "reboot"]:
         r1 = check_dangerous_command(cmd, "local")
         assert r1["approved"] is False, f"yolo leaked hardline on {cmd!r} (check_dangerous_command)"
@@ -256,13 +313,12 @@ def test_hardline_runs_before_dangerous_detection(clean_session):
     assert result.get("hardline") is True
 
 
-def test_recoverable_dangerous_commands_still_pass_yolo(clean_session, monkeypatch):
+def test_recoverable_dangerous_commands_still_pass_yolo(any_yolo):
     """Yolo still bypasses the regular DANGEROUS_PATTERNS list.
 
     This confirms we haven't broken the yolo escape hatch — only narrowed it.
+    Runs once for process-wide YOLO and once for session (gateway ``/yolo``).
     """
-    monkeypatch.setenv("JANUS_YOLO_MODE", "1")
-
     # These are dangerous but NOT hardline — yolo should still pass them.
     for cmd in ["rm -rf /tmp/x", "chmod -R 777 .", "git reset --hard", "git push --force"]:
         # Sanity: still flagged as dangerous
@@ -359,10 +415,8 @@ def test_sudo_stdin_guard_blocks_via_check_all_command_guards(clean_session):
         assert "sudo -S" in result["message"].lower() or "sudo password" in result["message"].lower()
 
 
-def test_sudo_stdin_guard_not_blocked_by_yolo(clean_session, monkeypatch):
+def test_sudo_stdin_guard_not_blocked_by_yolo(any_yolo):
     """yolo/approvals.mode=off must NOT bypass sudo stdin guard."""
-    monkeypatch.setenv("JANUS_YOLO_MODE", "1")
-
     for cmd in _SUDO_STDIN_BLOCK_YOLO:
         result = check_all_command_guards(cmd, "local")
         assert result["approved"] is False, f"yolo leaked sudo guard on {cmd!r}"

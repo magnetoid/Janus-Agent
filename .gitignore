@@ -19,3 +19,8 @@ apps/desktop/build/
 apps/desktop/dist/
 apps/desktop/release/
 *.tsbuildinfo
+
+# Bootstrap completion marker — written into the repo root by janus_bootstrap.
+# Must stay ignored so `janus update`'s `git stash --include-untracked` does
+# not sweep it away and re-trigger bootstrap on every update (#38529).
+.janus-bootstrap-complete

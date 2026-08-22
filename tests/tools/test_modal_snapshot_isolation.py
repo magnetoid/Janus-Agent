@@ -21,6 +21,24 @@ def _load_module(module_name: str, path: Path):
     return module
 
 
+def _load_modal_env_module():
+    """Load ``tools/environments/modal.py`` with the SDK-install hook disabled.
+
+    ``_ensure_modal_sdk`` lazy-installs ``modal==1.3.4`` through tools/lazy_deps.
+    The fake ``sys.modules["modal"]`` these tests install is a SimpleNamespace
+    with no distribution metadata, so the pinned-version check still reports the
+    feature as missing and the helper shells out to pip *during the test* — a
+    real network install that costs ~30s and fails outright on hosts without a
+    Rust toolchain (cbor2 ships no macOS wheel for this interpreter). These
+    tests exercise snapshot-key isolation, not SDK bootstrapping.
+    """
+    module = _load_module(
+        "tools.environments.modal", TOOLS_DIR / "environments" / "modal.py"
+    )
+    module._ensure_modal_sdk = lambda: None
+    return module
+
+
 def _reset_modules(prefixes: tuple[str, ...]):
     for name in list(sys.modules):
         if name.startswith(prefixes):
@@ -203,7 +221,7 @@ def test_modal_environment_migrates_legacy_snapshot_key_and_uses_snapshot_id(tmp
     snapshot_store.parent.mkdir(parents=True, exist_ok=True)
     snapshot_store.write_text(json.dumps({"task-legacy": "im-legacy123"}))
 
-    modal_module = _load_module("tools.environments.modal", TOOLS_DIR / "environments" / "modal.py")
+    modal_module = _load_modal_env_module()
     env = modal_module.ModalEnvironment(image="python:3.11", task_id="task-legacy")
 
     try:
@@ -220,7 +238,7 @@ def test_modal_environment_prunes_stale_direct_snapshot_and_retries_base_image(t
     snapshot_store.parent.mkdir(parents=True, exist_ok=True)
     snapshot_store.write_text(json.dumps({"direct:task-stale": "im-stale123"}))
 
-    modal_module = _load_module("tools.environments.modal", TOOLS_DIR / "environments" / "modal.py")
+    modal_module = _load_modal_env_module()
     env = modal_module.ModalEnvironment(image="python:3.11", task_id="task-stale")
 
     try:
@@ -237,7 +255,7 @@ def test_modal_environment_cleanup_writes_namespaced_snapshot_key(tmp_path):
     state = _install_modal_test_modules(tmp_path, snapshot_id="im-cleanup456")
     snapshot_store = state["snapshot_store"]
 
-    modal_module = _load_module("tools.environments.modal", TOOLS_DIR / "environments" / "modal.py")
+    modal_module = _load_modal_env_module()
     env = modal_module.ModalEnvironment(image="python:3.11", task_id="task-cleanup")
     env.cleanup()
 
@@ -246,7 +264,7 @@ def test_modal_environment_cleanup_writes_namespaced_snapshot_key(tmp_path):
 
 def test_resolve_modal_image_uses_snapshot_ids_and_registry_images(tmp_path):
     state = _install_modal_test_modules(tmp_path)
-    modal_module = _load_module("tools.environments.modal", TOOLS_DIR / "environments" / "modal.py")
+    modal_module = _load_modal_env_module()
 
     snapshot_image = modal_module._resolve_modal_image("im-snapshot123")
     registry_image = modal_module._resolve_modal_image("python:3.11")

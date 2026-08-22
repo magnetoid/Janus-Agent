@@ -18,6 +18,17 @@ def _enabled(monkeypatch):
     monkeypatch.setattr(si, "require_human_approval", lambda config=None: True)
 
 
+@pytest.fixture(autouse=True)
+def _satisfied_eval_gate(monkeypatch):
+    # can_promote refuses on a small suite (min_eval_specs) and on a
+    # history-less trend gate (fail_closed=True). Satisfy both by default so
+    # the rest of the matrix stays testable; the eval-gate tests re-patch.
+    monkeypatch.setattr("agent.evals.load_eval_specs",
+                        lambda *a, **k: [object()] * 10)
+    monkeypatch.setattr("agent.eval_trend.regression_gate",
+                        lambda *a, **k: {"ok": True, "message": "OK"})
+
+
 # --- guardrail 1: target allowlist (self-artifacts only, never core) --------
 
 def test_resolve_target_refuses_core_and_escapes():
@@ -143,7 +154,7 @@ def test_gate_refuses_when_live_suite_regressed(monkeypatch):
     monkeypatch.setattr("agent.eval_trend.regression_gate",
                         lambda *a, **k: {"ok": False, "message": "REGRESSION — core_test"})
     ok, reason = si.can_promote(a["id"])
-    assert ok is False and "live eval suite is regressed" in reason
+    assert ok is False and "live eval suite gate refused" in reason
 
 
 def test_gate_fails_closed_when_safety_check_errors(monkeypatch):
@@ -159,30 +170,67 @@ def test_gate_fails_closed_when_safety_check_errors(monkeypatch):
 
 # --- apply / rollback -------------------------------------------------------
 
-def test_promote_writes_file_and_rollback_removes_new_file():
+def test_promote_activates_net_new_skill_and_rollback_removes_it():
+    # A skill promotion must land LIVE — historically it wrote only the
+    # quarantined draft, a directory nothing loads.
+    from janus_constants import get_janus_home
     a = _propose()
     si.record_evaluation(a["id"], score_before=0.5, score_after=0.9)
     si.approve(a["id"])
     res = si.promote(a["id"])
-    target = si.resolve_target(a["target"])
-    assert res["promoted"] is True and target.exists()
-    assert target.read_text(encoding="utf-8") == "# Demo\nbody"
-    # target didn't exist before → rollback removes it
+    assert res["promoted"] is True
+    live = get_janus_home() / "skills" / "demo" / "SKILL.md"
+    assert res["target"] == str(live)
+    assert live.read_text(encoding="utf-8") == "# Demo\nbody"
+    # ...and the draft left quarantine (moved, not copied).
+    assert not si.resolve_target(a["target"]).exists()
+    # nothing existed before → rollback removes the activated skill
     assert si.rollback(a["id"])["rolled_back"] is True
-    assert not target.exists()
+    assert not live.exists() and not live.parent.exists()
 
 
 def test_promote_backs_up_and_rollback_restores_prior_content():
-    target = si.resolve_target("skills/.drafts/exists/SKILL.md")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("ORIGINAL", encoding="utf-8")
+    from janus_constants import get_janus_home
+    draft = si.resolve_target("skills/.drafts/exists/SKILL.md")
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("ORIGINAL", encoding="utf-8")
     a = si.propose("skill", "skills/.drafts/exists/SKILL.md", "REPLACEMENT")
     si.record_evaluation(a["id"], score_before=0.5, score_after=0.9)
     si.approve(a["id"])
     assert si.promote(a["id"])["promoted"] is True
-    assert target.read_text(encoding="utf-8") == "REPLACEMENT"
+    live = get_janus_home() / "skills" / "exists" / "SKILL.md"
+    assert live.read_text(encoding="utf-8") == "REPLACEMENT"   # went live
     si.rollback(a["id"])
-    assert target.read_text(encoding="utf-8") == "ORIGINAL"   # prior content restored
+    assert not live.exists()                                    # activation undone
+    assert draft.read_text(encoding="utf-8") == "ORIGINAL"      # draft restored
+
+
+def test_promote_replaces_active_skill_in_place_and_rollback_restores():
+    # The Lane-A core case: an ACTIVE (categorized) skill with the same
+    # frontmatter name gets replaced in place — no name-2 twin, no ambiguity.
+    from janus_constants import get_janus_home
+    live_dir = get_janus_home() / "skills" / "devops" / "flaky"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    live = live_dir / "SKILL.md"
+    live.write_text("---\nname: flaky\ndescription: d\n---\n\nOLD BODY",
+                    encoding="utf-8")
+    variant = "---\nname: flaky\ndescription: d\n---\n\nNEW BODY"
+    a = si.propose("skill", "skills/.drafts/flaky/SKILL.md", variant)
+    si.record_evaluation(a["id"], score_before=0.2, score_after=0.9)
+    si.approve(a["id"])
+    res = si.promote(a["id"])
+    assert res["promoted"] is True
+    assert res["target"] == str(live)
+    assert "NEW BODY" in live.read_text(encoding="utf-8")
+    # exactly one active skill named 'flaky' — no name-2 twin anywhere
+    from agent.skill_utils import iter_skill_index_files, parse_frontmatter
+    hits = [md for md in iter_skill_index_files(get_janus_home() / "skills", "SKILL.md")
+            if (parse_frontmatter(md.read_text(encoding="utf-8"))[0].get("name")
+                or md.parent.name) == "flaky"]
+    assert hits == [live]
+    # rollback restores the original bytes at the live path
+    assert si.rollback(a["id"])["rolled_back"] is True
+    assert "OLD BODY" in live.read_text(encoding="utf-8")
 
 
 def test_promote_refused_does_not_write():
@@ -219,3 +267,51 @@ def test_enabled_and_approval_read_config(monkeypatch):
     assert si.require_human_approval({}) is True                     # default ON
     assert si.require_human_approval(
         {"learning": {"self_improve": {"require_human_approval": False}}}) is False
+
+
+# --- Phase D: eval-suite floor + fail-closed trend cross-check ---------------
+
+def _approved_proposal():
+    a = _propose()
+    si.record_evaluation(a["id"], score_before=0.5, score_after=0.9)
+    si.approve(a["id"])
+    return a
+
+
+def test_gate_refuses_on_small_or_empty_suite(monkeypatch):
+    a = _approved_proposal()
+    monkeypatch.setattr("agent.evals.load_eval_specs", lambda *x, **k: [])
+    ok, reason = si.can_promote(a["id"])
+    assert ok is False and "eval suite too small" in reason
+    # a handful of specs below the floor is still refused
+    monkeypatch.setattr("agent.evals.load_eval_specs",
+                        lambda *x, **k: [object()] * 3)
+    ok, reason = si.can_promote(a["id"])
+    assert ok is False and "eval suite too small" in reason
+
+
+def test_gate_refuses_without_trend_history(monkeypatch):
+    # regression_gate(fail_closed=True) refusing (no history) must block —
+    # the vacuous pass on an empty history was the whole bug.
+    a = _approved_proposal()
+    monkeypatch.setattr(
+        "agent.eval_trend.regression_gate",
+        lambda *x, fail_closed=False, **k: {
+            "ok": not fail_closed,
+            "message": "not enough eval history to compare yet"})
+    ok, reason = si.can_promote(a["id"])
+    assert ok is False and "gate refused" in reason
+
+
+def test_gate_passes_fail_closed_flag_to_regression_gate(monkeypatch):
+    seen = {}
+
+    def fake_gate(*x, **k):
+        seen.update(k)
+        return {"ok": True, "message": "OK"}
+
+    a = _approved_proposal()
+    monkeypatch.setattr("agent.eval_trend.regression_gate", fake_gate)
+    ok, _ = si.can_promote(a["id"])
+    assert ok is True
+    assert seen.get("fail_closed") is True

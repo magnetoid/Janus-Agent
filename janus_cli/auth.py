@@ -6951,10 +6951,10 @@ def _minimax_request_user_code(
             provider="minimax-oauth", code="authorization_failed",
         )
     payload = response.json()
-    for field in ("user_code", "verification_uri", "expired_in"):
-        if field not in payload:
+    for field_name in ("user_code", "verification_uri", "expired_in"):
+        if field_name not in payload:
             raise AuthError(
-                f"MiniMax OAuth response missing field: {field}",
+                f"MiniMax OAuth response missing field: {field_name}",
                 provider="minimax-oauth", code="authorization_incomplete",
             )
     if payload.get("state") != state:

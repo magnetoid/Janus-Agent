@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -52,17 +53,42 @@ from toolset_distributions import (
     sample_toolsets_from_distribution,
     validate_distribution
 )
-from model_tools import TOOL_TO_TOOLSET_MAP
-
-
 # Global configuration for worker processes
 _WORKER_CONFIG = {}
 
-# All possible tools - auto-derived from the master mapping in model_tools.py.
-# This stays in sync automatically when new tools are added to TOOL_TO_TOOLSET_MAP.
-# Used for consistent schema in Arrow/Parquet (HuggingFace datasets) and for
-# filtering corrupted entries during trajectory combination.
-ALL_POSSIBLE_TOOLS = set(TOOL_TO_TOOLSET_MAP.keys())
+
+@lru_cache(maxsize=1)
+def _all_possible_tools() -> frozenset:
+    """Every registered tool name, resolved from the live registry.
+
+    Deliberately NOT captured at import time. Tools self-register when their
+    modules are imported, and 70dbbfa moved that discovery out of
+    ``import model_tools`` into an explicit ``discover_builtin_tools()`` call
+    per entry point, which left the old ``model_tools.TOOL_TO_TOOLSET_MAP``
+    snapshot permanently empty (since removed). Deriving from it here produced
+    an empty set, which silently disabled the Arrow zero-fill below AND made
+    the trajectory-combination filter treat every real tool as corrupt.
+
+    Cached: discovery is idempotent but walks the tools package.
+    """
+    from tools.registry import discover_builtin_tools, registry
+
+    discover_builtin_tools()
+    return frozenset(registry.get_tool_to_toolset_map())
+
+
+def _invalid_tool_names(tool_stats: Dict[str, Any]) -> List[str]:
+    """Tool names in *tool_stats* that no registered tool accounts for.
+
+    Used to drop genuinely corrupted trajectory entries during combination.
+    Returns [] when nothing is registered rather than condemning every entry —
+    an empty registry means we could not resolve the truth, which is not
+    evidence that the data is bad.
+    """
+    known = _all_possible_tools()
+    if not known:
+        return []
+    return [name for name in tool_stats if name not in known]
 
 # Default stats for tools that weren't used
 DEFAULT_TOOL_STATS = {'count': 0, 'success': 0, 'failure': 0}
@@ -84,7 +110,7 @@ def _normalize_tool_stats(tool_stats: Dict[str, Dict[str, int]]) -> Dict[str, Di
     normalized = {}
     
     # Add all possible tools with defaults
-    for tool in ALL_POSSIBLE_TOOLS:
+    for tool in _all_possible_tools():
         if tool in tool_stats:
             normalized[tool] = tool_stats[tool].copy()
         else:
@@ -111,7 +137,7 @@ def _normalize_tool_error_counts(tool_error_counts: Dict[str, int]) -> Dict[str,
     normalized = {}
     
     # Add all possible tools with zero defaults
-    for tool in ALL_POSSIBLE_TOOLS:
+    for tool in _all_possible_tools():
         normalized[tool] = tool_error_counts.get(tool, 0)
     
     # Also include any unexpected tools
@@ -1029,9 +1055,6 @@ class BatchRunner:
         combined_file = self.output_dir / "trajectories.jsonl"
         print(f"\n📦 Combining ALL batch files into {combined_file.name}...")
         
-        # Valid tools auto-derived from model_tools.py — no manual updates needed
-        VALID_TOOLS = ALL_POSSIBLE_TOOLS
-        
         total_entries = 0
         filtered_entries = 0
         batch_files_found = 0
@@ -1051,8 +1074,10 @@ class BatchRunner:
                             data = json.loads(line)
                             tool_stats = data.get('tool_stats', {})
                             
-                            # Check for invalid tool names (model hallucinations)
-                            invalid_tools = [k for k in tool_stats if k not in VALID_TOOLS]
+                            # Check for invalid tool names (model hallucinations).
+                            # Resolved against the LIVE registry — an import-time
+                            # snapshot is empty and would condemn every entry.
+                            invalid_tools = _invalid_tool_names(tool_stats)
                             
                             if invalid_tools:
                                 filtered_entries += 1

@@ -242,17 +242,29 @@ def assess_promotability(
     skill_dir: Optional[Path] = None,
     min_uses: Optional[int] = None,
     promo_thr: Optional[float] = None,
+    reward_thr: Optional[float] = None,
+    trajectory_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Verifiable-reward assessment (no LLM). Combines the static self-test with
     the outcome trajectory. Returns promotable/refinement_needed + the signals.
 
-    ``min_uses`` / ``promo_thr`` override the ``graph.*`` config defaults — the
-    governor passes tightened values under CAUTION so promotion bars rise when
-    the learning loop looks shaky, without duplicating this logic."""
-    from agent.outcome_tracker import skill_success_trajectory
+    ``min_uses`` / ``promo_thr`` / ``reward_thr`` override the ``graph.*`` config
+    defaults — the governor passes tightened values under CAUTION so promotion
+    bars rise when the learning loop looks shaky, without duplicating this logic.
+
+    Promotion requires BOTH the boolean success rate and the shaped mean reward
+    to clear their bars (gap G10). The boolean cannot see a skill that succeeds
+    only by thrashing; the reward can.
+
+    ``trajectory_key`` overrides which outcome trajectory is consulted
+    (default: ``skill_name``). The shadow-trial lane passes ``draft:<name>``
+    so a draft is judged on its OWN record — not on the failing active
+    skill's history it is meant to replace."""
+    from agent.outcome_tracker import skill_reward_trajectory, skill_success_trajectory
 
     min_uses = int(_graph_cfg("min_uses_for_promotion", 3)) if min_uses is None else int(min_uses)
     promo_thr = float(_graph_cfg("promotion_success_threshold", 0.75)) if promo_thr is None else float(promo_thr)
+    reward_thr = float(_graph_cfg("promotion_reward_threshold", 0.6)) if reward_thr is None else float(reward_thr)
     refine_thr = float(_graph_cfg("refinement_failure_threshold", 0.35))
 
     if skill_dir is None:
@@ -265,20 +277,36 @@ def assess_promotability(
         except Exception:
             verify_ok = True  # absence of a verifier result isn't a failure
 
-    traj = skill_success_trajectory(skill_name)
+    traj = skill_success_trajectory(trajectory_key or skill_name)
     uses = len(traj)
     success_rate = round(sum(traj) / uses, 3) if uses else None
+
+    # Gap G10: the boolean trajectory cannot distinguish "worked" from "worked
+    # only after thrashing" — a skill whose every session succeeded on the
+    # tenth tool attempt still reads as 100%. The shaped reward
+    # (success - 0.5*tool_failure_rate) can, so promotion needs BOTH: the
+    # success rate AND a mean-reward floor. Fail-closed, per the promotion-gate
+    # asymmetry — advisory reads may fail open, promotion decisions may not.
+    rtraj = skill_reward_trajectory(trajectory_key or skill_name)
+    mean_reward = round(sum(rtraj) / len(rtraj), 3) if rtraj else None
 
     promotable = bool(
         verify_ok and uses >= min_uses
         and success_rate is not None and success_rate >= promo_thr
+        and mean_reward is not None and mean_reward >= reward_thr
     )
     refinement_needed = bool(
         (not verify_ok)
         or (success_rate is not None and uses >= min_uses and success_rate <= refine_thr)
     )
     if promotable:
-        reason = f"verified + {int(success_rate * 100)}% success over {uses} uses"
+        reason = (f"verified + {int(success_rate * 100)}% success over {uses} uses "
+                  f"(mean reward {mean_reward})")
+    elif (verify_ok and uses >= min_uses and success_rate is not None
+          and success_rate >= promo_thr
+          and mean_reward is not None and mean_reward < reward_thr):
+        reason = (f"{int(success_rate * 100)}% success but mean reward {mean_reward} "
+                  f"< {reward_thr} — succeeds only with heavy tool failure")
     elif refinement_needed:
         reason = "failed self-test" if not verify_ok else \
                  f"low success ({int(success_rate * 100)}%) over {uses} uses"
@@ -286,7 +314,8 @@ def assess_promotability(
         reason = "insufficient signal" if uses < min_uses else "stable"
     return {
         "skill": skill_name, "promotable": promotable, "refinement_needed": refinement_needed,
-        "verify_ok": verify_ok, "success_rate": success_rate, "uses": uses, "reason": reason,
+        "verify_ok": verify_ok, "success_rate": success_rate, "uses": uses,
+        "mean_reward": mean_reward, "reason": reason,
     }
 
 
@@ -360,9 +389,23 @@ def auto_promote_drafts(
                 continue
             name = (meta.get("name") or draft_dir.name).strip()
 
+            # Shadow-trial lane: when trial_drafts is on, judge the draft on
+            # its OWN accumulated draft:-aliased trajectory. Without the flag
+            # drafts can't be viewed, so their trajectory is empty and the
+            # gate honestly refuses (never promote on zero evidence).
+            _trajectory_key = None
+            try:
+                from agent.feature_flags import flag_enabled
+                if flag_enabled("learning", "governor.trial_drafts", default=False):
+                    _trajectory_key = f"draft:{draft_dir.name}"
+            except Exception:
+                _trajectory_key = None
+
             assessment = assess_promotability(
                 name, skill_dir=draft_dir,
                 min_uses=overrides.get("min_uses"), promo_thr=overrides.get("promo_thr"),
+                reward_thr=overrides.get("reward_thr"),
+                trajectory_key=_trajectory_key,
             )
             if not assessment.get("promotable"):
                 summary["skipped"].append({"skill": name, "reason": assessment.get("reason", "not promotable")})
@@ -437,13 +480,39 @@ def _red_team_promotion(name, meta, draft_dir, active_names, llm_caller) -> Opti
 
 
 def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_names) -> Optional[str]:
-    """Move a draft dir out of .drafts/ into the active tree. Non-clobbering.
+    """Move a draft dir out of .drafts/ into the active tree.
 
-    Returns the activated skill name (possibly suffixed on collision), or None
-    on failure. Never overwrites an existing active skill (archive-not-delete)."""
+    Same-skill replacement: when an ACTIVE skill already carries this
+    frontmatter name, the draft is its improved variant — archive the original
+    to ``skills/.archive/`` (never delete) and take over its categorized path.
+    Activating beside it as ``<name>-2`` would leave two skills with the same
+    frontmatter name, which ``skill_view`` then refuses as ambiguous — the
+    "promotion breaks the skill" failure.
+
+    The ``-N`` suffix remains only for genuine different-skill *directory*
+    collisions. Returns the activated skill name, or None on failure."""
     try:
         import shutil
+        from datetime import datetime, timezone
         from janus_constants import get_janus_home
+        from agent.skill_utils import resolve_active_skill_md
+
+        base_root = get_janus_home() / "skills"
+
+        existing_md = resolve_active_skill_md(base_root, name)
+        if existing_md is not None:
+            existing_dir = existing_md.parent
+            archive_root = base_root / ".archive"
+            archive_root.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            archived = archive_root / f"{existing_dir.name}-{stamp}"
+            n = 2
+            while archived.exists():
+                archived = archive_root / f"{existing_dir.name}-{stamp}-{n}"
+                n += 1
+            shutil.move(str(existing_dir), str(archived))
+            shutil.move(str(draft_dir), str(existing_dir))
+            return name
 
         category = ""
         try:
@@ -451,7 +520,6 @@ def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_nam
                            or meta.get("category") or "").strip()
         except Exception:
             category = ""
-        base_root = get_janus_home() / "skills"
         parent = base_root / category if category else base_root
 
         target_name = name

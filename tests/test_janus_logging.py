@@ -496,6 +496,98 @@ class TestSessionContext:
                 assert "[thread_a_session]" not in line
 
 
+class TestTurnContext:
+    """set_turn_context threads turn/request ids onto every record."""
+
+    @staticmethod
+    def _record():
+        factory = logging.getLogRecordFactory()
+        return factory("test", logging.INFO, "", 0, "msg", (), None)
+
+    def test_turn_and_request_land_on_record_fields(self):
+        """Structured consumers read full ids off discrete record fields."""
+        janus_logging.set_session_context("sess1")
+        janus_logging.set_turn_context(
+            turn_id="sess1:task7:abcd1234", request_id="sess1:task7:abcd1234:api:3"
+        )
+
+        record = self._record()
+        assert record.session_id_ctx == "sess1"
+        assert record.turn_id == "sess1:task7:abcd1234"
+        assert record.request_id == "sess1:task7:abcd1234:api:3"
+
+    def test_human_tag_carries_short_turn_and_call_segments(self):
+        """The text tag stays readable: only the trailing segments ride it."""
+        janus_logging.set_session_context("sess1")
+        janus_logging.set_turn_context(
+            turn_id="sess1:task7:abcd1234", request_id="sess1:task7:abcd1234:api:3"
+        )
+
+        tag = self._record().session_tag
+        assert tag == " [sess1 t:abcd1234 #3]"
+
+    def test_turn_context_without_session(self):
+        """A turn id alone still tags the line."""
+        janus_logging.clear_session_context()
+        janus_logging.set_turn_context(turn_id="orphan:turn:deadbeef")
+
+        assert self._record().session_tag == " [t:deadbeef]"
+
+    def test_partial_update_leaves_the_other_id_untouched(self):
+        """set_turn_context(request_id=...) must not wipe the turn id."""
+        janus_logging.set_turn_context(turn_id="s:t:aaaa1111", request_id="")
+        janus_logging.set_turn_context(request_id="s:t:aaaa1111:api:2")
+
+        record = self._record()
+        assert record.turn_id == "s:t:aaaa1111"
+        assert record.request_id == "s:t:aaaa1111:api:2"
+
+    def test_clear_session_context_clears_turn_and_request(self):
+        """Turn state must not leak from one conversation into the next."""
+        janus_logging.set_session_context("sess1")
+        janus_logging.set_turn_context(turn_id="s:t:aaaa1111", request_id="s:t:aaaa1111:api:1")
+
+        janus_logging.clear_session_context()
+
+        record = self._record()
+        assert record.session_id_ctx == ""
+        assert record.turn_id == ""
+        assert record.request_id == ""
+        assert record.session_tag == ""
+
+    def test_turn_context_is_thread_local(self):
+        """One thread's turn id never bleeds into another's records."""
+        janus_logging.set_turn_context(turn_id="main:turn:1111aaaa")
+        seen = {}
+
+        def worker():
+            seen["before"] = getattr(self._record(), "turn_id", None)
+            janus_logging.set_turn_context(turn_id="worker:turn:2222bbbb")
+            seen["after"] = self._record().turn_id
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        assert seen["before"] == ""
+        assert seen["after"] == "worker:turn:2222bbbb"
+        assert self._record().turn_id == "main:turn:1111aaaa"
+
+    def test_turn_tag_reaches_the_log_file(self, janus_home):
+        """End-to-end: the turn tag is rendered into agent.log."""
+        janus_logging.setup_logging(janus_home=janus_home)
+        janus_logging.set_session_context("e2e")
+        janus_logging.set_turn_context(turn_id="e2e:task:99887766", request_id="e2e:task:99887766:api:1")
+
+        logging.getLogger("test.turn_tag").info("turn tagged message")
+        for h in logging.getLogger().handlers:
+            h.flush()
+
+        content = (janus_home / "logs" / "agent.log").read_text()
+        assert "[e2e t:99887766 #1]" in content
+        assert "turn tagged message" in content
+
+
 class TestRecordFactory:
     """Unit tests for the custom LogRecord factory."""
 
@@ -805,28 +897,90 @@ class TestReadLoggingConfig:
     """_read_logging_config() reads from config.yaml."""
 
     def test_returns_none_when_no_config(self, janus_home):
-        level, max_size, backup = janus_logging._read_logging_config()
+        level, max_size, backup, fmt = janus_logging._read_logging_config()
         assert level is None
         assert max_size is None
         assert backup is None
+        assert fmt is None
 
     def test_reads_logging_section(self, janus_home):
         import yaml
-        config = {"logging": {"level": "DEBUG", "max_size_mb": 10, "backup_count": 5}}
+        config = {"logging": {"level": "DEBUG", "max_size_mb": 10,
+                              "backup_count": 5, "format": "json"}}
         (janus_home / "config.yaml").write_text(yaml.dump(config))
 
-        level, max_size, backup = janus_logging._read_logging_config()
+        level, max_size, backup, fmt = janus_logging._read_logging_config()
         assert level == "DEBUG"
         assert max_size == 10
         assert backup == 5
+        assert fmt == "json"
 
     def test_handles_missing_logging_section(self, janus_home):
         import yaml
         config = {"model": "test"}
         (janus_home / "config.yaml").write_text(yaml.dump(config))
 
-        level, max_size, backup = janus_logging._read_logging_config()
+        level, max_size, backup, fmt = janus_logging._read_logging_config()
         assert level is None
+        assert fmt is None
+
+
+class TestJSONLogFormat:
+    """logging.format: json switches the file handlers to JSONL output."""
+
+    def _write_config(self, janus_home, fmt):
+        import yaml
+        (janus_home / "config.yaml").write_text(yaml.dump({"logging": {"format": fmt}}))
+
+    def test_json_format_writes_one_object_per_line(self, janus_home):
+        import json
+        self._write_config(janus_home, "json")
+        janus_logging.setup_logging(janus_home=janus_home, force=True)
+        janus_logging.set_session_context("jsonsess")
+        janus_logging.set_turn_context(turn_id="jsonsess:task:12345678",
+                                       request_id="jsonsess:task:12345678:api:2")
+
+        logging.getLogger("test.jsonfmt").warning("structured hello")
+        for h in logging.getLogger().handlers:
+            h.flush()
+
+        lines = [ln for ln in (janus_home / "logs" / "agent.log").read_text().splitlines() if ln.strip()]
+        assert lines, "agent.log should not be empty"
+        payloads = [json.loads(ln) for ln in lines]
+        match = [p for p in payloads if p["message"] == "structured hello"]
+        assert len(match) == 1
+        entry = match[0]
+        assert entry["level"] == "WARNING"
+        assert entry["logger"] == "test.jsonfmt"
+        assert entry["session_id"] == "jsonsess"
+        assert entry["turn_id"] == "jsonsess:task:12345678"
+        assert entry["request_id"] == "jsonsess:task:12345678:api:2"
+        assert entry["ts"]
+
+    def test_text_format_is_the_default(self, janus_home):
+        janus_logging.setup_logging(janus_home=janus_home, force=True)
+        logging.getLogger("test.textfmt").warning("plain hello")
+        for h in logging.getLogger().handlers:
+            h.flush()
+
+        content = (janus_home / "logs" / "agent.log").read_text()
+        assert "plain hello" in content
+        assert not content.lstrip().startswith("{")
+
+    def test_json_format_redacts_secrets(self, janus_home):
+        import json
+        self._write_config(janus_home, "json")
+        janus_logging.setup_logging(janus_home=janus_home, force=True)
+
+        secret = "sk-ant-api03-" + "B" * 40
+        logging.getLogger("test.jsonsecret").error("token was %s", secret)
+        for h in logging.getLogger().handlers:
+            h.flush()
+
+        raw = (janus_home / "logs" / "agent.log").read_text()
+        assert secret not in raw
+        payloads = [json.loads(ln) for ln in raw.splitlines() if ln.strip()]
+        assert any("token was" in p["message"] for p in payloads)
 
 
 class TestExternalRotationRecovery:

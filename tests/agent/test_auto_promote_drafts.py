@@ -124,8 +124,16 @@ def test_red_team_infra_error_fails_open(home, monkeypatch):
 # ── archive-not-delete on name collision ─────────────────────────────────
 
 
-def test_collision_suffixes_and_preserves_existing(home, monkeypatch):
-    # Pre-existing ACTIVE skill of the same name.
+def test_same_name_draft_archives_the_original_and_takes_over(home, monkeypatch):
+    """A same-name draft is the skill's improved variant: it takes over the
+    active path, and the original is ARCHIVED rather than deleted.
+
+    This previously asserted the opposite mechanism (original left in place,
+    draft promoted under a ``-N`` suffix). ``_activate_draft`` now reserves the
+    suffix for genuine different-skill directory collisions. The load-bearing
+    property is unchanged and is what this pins: promotion must never destroy
+    a user's existing skill.
+    """
     active = home / "skills" / "cat" / "zeta"
     active.mkdir(parents=True)
     (active / "SKILL.md").write_text("---\nname: zeta\n---\nORIGINAL\n", encoding="utf-8")
@@ -133,10 +141,16 @@ def test_collision_suffixes_and_preserves_existing(home, monkeypatch):
     monkeypatch.setattr(sg, "assess_promotability", _promotable(ok=True))
 
     out = sg.auto_promote_drafts()
-    # original untouched; promoted under a suffixed name
-    assert (active / "SKILL.md").read_text(encoding="utf-8").strip().endswith("ORIGINAL")
-    assert out["promoted"] and out["promoted"][0]["skill"] != "zeta"
-    assert (home / "skills" / "cat" / out["promoted"][0]["skill"]).is_dir()
+
+    # The draft took over the canonical path under its own name.
+    assert out["promoted"] and out["promoted"][0]["skill"] == "zeta"
+    assert active.is_dir()
+    assert "ORIGINAL" not in (active / "SKILL.md").read_text(encoding="utf-8")
+
+    # Never delete: the original content still exists under skills/.archive/.
+    archived = list((home / "skills" / ".archive").glob("zeta-*/SKILL.md"))
+    assert len(archived) == 1, f"original not archived: {archived}"
+    assert archived[0].read_text(encoding="utf-8").strip().endswith("ORIGINAL")
 
 
 # ── dry run ──────────────────────────────────────────────────────────────
@@ -160,7 +174,11 @@ def test_caution_thresholds_passed_to_assessment(home, monkeypatch):
                         lambda metrics=None: {"min_uses": 5, "promo_thr": 0.85})
     seen = {}
 
-    def spy(name, *, skill_dir=None, min_uses=None, promo_thr=None):
+    # ``**kw`` absorbs kwargs the gate grows over time (e.g. trajectory_key from
+    # the shadow-trial lane). Without it the call raises TypeError, which
+    # auto_promote_drafts swallows by contract — the spy is simply never
+    # reached and the assertion below fails against an empty dict.
+    def spy(name, *, skill_dir=None, min_uses=None, promo_thr=None, **kw):
         seen["min_uses"] = min_uses
         seen["promo_thr"] = promo_thr
         return {"promotable": False, "reason": "stub"}

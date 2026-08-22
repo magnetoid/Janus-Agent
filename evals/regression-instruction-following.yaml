@@ -1,0 +1,60 @@
+# Bundled Janus eval suite — instruction-following regression pins.
+# Seeded to $JANUS_HOME/evals/ by tools/evals_sync.py; edit or delete your
+# copy freely (user changes are never overwritten). All checks are
+# programmatic — no LLM judging.
+evals:
+  - name: brevity-exact-ok
+    kind: regression
+    prompt: "Reply with exactly the word OK and nothing else."
+    checks:
+      - type: contains
+        value: "OK"
+      - type: max_length
+        value: 10
+
+  - name: bare-number-answer
+    kind: regression
+    prompt: "What is 12 * 12? Answer with just the number, no other words."
+    checks:
+      - type: contains
+        value: "144"
+      - type: max_length
+        value: 20
+
+  - name: json-only-output
+    kind: regression
+    prompt: "Return a JSON object with a single key \"status\" whose value is \"ready\". Reply with only the JSON."
+    checks:
+      - type: contains
+        value: "\"status\""
+      - type: contains
+        value: "ready"
+      - type: max_length
+        value: 120
+
+  - name: single-french-word
+    kind: regression
+    prompt: "Reply in French with the single word meaning 'thank you'."
+    checks:
+      - type: regex
+        value: "[Mm]erci"
+      - type: max_length
+        value: 30
+
+  - name: three-primes-csv
+    kind: regression
+    prompt: "List exactly three prime numbers as a comma-separated list, nothing else."
+    checks:
+      - type: regex
+        value: "\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+"
+      - type: max_length
+        value: 40
+
+  - name: no-forbidden-word
+    kind: regression
+    prompt: "Describe the ocean in one sentence without using the word 'water'."
+    checks:
+      - type: not_contains
+        value: "water"
+      - type: min_length
+        value: 15

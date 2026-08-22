@@ -35,6 +35,8 @@ def test_learning_enable_disable_preset(tmp_path):
     assert cfg["learning"]["track_outcomes"] is True
     assert cfg["learning"]["governor"]["enabled"] is True
     assert cfg["evals"]["trend"]["enabled"] is True
+    # Memory mining rides the preset so "remembers you" holds on stock installs.
+    assert cfg["memory"]["session_mining"] is True
     # Write-side stays untouched (defaults off) — the preset is read-only.
     assert not (cfg["learning"].get("governor") or {}).get("auto_promote")
     assert not (cfg["learning"].get("playbook") or {}).get("enabled")
@@ -46,3 +48,4 @@ def test_learning_enable_disable_preset(tmp_path):
     assert cfg["learning"]["track_outcomes"] is False
     assert cfg["learning"]["governor"]["enabled"] is False
     assert cfg["evals"]["trend"]["enabled"] is False
+    assert cfg["memory"]["session_mining"] is False

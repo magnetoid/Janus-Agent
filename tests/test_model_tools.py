@@ -3,15 +3,31 @@
 import json
 from unittest.mock import ANY, call, patch
 
+import pytest
 
+import model_tools
 from model_tools import (
     handle_function_call,
     get_all_tool_names,
     get_toolset_for_tool,
     _AGENT_LOOP_TOOLS,
     _LEGACY_TOOLSET_MAP,
-    TOOL_TO_TOOLSET_MAP,
 )
+from tools.registry import discover_builtin_tools, registry
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _tools_discovered():
+    """Populate the tool registry the way every real entry point does.
+
+    Importing ``model_tools`` no longer self-registers the built-in tools —
+    ``cli.py``, ``janus_cli/main.py`` and ``gateway/runner.py`` each call
+    ``discover_builtin_tools()`` explicitly at startup. Tests that inspect
+    the registry must do the same or they see only the handful of modules
+    ``model_tools`` happens to import directly.
+    """
+    discover_builtin_tools()
+    return None
 
 
 # =========================================================================
@@ -30,14 +46,36 @@ class TestHandleFunctionCall:
         assert "error" in result
         assert "totally_fake_tool_xyz" in result["error"]
 
-    def test_exception_returns_json_error(self):
-        # Even if something goes wrong, should return valid JSON
-        result = handle_function_call("web_search", None)  # None args may cause issues
-        parsed = json.loads(result)
+    def test_exception_returns_json_error(self, monkeypatch):
+        """A tool blowing up must surface as a JSON error envelope, never
+        as a raised exception or a non-JSON string. The envelope has to
+        name the tool and carry the underlying failure detail so the model
+        can react to it — asserting on those, not on the exact phrasing."""
+        def boom(*_a, **_kw):
+            raise RuntimeError("kaboom-sentinel")
+
+        monkeypatch.setattr("model_tools.registry.dispatch", boom)
+
+        parsed = json.loads(handle_function_call("web_search", {"q": "x"}))
         assert isinstance(parsed, dict)
-        assert "error" in parsed
-        assert len(parsed["error"]) > 0
-        assert "error" in parsed["error"].lower() or "failed" in parsed["error"].lower()
+        assert parsed.get("error")
+        assert "web_search" in parsed["error"]
+        assert "kaboom-sentinel" in parsed["error"]
+
+    def test_non_dict_args_do_not_crash_dispatcher(self, monkeypatch):
+        """``None`` (or any non-mapping) args are normalized to ``{}`` rather
+        than propagating a TypeError out of handle_function_call."""
+        seen = {}
+
+        def capture(name, args, **kwargs):
+            seen["args"] = args
+            return json.dumps({"ok": True})
+
+        monkeypatch.setattr("model_tools.registry.dispatch", capture)
+
+        parsed = json.loads(handle_function_call("web_search", None))
+        assert parsed == {"ok": True}
+        assert seen["args"] == {}
 
     def test_tool_hooks_receive_session_and_tool_call_ids(self):
         with (
@@ -394,26 +432,57 @@ class TestLegacyToolsetMap:
 # =========================================================================
 
 class TestBackwardCompat:
-    def test_get_all_tool_names_returns_list(self):
+    """These module-level helpers are thin delegations to the registry.
+
+    The contract worth testing is the delegation itself — that they report
+    whatever is registered right now — not which particular tools ship in
+    the catalog (that changes every time a tool is added or moved).
+    """
+
+    def test_get_all_tool_names_delegates_to_registry(self):
         names = get_all_tool_names()
         assert isinstance(names, list)
-        assert len(names) > 0
-        # Should contain well-known tools
-        assert "web_search" in names
-        assert "terminal" in names
+        assert names, "discovery registered nothing — test environment broken"
+        assert sorted(names) == sorted(registry.get_all_tool_names())
 
-    def test_get_toolset_for_tool(self):
-        result = get_toolset_for_tool("web_search")
-        assert result is not None
-        assert isinstance(result, str)
+    def test_get_toolset_for_tool_resolves_every_registered_tool(self):
+        for name in get_all_tool_names():
+            toolset = get_toolset_for_tool(name)
+            assert isinstance(toolset, str) and toolset, (
+                f"{name} is registered but has no toolset"
+            )
+            assert toolset == registry.get_entry(name).toolset
 
     def test_get_toolset_for_unknown_tool(self):
         result = get_toolset_for_tool("totally_nonexistent_tool")
         assert result is None
 
-    def test_tool_to_toolset_map(self):
-        assert isinstance(TOOL_TO_TOOLSET_MAP, dict)
-        assert len(TOOL_TO_TOOLSET_MAP) > 0
+    def test_tool_to_toolset_map_covers_every_registered_tool(self):
+        """The live mapping comes from the registry. Assert the mapping
+        invariant against the accessor that is actually authoritative.
+        """
+        mapping = registry.get_tool_to_toolset_map()
+        assert isinstance(mapping, dict)
+        assert set(mapping) == set(get_all_tool_names())
+        for tool, toolset in mapping.items():
+            assert toolset == get_toolset_for_tool(tool)
+
+    @pytest.mark.parametrize("name", ["TOOL_TO_TOOLSET_MAP", "TOOLSET_REQUIREMENTS"])
+    def test_empty_import_time_snapshots_are_gone(self, name):
+        """These must NOT come back as module attributes.
+
+        They were built at import time, before entry points trigger discovery,
+        so they were permanently empty — and reading an empty dict degrades
+        silently instead of raising. That cost real damage: batch_runner
+        derived its valid-tool set from one and discarded every tool-using
+        trajectory as corrupt, and banner.py lost every check_fn from the
+        other and painted lazy toolsets as broken. An AttributeError is the
+        honest failure mode; re-adding them as empty dicts is not.
+        """
+        assert not hasattr(model_tools, name), (
+            f"model_tools.{name} is back — use registry.get_tool_to_toolset_map() "
+            f"/ registry.get_toolset_requirements() instead"
+        )
 
 
 # =========================================================================
@@ -457,3 +526,32 @@ class TestCoerceNumberInfNan:
         assert _coerce_number("42") == 42
         assert _coerce_number("3.14") == 3.14
         assert _coerce_number("1e3") == 1000
+
+
+class TestToolDefsMemo:
+    """The definitions memo serves quiet AND non-quiet callers (Tier-2c)."""
+
+    def test_non_quiet_calls_share_the_memo(self, monkeypatch, capsys):
+        import model_tools as mt
+        mt._clear_tool_defs_cache()
+        calls = {"n": 0}
+
+        def counting(*a, **k):
+            calls["n"] += 1
+            return [{"function": {"name": "t1"}}]
+
+        monkeypatch.setattr(mt, "_compute_tool_definitions", counting)
+        a = mt.get_tool_definitions(enabled_toolsets=["file"], quiet_mode=False)
+        b = mt.get_tool_definitions(enabled_toolsets=["file"], quiet_mode=False)
+        assert calls["n"] == 1          # second non-quiet call was a hit
+        assert a == b
+        # warm non-quiet hits still tell the user what was selected
+        assert "Final tool selection" in capsys.readouterr().out
+        # quiet and non-quiet share one key space
+        c = mt.get_tool_definitions(enabled_toolsets=["file"], quiet_mode=True)
+        assert calls["n"] == 1
+        assert c == a
+        # callers get copies — mutating one must not poison the cache
+        a.append({"function": {"name": "rogue"}})
+        assert mt.get_tool_definitions(enabled_toolsets=["file"], quiet_mode=True) == b
+        mt._clear_tool_defs_cache()

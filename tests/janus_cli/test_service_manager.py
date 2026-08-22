@@ -422,6 +422,30 @@ def test_s6_manager_kind_and_supports_registration() -> None:
 # tests/docker/test_s6_profile_gateway_integration.py.
 
 
+def _expected_event_mode(base) -> int:
+    """The mode ``event/`` can actually end up with on this host.
+
+    ``_seed_supervise_skeleton`` requests ``0o3730`` (setgid + g+rwx + sticky).
+    A new directory inherits its parent's gid, and when that gid is not one of
+    ours the kernel silently drops ``S_ISGID`` on chmod. The test wrapper runs
+    with ``TMPDIR=/tmp``, which on macOS is ``root:wheel`` — so the bit vanishes
+    there while surviving on the Linux CI runner and under a user-owned TMPDIR.
+    That made these assertions pass or fail purely on where pytest placed its
+    tmp dir. Probe the actual filesystem instead of assuming.
+    """
+    import os
+    import stat as _stat
+
+    probe = base / "_setgid_probe"
+    probe.mkdir()
+    try:
+        os.chmod(probe, 0o3730)
+        kept = bool(_stat.S_IMODE(probe.stat().st_mode) & _stat.S_ISGID)
+    finally:
+        probe.rmdir()
+    return 0o3730 if kept else 0o1730
+
+
 def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
     """Verifies the dirs + FIFO + modes the helper lays down."""
     import stat
@@ -436,8 +460,9 @@ def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
     # Top-level event/ — s6-svlisten1 event subscription dir.
     event = svc_dir / "event"
     assert event.is_dir(), "missing top-level event/"
-    assert stat.S_IMODE(event.stat().st_mode) == 0o3730, (
-        f"event/ mode = {oct(event.stat().st_mode)}, want 03730"
+    want_event_mode = _expected_event_mode(tmp_path)
+    assert stat.S_IMODE(event.stat().st_mode) == want_event_mode, (
+        f"event/ mode = {oct(event.stat().st_mode)}, want {oct(want_event_mode)}"
     )
 
     # supervise/ dir.
@@ -448,7 +473,7 @@ def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
     # supervise/event/.
     supervise_event = supervise / "event"
     assert supervise_event.is_dir(), "missing supervise/event/"
-    assert stat.S_IMODE(supervise_event.stat().st_mode) == 0o3730
+    assert stat.S_IMODE(supervise_event.stat().st_mode) == want_event_mode
 
     # supervise/control FIFO.
     control = supervise / "control"
@@ -483,7 +508,7 @@ def test_seed_supervise_skeleton_handles_log_subservice(tmp_path) -> None:
     log_control = log_supervise / "control"
 
     assert log_event.is_dir()
-    assert stat.S_IMODE(log_event.stat().st_mode) == 0o3730
+    assert stat.S_IMODE(log_event.stat().st_mode) == _expected_event_mode(tmp_path)
     assert log_supervise.is_dir()
     assert log_supervise_event.is_dir()
     assert log_control.exists() and stat.S_ISFIFO(log_control.stat().st_mode)

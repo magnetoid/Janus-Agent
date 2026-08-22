@@ -49,6 +49,17 @@ def _cmd_init(args) -> int:
     from agent.evals import evals_dir, scaffold_starters
 
     written = scaffold_starters(force=bool(getattr(args, "force", False)))
+    try:
+        from tools.evals_sync import sync_evals
+
+        synced = sync_evals(quiet=True)
+        seeded = synced.get("copied", []) + synced.get("updated", [])
+        if seeded:
+            print(f"evals: seeded {len(seeded)} bundled spec file(s):")
+            for name in seeded:
+                print(f"  {evals_dir() / name}")
+    except Exception:
+        pass
     if written:
         print(f"evals: wrote {len(written)} starter spec(s):")
         for path in written:

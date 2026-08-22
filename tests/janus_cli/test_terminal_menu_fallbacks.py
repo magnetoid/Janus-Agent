@@ -74,12 +74,17 @@ def test_named_custom_provider_model_picker_falls_back_on_menu_runtime_error(tmp
     responses = iter(["2"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
 
+    # A saved custom provider carries its own key. Keyless entries make the
+    # flow prompt for one via masked_secret_prompt() -> getpass, which has no
+    # tty under the test runner; that prompt is a separate concern from the
+    # menu fallback under test here, so give the entry a key and keep the test
+    # on the picker path.
     _model_flow_named_custom(
         cfg,
         {
             "name": "Local",
             "base_url": "http://localhost:8000/v1",
-            "api_key": "",
+            "api_key": "sk-test-local",
             "model": "",
         },
     )

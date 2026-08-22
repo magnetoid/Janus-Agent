@@ -42,6 +42,7 @@ gateway:
     error_prefix:           "Error: {error}"
     switched:               "Model switched to `{model}`"
     provider_label:         "Provider: {provider}"
+    cache_switch_warning:   "⚠ Mid-conversation switch: the prompt cache is model-keyed, so the full context re-bills at fresh-token rates next turn (start a new session with /new if you plan to alternate models)."
     context_label:          "Context: {tokens} tokens"
     max_output_label:       "Max output: {tokens} tokens"
     cost_label:             "Cost: {cost}"

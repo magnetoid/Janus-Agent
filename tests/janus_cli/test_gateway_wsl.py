@@ -122,6 +122,28 @@ class TestWslSystemdOperational:
 class TestSupportsSystemdServicesWSL:
     """Test that supports_systemd_services() handles WSL correctly."""
 
+    @pytest.fixture(autouse=True)
+    def _systemctl_on_path(self, monkeypatch):
+        """Pretend systemctl is installed.
+
+        These are unit tests of the decision logic, but
+        ``supports_systemd_services()`` also probes ``shutil.which("systemctl")``
+        — which is None on a macOS/Windows dev box, so the mocked is_linux/is_wsl
+        branches below were never reached and the tests failed off-Linux while
+        passing on the Ubuntu CI runner. Stubbing the probe makes them
+        host-independent; ``test_native_linux`` covers the real absence case via
+        its own explicit path.
+        """
+        monkeypatch.setattr(gateway.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def test_missing_systemctl_is_unsupported(self, monkeypatch):
+        """No systemctl binary → False even on native Linux."""
+        monkeypatch.setattr(gateway, "is_linux", lambda: True)
+        monkeypatch.setattr(gateway, "is_termux", lambda: False)
+        monkeypatch.setattr(gateway, "is_wsl", lambda: False)
+        monkeypatch.setattr(gateway.shutil, "which", lambda name: None)
+        assert gateway.supports_systemd_services() is False
+
     def test_wsl_with_systemd(self, monkeypatch):
         """WSL + working systemd → True."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)

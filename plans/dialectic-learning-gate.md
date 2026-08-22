@@ -1,6 +1,14 @@
 # Dialectic Learning Gate — Design Spec
 
-**Status:** proposed (slice 1 of the "two-headed reasoning" track)
+**Status:** **SLICE 1 SHIPPED** (verified 2026-07-31) — ~~proposed~~. `agent/deliberation.py`
+exists with `red_team_claims` / `quorum_classify` / `apply_verdicts`; the gate is wired into
+`memory_miner.py:115`, `skill_miner.py:111`, `sleep.py:193`, `playbook.py:229`,
+`twin_review.py:166`, and `lessons.screen_lesson` (the reflexion + compression sinks, which
+this spec did not anticipate — added later to close gap G3). Config lives at
+`janus_cli/config.py:1853` (`learning.dialectic.*`, default off) and the three aux tasks are
+registered at `config.py:1398-1414`. **Slice 2 (§10) is still unstarted**: the `deliberate`
+tool, frame-stability detection, and k-of-N cross-family quorum.
+The design below is retained as the spec of record.
 **Owner:** learning loop (auto-mine / outcome tracking / curator)
 **Depends on:** `agent/auxiliary_client.py` (`call_llm`), existing miner injection points, `janus evals` (regression pinning)
 

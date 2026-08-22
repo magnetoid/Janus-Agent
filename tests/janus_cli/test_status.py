@@ -3,6 +3,18 @@ from types import SimpleNamespace
 from janus_cli.status import show_status
 
 
+def _status_row(output: str, label: str) -> str:
+    """Return the single status line whose left column is *label*.
+
+    Asserting on whole rows keeps these tests tied to what the row *says*
+    (mark + state + remediation hint) rather than to the column padding,
+    which shifts whenever a provider label is renamed.
+    """
+    matches = [line for line in output.splitlines() if label in line]
+    assert matches, f"no {label!r} row in status output:\n{output}"
+    return matches[0]
+
+
 def test_show_status_includes_tavily_key(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("JANUS_HOME", str(tmp_path))
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-1234567890abcdef")
@@ -77,7 +89,9 @@ def test_show_status_reports_nous_auth_error(monkeypatch, capsys, tmp_path):
     status_mod.show_status(SimpleNamespace(all=False, deep=False))
 
     output = capsys.readouterr().out
-    assert "Cloud Industry Portal   ✗ not logged in (run: janus portal)" in output
+    portal_row = _status_row(output, "Cloud Industry Portal")
+    assert "✗" in portal_row
+    assert "not logged in (run: janus portal)" in portal_row
     assert "Error:      Refresh session has been revoked" in output
     assert "Access exp:" in output
     assert "Key exp:" in output
@@ -128,7 +142,9 @@ def test_show_status_reports_nous_inference_key_without_portal_login(monkeypatch
     status_mod.show_status(SimpleNamespace(all=False, deep=False))
 
     output = capsys.readouterr().out
-    assert "Cloud Industry Portal   ✗ not logged in (Nous inference key configured)" in output
+    portal_row = _status_row(output, "Cloud Industry Portal")
+    assert "✗" in portal_row
+    assert "not logged in (Nous inference key configured)" in portal_row
     assert "Inference:  https://inference.example.com/v1" in output
     assert "Nous inference credentials are configured" in output
 

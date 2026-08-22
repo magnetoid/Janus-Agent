@@ -27,7 +27,10 @@ import html
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    import httpx
 from urllib.parse import quote
 
 # httpx is imported lazily — only the ``_write_summary_via_incoming_webhook``
@@ -152,7 +155,7 @@ class TeamsSummaryWriter:
         platform_config: PlatformConfig | None = None,
         *,
         graph_client: Any | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: "httpx.AsyncBaseTransport | None" = None,
     ) -> None:
         self._platform_config = platform_config
         self._graph_client = graph_client

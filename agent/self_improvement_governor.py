@@ -49,6 +49,7 @@ _DEFAULTS = {
     "caution_ratio": 0.6,
     "caution_extra_uses": 2,
     "caution_success_floor": 0.85,
+    "caution_reward_floor": 0.75,   # CAUTION raises graph.promotion_reward_threshold to ≥ this
 }
 
 
@@ -220,8 +221,8 @@ def promotion_thresholds(metrics: Optional[Dict[str, Any]] = None) -> Optional[D
 
     Returns ``None`` when FROZEN (caller must not promote). On OK returns an
     empty dict (use the ``graph.*`` config defaults). On CAUTION returns
-    tightened ``min_uses`` / ``promo_thr`` the caller passes into
-    ``skill_graph.assess_promotability``.
+    tightened ``min_uses`` / ``promo_thr`` / ``reward_thr`` the caller passes
+    into ``skill_graph.assess_promotability``.
     """
     state = assess_admission_state(metrics).get("state")
     if state == STATE_FROZEN:
@@ -234,12 +235,18 @@ def promotion_thresholds(metrics: Optional[Dict[str, Any]] = None) -> Optional[D
 
         base_uses = int(_graph_cfg("min_uses_for_promotion", 3))
         base_thr = float(_graph_cfg("promotion_success_threshold", 0.75))
+        base_reward = float(_graph_cfg("promotion_reward_threshold", 0.6))
     except Exception:
-        base_uses, base_thr = 3, 0.75
+        base_uses, base_thr, base_reward = 3, 0.75, 0.6
 
     extra = int(_gov_cfg("caution_extra_uses", _DEFAULTS["caution_extra_uses"]))
     floor = float(_gov_cfg("caution_success_floor", _DEFAULTS["caution_success_floor"]))
+    rfloor = float(_gov_cfg("caution_reward_floor", _DEFAULTS["caution_reward_floor"]))
     return {
         "min_uses": base_uses + extra,
         "promo_thr": max(base_thr, floor),
+        # Every promotion bar rises under CAUTION, including the shaped-reward
+        # floor — a bar the governor could not tighten would sit at its relaxed
+        # default exactly when the loop looks shaky.
+        "reward_thr": max(base_reward, rfloor),
     }

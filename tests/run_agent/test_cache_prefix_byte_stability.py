@@ -21,7 +21,16 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from run_agent import AIAgent
+
+# Each test drives several full run_conversation iterations (system-prompt
+# build, cache-control, sanitization passes) per API call, so a single test
+# can approach the global 30s per-test cap when the suite runs 20+ files in
+# parallel. Raise the cap for this file so the hard CI gate stays reliable
+# under load rather than flaking on a signal-timeout.
+pytestmark = pytest.mark.timeout(120)
 
 
 def _tool_call(call_id: str = "call_1"):
@@ -155,4 +164,37 @@ def test_prior_turn_bytes_untouched_by_next_turn():
         assert s in turn2_serialized, (
             f"turn-1 message rewritten or dropped in turn 2: {s[:200]}"
         )
+    _assert_prefix_stable(payloads2)
+
+
+def test_lesson_injection_survives_replay_across_turns():
+    """THE regression this file existed to catch and didn't: lesson recall used
+    to ride only the per-call API copy, so turn 1's user message was sent WITH
+    the lessons block but replayed WITHOUT it on turn 2 — tearing the cache
+    prefix at that message on every subsequent turn. The block must now be part
+    of the canonical persisted message and replay byte-identically."""
+    agent = _make_agent()
+    counter = {"n": 0}
+
+    def varying_recall(query, **kwargs):
+        counter["n"] += 1
+        return f"<lessons-context call={counter['n']}>prefer rsync</lessons-context>"
+
+    with patch("agent.lessons.recall_context_for_turn", side_effect=varying_recall):
+        result1, payloads1 = _run_turn(agent, "first task", n_tool_iterations=1)
+        result2, payloads2 = _run_turn(
+            agent, "second task", n_tool_iterations=1,
+            conversation_history=result1["messages"])
+
+    # turn 1's outbound user message carried the block...
+    assert "<lessons-context call=1>" in payloads1[0]
+    # ...and turn 2 replays that exact message — block included — while the
+    # new turn gets its own (different) recall.
+    turn1_msgs = json.loads(payloads1[-1])
+    turn2_serialized = [json.dumps(m, sort_keys=True, ensure_ascii=False)
+                        for m in json.loads(payloads2[0])]
+    for msg in turn1_msgs:
+        s = json.dumps(msg, sort_keys=True, ensure_ascii=False)
+        assert s in turn2_serialized, (
+            f"turn-1 message (incl. lessons block) rewritten in turn 2: {s[:200]}")
     _assert_prefix_stable(payloads2)

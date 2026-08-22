@@ -198,7 +198,7 @@ CommandDef("mycommand", "Description of what it does", "Session",
 elif canonical == "mycommand":
     self._handle_mycommand(cmd_original)
 ```
-3. If the command is available in the gateway, add a handler in `gateway/run.py`:
+3. If the command is available in the gateway, add a handler in `gateway/runner.py`:
 ```python
 if canonical == "mycommand":
     return await self._handle_mycommand(event)
@@ -420,7 +420,7 @@ the env var in code (see `gateway_timeout`, `terminal.cwd` → `TERMINAL_CWD`).
 |--------|---------|----------|
 | `load_cli_config()` | CLI mode | `cli.py` — merges CLI-specific defaults + user YAML |
 | `load_config()` | `janus tools`, `janus setup`, most CLI subcommands | `janus_cli/config.py` — merges `DEFAULT_CONFIG` + user YAML |
-| Direct YAML load | Gateway runtime | `gateway/run.py` + `gateway/config.py` — reads user YAML raw |
+| Direct YAML load | Gateway runtime | `gateway/runner.py` + `gateway/config.py` — reads user YAML raw |
 
 If you add a new key and the CLI sees it but the gateway doesn't (or vice
 versa), you're on the wrong loader. Check `DEFAULT_CONFIG` coverage.
@@ -569,7 +569,7 @@ provider (read from `memory.provider` in config.yaml), so disabled
 providers don't clutter `janus --help`.
 
 **Rule (Teknium, May 2026):** plugins MUST NOT modify core files
-(`run_agent.py`, `cli.py`, `gateway/run.py`, `janus_cli/main.py`, etc.).
+(`run_agent.py`, `cli.py`, `gateway/runner.py`, `janus_cli/main.py`, etc.).
 If a plugin needs a capability the framework doesn't expose, expand the
 generic plugin surface (new hook, new ctx method) — never hardcode
 plugin-specific logic into core. PR #5295 removed 95 lines of hardcoded
@@ -1117,6 +1117,23 @@ automatically scope to the active profile.
 
 ## Known Pitfalls
 
+### A context-sensitive config default MUST be a sentinel, never a literal
+`load_config()` deep-merges `DEFAULT_CONFIG` into every result, and `save_config()`
+writes the **full merged config** back to disk. So a resolver written as
+"explicit value wins, otherwise decide by context" is **dead code** if the
+default is a plain `True`/`False` — `cfg_get(..., default=None)` reads the
+merged-in literal as an explicit user choice and the context branch never runs.
+Ship the default as a sentinel (`"auto"`) that the resolver checks for, and add
+a `migrate_config()` step to reclaim the literal already materialized in
+existing users' `config.yaml`; otherwise the fix only reaches fresh installs.
+
+This bit `skills.guard_agent_created` (gap G5): the headless-defaults-ON guard
+shipped and never once fired. Every test stubbed `load_config` with a dict that
+*omitted* the key — the one shape production never produces — so nothing caught
+it. **When testing a config resolver, exercise the real `load_config` at least
+once.** See `tools/skill_manager_tool.py::_guard_agent_created_enabled` and
+`tests/tools/test_skill_guard_headless.py`.
+
 ### DO NOT hardcode `~/.janus` paths
 Use `get_janus_home()` from `janus_constants` for code paths. Use `display_janus_home()`
 for user-facing print/log messages. Hardcoding `~/.janus` breaks profiles — each profile
@@ -1142,7 +1159,7 @@ Tool schema descriptions must not mention tools from other toolsets by name (e.g
 When an agent is running, messages pass through two sequential guards:
 (1) **base adapter** (`gateway/platforms/base.py`) queues messages in
 `_pending_messages` when `session_key in self._active_sessions`, and
-(2) **gateway runner** (`gateway/run.py`) intercepts `/stop`, `/new`,
+(2) **gateway runner** (`gateway/runner.py`) intercepts `/stop`, `/new`,
 `/queue`, `/status`, `/approve`, `/deny` before they reach
 `running_agent.interrupt()`. Any new command that must reach the runner
 while the agent is blocked (e.g. approval prompts) MUST bypass BOTH

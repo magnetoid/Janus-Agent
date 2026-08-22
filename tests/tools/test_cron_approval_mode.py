@@ -256,15 +256,38 @@ class TestCronModeInteractions:
             result = check_dangerous_command("rm -rf /tmp/stuff", "local")
             assert result["approved"]
 
-    def test_non_cron_non_interactive_still_auto_approves(self, monkeypatch):
-        """Non-cron, non-interactive sessions (e.g. scripted usage) still auto-approve."""
+    @pytest.mark.parametrize("headless_mode, approved", [("approve", True), ("deny", False)])
+    def test_non_cron_headless_is_governed_by_headless_mode(
+        self, monkeypatch, headless_mode, approved
+    ):
+        """Without JANUS_CRON_SESSION, cron_mode must not decide anything.
+
+        A non-cron, non-interactive, non-gateway session (scripted usage) is a
+        *headless* session, governed by approvals.headless_mode. cron_mode is
+        pinned to the opposite verdict in each case, so a regression that
+        consults cron_mode outside cron sessions flips the result and fails.
+        """
         monkeypatch.delenv("JANUS_CRON_SESSION", raising=False)
         monkeypatch.delenv("JANUS_INTERACTIVE", raising=False)
         monkeypatch.delenv("JANUS_GATEWAY_SESSION", raising=False)
         monkeypatch.delenv("JANUS_YOLO_MODE", raising=False)
 
-        result = check_dangerous_command("rm -rf /tmp/stuff", "local")
-        assert result["approved"]
+        opposite_cron_mode = "deny" if approved else "approve"
+
+        from unittest.mock import patch as mock_patch
+        with (
+            mock_patch("tools.approval._get_cron_approval_mode",
+                       return_value=opposite_cron_mode),
+            mock_patch("tools.approval._get_headless_approval_mode",
+                       return_value=headless_mode),
+        ):
+            result = check_dangerous_command("rm -rf /tmp/stuff", "local")
+
+        assert result["approved"] is approved
+        if not approved:
+            # The block must be attributed to the headless policy, not cron's.
+            assert "headless_mode" in result["message"]
+            assert "cron_mode" not in result["message"]
 
 
 class TestCronWithGatewayOrigin:

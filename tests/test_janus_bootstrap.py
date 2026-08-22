@@ -231,11 +231,51 @@ class TestStdioReconfigureErrorHandling:
         hb.apply_windows_utf8_bootstrap()
 
 
+def _first_top_level_import(source: str) -> str | None:
+    """Return the module name of the first top-level import in ``source``.
+
+    Returns None when the file has no top-level imports at all.
+
+    Tolerates a guarded-import ``try:`` block whose body is a lone import —
+    entry points wrap ``import janus_bootstrap`` in ``try/except
+    ModuleNotFoundError`` so a half-finished ``janus update`` (git-reset
+    landed new code but ``uv pip install -e .`` didn't finish re-registering
+    ``janus_bootstrap`` as a top-level module) leaves janus recoverable
+    instead of crashing on every invocation.
+    """
+    import ast
+
+    for node in ast.iter_child_nodes(ast.parse(source)):
+        inner = None
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            inner = node
+        elif (
+            isinstance(node, ast.Try)
+            and len(node.body) == 1
+            and isinstance(node.body[0], (ast.Import, ast.ImportFrom))
+        ):
+            inner = node.body[0]
+        if inner is None:
+            continue
+        if isinstance(inner, ast.Import):
+            return inner.names[0].name
+        return inner.module or ""
+    return None
+
+
+def _module_source_path(repo_root, module_name: str):
+    """Map a dotted module name to its file inside the repo, or None."""
+    rel = module_name.replace(".", "/")
+    for candidate in (repo_root / f"{rel}.py", repo_root / rel / "__init__.py"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 class TestEntryPointsImportBootstrap:
-    """Every Janus entry point must import janus_bootstrap as its
-    first non-docstring import.  We check this by scanning source files
-    rather than invoking the entry points (which would require a full
-    agent context)."""
+    """Every Janus entry point must import janus_bootstrap before anything
+    else runs.  We check this by scanning source files rather than invoking
+    the entry points (which would require a full agent context)."""
 
     # Entry points that invoke Janus as a process.  Each one must
     # import janus_bootstrap before doing any file I/O or stdout writes.
@@ -250,21 +290,20 @@ class TestEntryPointsImportBootstrap:
 
     @pytest.mark.parametrize("path", ENTRY_POINTS)
     def test_entry_point_imports_bootstrap(self, path):
-        """The file must contain 'import janus_bootstrap' and that
-        line must appear before the first 'import' of anything else.
+        """janus_bootstrap must be the first thing an entry point imports.
+
+        What has to hold is an *execution-order* property: nothing that
+        prints or touches files may run before the UTF-8 stdio fix.  So we
+        follow the head of the import chain rather than requiring the
+        literal ``import janus_bootstrap`` line to sit in the entry-point
+        file itself — an entry point is allowed to be a thin re-export shim
+        (``gateway/run.py`` is exactly that today: ``from gateway.core
+        import *``), as long as the very first module it pulls in is itself
+        bootstrap-first.  Following the chain keeps the guarantee intact
+        across that kind of refactor instead of failing on it.
 
         We're lenient about the docstring (can be arbitrarily long) and
-        about comment lines — just need to verify the first import
-        statement is the bootstrap.
-
-        Also lenient about a try/except wrapper around the import: entry
-        points may guard the import against ``ModuleNotFoundError`` so a
-        half-finished ``janus update`` (git-reset landed new code but
-        ``uv pip install -e .`` didn't finish re-registering
-        ``janus_bootstrap`` as a top-level module) leaves janus
-        recoverable instead of crashing on every invocation.  When the
-        first top-level node is such a guarded-import block, we peek
-        inside it to verify bootstrap is the imported module.
+        about comment lines — only import statements matter.
         """
         # Resolve relative to the janus-agent repo root.  Tests live
         # at tests/test_janus_bootstrap.py, so go up one dir.
@@ -274,40 +313,33 @@ class TestEntryPointsImportBootstrap:
         full_path = repo_root / path
         assert full_path.exists(), f"entry point missing: {full_path}"
 
-        source = full_path.read_text(encoding="utf-8")
+        chain: list[str] = [path]
+        current = full_path
+        # Depth cap: a bootstrap-first chain is 1–2 hops; anything longer is
+        # either a cycle or an entry point that lost the guarantee.
+        for _ in range(5):
+            first_import = _first_top_level_import(
+                current.read_text(encoding="utf-8")
+            )
+            assert first_import is not None, (
+                f"{' -> '.join(chain)}: no top-level imports found at all, so "
+                f"janus_bootstrap cannot be running first"
+            )
+            chain.append(first_import)
+            if first_import == "janus_bootstrap":
+                return  # invariant holds
 
-        # Find the first non-comment, non-blank line that starts with
-        # 'import ' or 'from ', or a Try block whose body is the import.
-        import ast
-        tree = ast.parse(source)
+            nxt = _module_source_path(repo_root, first_import)
+            assert nxt is not None, (
+                f"{path}: import chain {' -> '.join(chain)} reaches "
+                f"third-party/stdlib module {first_import!r} before "
+                f"janus_bootstrap.  UTF-8 stdio must be configured before "
+                f"anything else initializes — move 'import janus_bootstrap' "
+                f"to be the first import."
+            )
+            current = nxt
 
-        first_import_node = None
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                first_import_node = node
-                break
-            # Accept a guarded-import Try block where the body is a lone
-            # Import node — this is the recovery-friendly form that lets
-            # janus start even when janus_bootstrap hasn't been
-            # re-registered in the venv yet.
-            if isinstance(node, ast.Try) and len(node.body) == 1 and isinstance(
-                node.body[0], (ast.Import, ast.ImportFrom)
-            ):
-                first_import_node = node.body[0]
-                break
-
-        assert first_import_node is not None, (
-            f"{path}: no top-level imports found at all"
-        )
-
-        if isinstance(first_import_node, ast.Import):
-            first_import_name = first_import_node.names[0].name
-        else:  # ImportFrom
-            first_import_name = first_import_node.module or ""
-
-        assert first_import_name == "janus_bootstrap", (
-            f"{path}: first top-level import is {first_import_name!r}, "
-            f"but it must be 'janus_bootstrap' so UTF-8 stdio is "
-            f"configured before anything else initializes.  Move the "
-            f"'import janus_bootstrap' line to be the first import."
+        pytest.fail(
+            f"{path}: followed {len(chain)} imports "
+            f"({' -> '.join(chain)}) without reaching janus_bootstrap"
         )
