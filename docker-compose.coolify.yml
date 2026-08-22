@@ -45,6 +45,17 @@ services:
       - JANUS_MAX_ITERATIONS=${JANUS_MAX_ITERATIONS:-25}
       - BLOB_AGUI_RUN_TIMEOUT_SECONDS=${BLOB_AGUI_RUN_TIMEOUT_SECONDS:-100}
       - BLOB_AGUI_KEEPALIVE_SECONDS=${BLOB_AGUI_KEEPALIVE_SECONDS:-15}
+    networks:
+      # `default` has to be named explicitly: the moment a service lists any network,
+      # Compose stops attaching it to the default one.
+      default:
+      # Shared with the chat platform that calls this agent, so the call never leaves the
+      # machine and needs no public hostname or certificate. The alias is what the caller
+      # addresses — the container's own name carries a deploy-specific suffix, and an
+      # agent that has to be re-pointed after every deploy is not deployed.
+      agents:
+        aliases:
+          - janus-agent
     volumes:
       # The image declares VOLUME /opt/data, so without a named volume here Docker mints
       # an anonymous one and every deploy starts from nothing — losing auth, memories and
@@ -55,6 +66,14 @@ services:
     # whole deploy — worse than none. `GET /health` on 8642 is the real signal, and it
     # only answers once the gateway has finished booting, which takes a while: the image
     # syncs skills and resolves a Playwright browser before it serves anything.
+
+networks:
+  # Created once by the operator (`docker network create blob-agents`), and external
+  # here because it outlives any single deploy and two separate stacks have to agree on
+  # it. It contains only the chat platform and the agents it hosts.
+  agents:
+    external: true
+    name: blob-agents
 
 volumes:
   janusdata:
