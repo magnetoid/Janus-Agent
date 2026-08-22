@@ -51,6 +51,21 @@ MAX_CONTEXT_PROMPT_BYTES = 8_192
 _SESSION_KEY_SAFE = re.compile(r"[^A-Za-z0-9._:-]")
 
 
+def positive_float(raw: Optional[str], fallback: float) -> float:
+    """A duration from the environment, or the default if it is not one.
+
+    Deliberately forgiving. This is read while the adapter is being constructed, so
+    raising here would stop the whole gateway starting — every platform, not just this
+    route — and "BLOB_AGUI_KEEPALIVE_SECONDS=15s" is exactly the kind of typo that
+    deserves a default rather than an outage.
+    """
+    try:
+        value = float(raw) if raw is not None and raw != "" else fallback
+    except (TypeError, ValueError):
+        return fallback
+    return value if value > 0 else fallback
+
+
 class AGUISignatureError(Exception):
     """A request whose signature did not check out.
 
