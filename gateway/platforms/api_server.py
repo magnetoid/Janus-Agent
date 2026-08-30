@@ -72,6 +72,37 @@ MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
 
 
+async def read_capped_body(content: Any, limit: int) -> bytes:
+    """Read a request body to EOF, stopping once ``limit`` bytes have arrived.
+
+    Not ``content.read(limit)``. aiohttp's ``StreamReader.read(n)`` waits only until
+    *some* data is buffered and then returns whatever is in hand — it neither fills ``n``
+    nor reads to the end. Any body that arrives in more than one chunk therefore came
+    back truncated.
+
+    That is survivable where a body is only parsed as JSON, because a truncated body
+    fails to parse and says so. It is not survivable on ``/v1/agui``, where the HMAC
+    covers the raw bytes: a truncated read verifies a different message than the caller
+    signed and is rejected as ``bad_signature``. Small bodies fit in one chunk and
+    passed, so the failure looked exactly like a mismatched secret — the two are
+    indistinguishable from the outside, and the secret is the thing everyone checks
+    first.
+
+    Reading with ``readany()`` in a loop keeps the size ceiling that ``read(n)`` was
+    there to provide: the caller still sees more than ``limit`` bytes when the body runs
+    long, and can refuse it.
+    """
+    chunks: List[bytes] = []
+    received = 0
+    while received < limit:
+        chunk = await content.readany()
+        if not chunk:
+            break
+        chunks.append(chunk)
+        received += len(chunk)
+    return b"".join(chunks)
+
+
 def _coerce_port(value: Any, default: int = DEFAULT_PORT) -> int:
     """Parse a listen port without letting malformed env/config values crash startup."""
     try:
@@ -3555,7 +3586,9 @@ class APIServerAdapter(BasePlatformAdapter):
         an END frame has gone out. What the deltas *are* used for is the salvage path
         below, which is the one case where a partial answer is better than none.
         """
-        raw_body = await request.content.read(agui_protocol.AGUI_MAX_BODY_BYTES + 1)
+        raw_body = await read_capped_body(
+            request.content, agui_protocol.AGUI_MAX_BODY_BYTES + 1
+        )
         if len(raw_body) > agui_protocol.AGUI_MAX_BODY_BYTES:
             return web.json_response({"error": "body too large"}, status=413)
 

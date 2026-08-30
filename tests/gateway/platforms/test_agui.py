@@ -9,6 +9,7 @@ an SSE frame in half.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -17,6 +18,7 @@ import time
 import pytest
 
 from gateway.platforms import agui
+from gateway.platforms import api_server
 
 
 SECRET = "s" * 64
@@ -228,3 +230,77 @@ class TestDurationParsing:
     def test_a_typo_falls_back_instead_of_raising(self) -> None:
         for bad in ("15s", "", None, "abc", "-1", "0"):
             assert agui.positive_float(bad, 100.0) == 100.0
+
+
+class TestReadingTheBody:
+    """The read that feeds the signature check.
+
+    `read_capped_body` lives in `api_server` rather than here because it takes a stream,
+    but what it protects is this module's contract: `verify_blob_signature` hashes the
+    raw bytes, so a body read short verifies a different message than the one that was
+    signed. From outside, that is indistinguishable from a wrong secret — which is what
+    made the shipped bug expensive. It rejected every request that did not arrive in a
+    single chunk, and the secret is the first and last thing anyone checks.
+
+    The stream is a stand-in rather than a real `StreamReader`: `read_capped_body` calls
+    exactly one method on it, and faking that keeps these tests runnable without aiohttp
+    installed, the way the rest of this file already runs without a server.
+    """
+
+    class _Stream:
+        """Hands back one queued chunk per `readany()`, then EOF — an aiohttp stream's
+        contract, which is the whole surface under test."""
+
+        def __init__(self, *chunks: bytes) -> None:
+            self._chunks = list(chunks)
+
+        async def readany(self) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+    @staticmethod
+    def _split(body: bytes, size: int) -> "list[bytes]":
+        return [body[i : i + size] for i in range(0, len(body), size)]
+
+    def test_a_body_split_across_chunks_is_read_whole(self) -> None:
+        # The regression. One chunk always worked; more than one did not.
+        body = json.dumps({"threadId": "t", "runId": "r", "pad": "x" * 40_000}).encode()
+        pieces = self._split(body, 4096)
+        assert len(pieces) > 1
+
+        read = asyncio.run(
+            api_server.read_capped_body(self._Stream(*pieces), len(body) + 1)
+        )
+
+        assert read == body
+
+    def test_the_signature_still_verifies_over_a_chunked_body(self) -> None:
+        # The point of the fix: same bytes in, same digest out.
+        body = json.dumps({"threadId": "t", "pad": "y" * 20_000}).encode()
+        timestamp = int(time.time())
+        signature = sign(body, timestamp)
+
+        read = asyncio.run(
+            api_server.read_capped_body(
+                self._Stream(*self._split(body, 1024)), agui.AGUI_MAX_BODY_BYTES + 1
+            )
+        )
+
+        assert agui.verify_blob_signature(
+            raw_body=read, timestamp=str(timestamp), signature=signature, secret=SECRET
+        )
+
+    def test_an_empty_body_reads_as_empty_rather_than_hanging(self) -> None:
+        assert asyncio.run(api_server.read_capped_body(self._Stream(), 1024)) == b""
+
+    def test_an_oversized_body_still_exceeds_the_limit_so_the_caller_can_refuse(
+        self,
+    ) -> None:
+        # The ceiling `read(n)` used to provide has to survive the fix, or the 413 path
+        # silently stops firing.
+        body = b"z" * 5_000
+
+        read = asyncio.run(
+            api_server.read_capped_body(self._Stream(*self._split(body, 500)), 1_001)
+        )
+
+        assert len(read) > 1_000
