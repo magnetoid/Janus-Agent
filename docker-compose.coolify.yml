@@ -45,17 +45,10 @@ services:
       - JANUS_MAX_ITERATIONS=${JANUS_MAX_ITERATIONS:-25}
       - BLOB_AGUI_RUN_TIMEOUT_SECONDS=${BLOB_AGUI_RUN_TIMEOUT_SECONDS:-100}
       - BLOB_AGUI_KEEPALIVE_SECONDS=${BLOB_AGUI_KEEPALIVE_SECONDS:-15}
-    networks:
-      # `default` has to be named explicitly: the moment a service lists any network,
-      # Compose stops attaching it to the default one.
-      default:
-      # Shared with the chat platform that calls this agent, so the call never leaves the
-      # machine and needs no public hostname or certificate. The alias is what the caller
-      # addresses — the container's own name carries a deploy-specific suffix, and an
-      # agent that has to be re-pointed after every deploy is not deployed.
-      agents:
-        aliases:
-          - janus-agent
+      # On a fresh volume the gateway is created stopped and stays that way, so the
+      # container runs, reports healthy, and answers nothing. This is the bootstrap the
+      # image reads once, on first boot, to bring it up.
+      - JANUS_GATEWAY_BOOTSTRAP_STATE=${JANUS_GATEWAY_BOOTSTRAP_STATE:-running}
     volumes:
       # The image declares VOLUME /opt/data, so without a named volume here Docker mints
       # an anonymous one and every deploy starts from nothing — losing auth, memories and
@@ -67,13 +60,18 @@ services:
     # only answers once the gateway has finished booting, which takes a while: the image
     # syncs skills and resolves a Playwright browser before it serves anything.
 
-networks:
-  # Created once by the operator (`docker network create blob-agents`), and external
-  # here because it outlives any single deploy and two separate stacks have to agree on
-  # it. It contains only the chat platform and the agents it hosts.
-  agents:
-    external: true
-    name: blob-agents
+# No shared `blob-agents` network any more, and its removal is the fix rather than a
+# simplification. It was declared `external: true`, so a deploy onto a host where nobody
+# had run `docker network create blob-agents` failed outright — and a deploy started from
+# the chat platform's own console reports that as an opaque runner error.
+#
+# What it bought was nothing, because the caller never used it: Blob addresses a hosted
+# agent at the domain its runner assigned, which is the only address it is told about.
+# Nothing in it resolves `janus-agent`, so the alias was answering a question no one asked
+# while making the deploy conditional on a manual step.
+#
+# Reaching this agent over the public domain is not a weakening: `/v1/agui` authenticates
+# every request by HMAC, and every other route except `/health` needs the bearer key.
 
 volumes:
   janusdata:

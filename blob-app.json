@@ -1,0 +1,11 @@
+{
+  "slug": "janus",
+  "name": "Janus",
+  "description": "A self-healing agentic platform, answering in your workspace.",
+  "version": "0.16.0",
+  "build": "dockercompose",
+  "composePath": "/docker-compose.coolify.yml",
+  "aguiPath": "/v1/agui",
+  "port": 8642,
+  "scopes": ["messages:read", "messages:write", "channels:read", "channels:join"]
+}
