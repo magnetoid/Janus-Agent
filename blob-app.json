@@ -1,0 +1,15 @@
+{
+  "slug": "janus-agent",
+  "name": "Janus",
+  "description": "A dedicated Janus Agent installation for this workspace, with isolated configuration, memory, tools, and persistent storage.",
+  "version": "1.0.0",
+  "build": "dockercompose",
+  "composePath": "/docker-compose.coolify.yml",
+  "aguiPath": "/v1/agui",
+  "port": 8642,
+  "scopes": [
+    "messages:read",
+    "messages:write",
+    "channels:read"
+  ]
+}
