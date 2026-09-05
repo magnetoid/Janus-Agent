@@ -39,6 +39,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Hosted workspaces use DeepSeek through OpenRouter unless the installer explicitly
+      # chooses another model/provider. Passing both variables matters on a fresh volume:
+      # there is no config.yaml yet from which the gateway could infer either value.
+      - JANUS_TUI_PROVIDER=${JANUS_TUI_PROVIDER:-openrouter}
+      - JANUS_MODEL=${JANUS_MODEL:-deepseek/deepseek-chat}
       # The caller gives up at 120s. Janus defaults to 90 iterations and a 30-minute API
       # timeout, which is right for a terminal and hopeless for a chat message, so the
       # turn is capped to something that can finish inside the caller's patience.
