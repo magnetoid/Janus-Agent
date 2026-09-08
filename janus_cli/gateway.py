@@ -664,6 +664,26 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
                 break
             time.sleep(0.2)
 
+        from gateway.status import _pid_exists
+        if _pid_exists(pid):
+            if sys.platform == "win32":
+                import ctypes
+                k32 = ctypes.windll.kernel32
+                k32.OpenProcess.restype = ctypes.c_void_p
+                k32.WaitForSingleObject.restype = ctypes.c_uint
+                h = k32.OpenProcess(0x0001 | 0x00100000, False, int(pid))
+                if h:
+                    try:
+                        k32.TerminateProcess(h, 1)
+                        k32.WaitForSingleObject(h, 5000)
+                    finally:
+                        k32.CloseHandle(h)
+            else:
+                try:
+                    os.kill(pid, 9)
+                except OSError:
+                    pass
+
         # Platform-appropriate detach for the respawned gateway.  On POSIX
         # start_new_session=True maps to os.setsid; on Windows we need
         # explicit creationflags because start_new_session is a no-op there.
