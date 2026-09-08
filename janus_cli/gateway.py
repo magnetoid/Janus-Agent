@@ -3433,7 +3433,9 @@ def launchd_stop():
             pass
         else:
             raise
-    _wait_for_gateway_exit(timeout=10.0, force_after=5.0)
+    if _wait_for_gateway_exit(timeout=10.0, force_after=5.0) is False:
+        print("✗ Gateway process still running after stop")
+        raise SystemExit(1)
     print("✓ Service stopped")
 
 
@@ -3459,31 +3461,42 @@ def _wait_for_gateway_exit(
     )
     force_sent = False
 
-    while time.monotonic() < deadline:
+    self_pid = os.getpid()
+
+    def _tracked_pids() -> list[int]:
         pid = get_running_pid()
-        if pid is None:
-            return True  # Process exited cleanly.
+        if pid is not None:
+            return [pid]
+        # Pid file can vanish after a "clean" asyncio shutdown while
+        # non-daemon threads keep the interpreter alive.
+        return [p for p in find_gateway_pids() if p != self_pid]
+
+    while time.monotonic() < deadline:
+        tracked = _tracked_pids()
+        if not tracked:
+            return True
 
         if (
             force_after is not None
             and not force_sent
             and time.monotonic() >= force_deadline
         ):
-            # Grace period expired — force-kill the specific PID.
-            try:
-                terminate_pid(pid, force=True)
-                print(f"⚠ Gateway PID {pid} did not exit gracefully; sent SIGKILL")
-            except (ProcessLookupError, PermissionError, OSError):
-                return True  # Already gone or we can't touch it.
+            for tracked_pid in tracked:
+                try:
+                    terminate_pid(tracked_pid, force=True)
+                    print(
+                        f"⚠ Gateway PID {tracked_pid} did not exit gracefully; sent SIGKILL"
+                    )
+                except (ProcessLookupError, PermissionError, OSError):
+                    continue
             force_sent = True
 
         time.sleep(0.3)
 
-    # Timed out even after force-kill.
-    remaining_pid = get_running_pid()
-    if remaining_pid is not None:
+    remaining = _tracked_pids()
+    if remaining:
         print(
-            f"⚠ Gateway PID {remaining_pid} still running after {timeout}s — restart may fail"
+            f"⚠ Gateway PID {remaining[0]} still running after {timeout}s — restart may fail"
         )
         return False
     return True
@@ -3766,7 +3779,9 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False):
             traceback=_traceback.format_exc(),
         )
         print("\nGateway stopped.")
-        return
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
     except SystemExit as e:
         _exit_diag(
             "asyncio.run.SystemExit",
@@ -3786,8 +3801,15 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False):
         raise
     if not success:
         _exit_diag("gateway.exit_nonzero")
-        sys.exit(1)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # os._exit: sys.exit still waits on non-daemon threads (MCP, telegram
+        # updater) which can leave a "stopped" gateway PID alive in launchd.
+        os._exit(1)
     _exit_diag("gateway.exit_clean")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 # =============================================================================

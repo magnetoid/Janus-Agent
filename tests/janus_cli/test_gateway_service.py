@@ -674,6 +674,19 @@ class TestLaunchdServiceRecovery:
         assert len(wait_called) == 1
         assert wait_called[0] == {"timeout": 10.0, "force_after": 5.0}
 
+    def test_launchd_stop_exits_nonzero_when_process_lingers(self, monkeypatch, capsys):
+        def fake_run(cmd, check=False, **kwargs):
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(gateway_cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(gateway_cli, "_wait_for_gateway_exit", lambda **kw: False)
+
+        with pytest.raises(SystemExit) as exc:
+            gateway_cli.launchd_stop()
+
+        assert exc.value.code == 1
+        assert "still running" in capsys.readouterr().out.lower()
+
     def test_launchd_status_reports_local_stale_plist_when_unloaded(self, tmp_path, monkeypatch, capsys):
         plist_path = tmp_path / "ai.janus.gateway.plist"
         plist_path.write_text("<plist>old content</plist>", encoding="utf-8")
