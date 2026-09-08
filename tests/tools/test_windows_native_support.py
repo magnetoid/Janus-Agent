@@ -1135,6 +1135,9 @@ class TestGatewayDetachedWatcherWindowsFlags:
         # chain exists on native Windows).
         assert captured["argv"][0] == sys.executable
         assert captured["argv"][1] == "-c"
+        watcher_src = captured["argv"][2]
+        assert "TerminateProcess" in watcher_src
+        assert "0x0001" in watcher_src
 
     def test_in_gateway_restart_respawn_still_uses_setsid_semantics_on_posix(
         self, monkeypatch
@@ -1217,6 +1220,10 @@ class TestGatewayDetachedWatcherWindowsFlags:
         assert "_CREATE_BREAKAWAY_FROM_JOB" in block, (
             "Inlined respawn watcher must name CREATE_BREAKAWAY_FROM_JOB "
             "symbolically so the intent is greppable."
+        )
+        assert "TerminateProcess" in block, (
+            "Inlined respawn watcher must kill a hung PID after the 120s "
+            "wait — otherwise a second gateway starts beside a zombie."
         )
 
     def test_launch_detached_profile_gateway_restart_outer_popen_has_access_denied_fallback(

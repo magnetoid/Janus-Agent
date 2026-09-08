@@ -2236,6 +2236,25 @@ class GatewayRunner:
                     if not _alive(pid):
                         break
                     time.sleep(0.2)
+                if _alive(pid):
+                    # Hung interpreter after asyncio.run — same as POSIX kill -9.
+                    if os.name == 'nt':
+                        import ctypes
+                        k32 = ctypes.windll.kernel32
+                        k32.OpenProcess.restype = ctypes.c_void_p
+                        k32.WaitForSingleObject.restype = ctypes.c_uint
+                        h = k32.OpenProcess(0x0001 | 0x00100000, False, int(pid))
+                        if h:
+                            try:
+                                k32.TerminateProcess(h, 1)
+                                k32.WaitForSingleObject(h, 5000)
+                            finally:
+                                k32.CloseHandle(h)
+                    else:
+                        try:
+                            os.kill(int(pid), 9)
+                        except OSError:
+                            pass
                 _CREATE_NEW_PROCESS_GROUP = 0x00000200
                 _DETACHED_PROCESS = 0x00000008
                 _CREATE_NO_WINDOW = 0x08000000
