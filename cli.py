@@ -8098,8 +8098,8 @@ class JanusCLI:
             # fresh-token rates on the next turn, and alternating models can
             # cost more than running with caching off entirely.
             _cprint("    ⚠ Mid-conversation switch: the prompt cache is model-keyed, "
-                    "so the full context re-bills at fresh rates next turn "
-                    "(use /new if you plan to alternate models).")
+                    "so the full context re-bills at fresh rates next turn. "
+                    "Same chat continues on the new model.")
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
         # Copilot, and Nous-enforced caps win over the raw models.dev entry
@@ -8353,8 +8353,8 @@ class JanusCLI:
             # fresh-token rates on the next turn, and alternating models can
             # cost more than running with caching off entirely.
             _cprint("    ⚠ Mid-conversation switch: the prompt cache is model-keyed, "
-                    "so the full context re-bills at fresh rates next turn "
-                    "(use /new if you plan to alternate models).")
+                    "so the full context re-bills at fresh rates next turn. "
+                    "Same chat continues on the new model.")
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
         # Copilot, and Nous-enforced caps win over the raw models.dev entry
