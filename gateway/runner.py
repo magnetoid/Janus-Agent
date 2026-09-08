@@ -2256,8 +2256,15 @@ class GatewayRunner:
             return
 
         cmd = " ".join(shlex.quote(part) for part in janus_cmd)
+        # Cap the wait: a hung interpreter (non-daemon MCP/telegram threads
+        # after asyncio.run returns) used to block this waiter forever and
+        # leave Telegram silent. After 120s, SIGKILL the leftover PID.
         shell_cmd = (
-            f"while kill -0 {current_pid} 2>/dev/null; do sleep 0.2; done; "
+            f"end=$(($(date +%s)+120)); "
+            f"while kill -0 {current_pid} 2>/dev/null; do "
+            f"if [ \"$(date +%s)\" -ge \"$end\" ]; then "
+            f"kill -9 {current_pid} 2>/dev/null || true; break; fi; "
+            f"sleep 0.2; done; "
             f"{cmd} gateway restart"
         )
         setsid_bin = shutil.which("setsid")
@@ -2325,7 +2332,11 @@ class GatewayRunner:
             systemctl_user = "systemctl --user"
             service_arg = shlex.quote(service_name)
             shell_cmd = (
-                f"while kill -0 {current_pid} 2>/dev/null; do sleep 0.2; done; "
+                f"end=$(($(date +%s)+120)); "
+                f"while kill -0 {current_pid} 2>/dev/null; do "
+                f"if [ \"$(date +%s)\" -ge \"$end\" ]; then "
+                f"kill -9 {current_pid} 2>/dev/null || true; break; fi; "
+                f"sleep 0.2; done; "
                 f"{systemctl_user} reset-failed {service_arg}; "
                 f"{systemctl_user} restart {service_arg}"
             )

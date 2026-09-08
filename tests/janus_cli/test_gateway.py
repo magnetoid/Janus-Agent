@@ -610,10 +610,61 @@ class TestWaitForGatewayExit:
     """PID-based wait with force-kill on timeout."""
 
     def test_returns_immediately_when_no_pid(self, monkeypatch):
-        """If get_running_pid returns None, exit instantly."""
+        """If get_running_pid returns None and no leftovers, exit instantly."""
         monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
+        monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [])
         # Should return without sleeping at all.
-        gateway._wait_for_gateway_exit(timeout=1.0, force_after=0.5)
+        assert gateway._wait_for_gateway_exit(timeout=1.0, force_after=0.5) is True
+
+    def test_kills_leftover_pids_when_pid_file_gone(self, monkeypatch):
+        """Hung interpreter can drop the pid file while still running."""
+        kills = []
+        call_num = 0
+
+        def fake_monotonic():
+            nonlocal call_num
+            call_num += 1
+            return call_num * 2.0
+
+        monkeypatch.setattr("time.monotonic", fake_monotonic)
+        monkeypatch.setattr("time.sleep", lambda _: None)
+        monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
+        monkeypatch.setattr(
+            gateway,
+            "find_gateway_pids",
+            lambda: [] if kills else [5805],
+        )
+        monkeypatch.setattr(
+            gateway,
+            "terminate_pid",
+            lambda pid, force=False: kills.append((pid, force)),
+        )
+
+        assert gateway._wait_for_gateway_exit(timeout=10.0, force_after=5.0) is True
+        assert kills == [(5805, True)]
+
+    def test_drain_does_not_sigkill_leftovers(self, monkeypatch):
+        """force_after=None is drain-only; do not SIGKILL a shutting-down PID."""
+        kills = []
+        call_num = 0
+
+        def fake_monotonic():
+            nonlocal call_num
+            call_num += 1
+            return call_num * 5.0
+
+        monkeypatch.setattr("time.monotonic", fake_monotonic)
+        monkeypatch.setattr("time.sleep", lambda _: None)
+        monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
+        monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [5805])
+        monkeypatch.setattr(
+            gateway,
+            "terminate_pid",
+            lambda pid, force=False: kills.append((pid, force)),
+        )
+
+        assert gateway._wait_for_gateway_exit(timeout=10.0, force_after=None) is False
+        assert kills == []
 
     def test_returns_when_process_exits_gracefully(self, monkeypatch):
         """Process exits after a couple of polls — no SIGKILL needed."""
@@ -626,6 +677,7 @@ class TestWaitForGatewayExit:
 
         monkeypatch.setattr("gateway.status.get_running_pid", mock_get_running_pid)
         monkeypatch.setattr("time.sleep", lambda _: None)
+        monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [])
 
         gateway._wait_for_gateway_exit(timeout=10.0, force_after=999.0)
         # Should have polled until None was returned.
@@ -655,6 +707,7 @@ class TestWaitForGatewayExit:
         monkeypatch.setattr("time.sleep", lambda _: None)
         monkeypatch.setattr("gateway.status.get_running_pid", mock_get_running_pid)
         monkeypatch.setattr(gateway, "terminate_pid", mock_terminate)
+        monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [])
 
         gateway._wait_for_gateway_exit(timeout=10.0, force_after=5.0)
         assert (42, True) in kills
