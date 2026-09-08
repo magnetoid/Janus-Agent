@@ -1514,3 +1514,51 @@ class TestAgentConfigSignatureUserId:
             user_id=None, user_id_alt=None,
         )
         assert sig_implicit == sig_explicit_none
+
+
+class TestSeamlessModelHop:
+    """ /model must continue the same chat without evicting the live agent. """
+
+    def test_keep_cached_agent_retargets_signature_not_evict(self):
+        runner = _make_runner()
+        agent = MagicMock()
+        session_key = "telegram:1"
+        with runner._agent_cache_lock:
+            runner._agent_cache[session_key] = (agent, "old-sig")
+
+        runner._keep_cached_agent_after_model_switch(
+            session_key, model="deepseek-chat", provider="deepseek"
+        )
+
+        with runner._agent_cache_lock:
+            cached = runner._agent_cache[session_key]
+        assert cached[0] is agent
+        assert cached[1] == runner._switched_cache_sig("deepseek-chat", "deepseek")
+
+    def test_switched_marker_reuses_agent_for_matching_turn(self):
+        runner = _make_runner()
+        agent = MagicMock()
+        agent.model = "deepseek-chat"
+        agent.provider = "deepseek"
+        cached = (agent, runner._switched_cache_sig("deepseek-chat", "deepseek"))
+        assert runner._cached_agent_matches_turn(
+            cached, "full-hash-sig", "deepseek-chat", "deepseek"
+        ) is True
+        assert runner._cached_agent_matches_turn(
+            cached, "full-hash-sig", "grok-4.6", "xai-oauth"
+        ) is False
+
+    def test_exact_signature_still_hits(self):
+        runner = _make_runner()
+        agent = MagicMock()
+        cached = (agent, "abc123")
+        assert runner._cached_agent_matches_turn(cached, "abc123", "m", "p") is True
+        assert runner._cached_agent_matches_turn(cached, "zzz", "m", "p") is False
+
+    def test_keep_is_noop_when_cache_empty(self):
+        runner = _make_runner()
+        runner._keep_cached_agent_after_model_switch(
+            "telegram:missing", model="grok-4.6", provider="xai-oauth"
+        )
+        with runner._agent_cache_lock:
+            assert "telegram:missing" not in runner._agent_cache

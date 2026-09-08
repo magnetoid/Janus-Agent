@@ -9457,6 +9457,7 @@ class GatewayRunner:
                         if _cache_lock and _cache is not None:
                             with _cache_lock:
                                 cached_entry = _cache.get(_session_key)
+                        switched = False
                         if cached_entry and cached_entry[0] is not None:
                             try:
                                 cached_entry[0].switch_model(
@@ -9466,6 +9467,7 @@ class GatewayRunner:
                                     base_url=result.base_url,
                                     api_mode=result.api_mode,
                                 )
+                                switched = True
                             except Exception as exc:
                                 logger.warning("Picker model switch failed for cached agent: %s", exc)
 
@@ -9501,10 +9503,18 @@ class GatewayRunner:
                             "api_mode": result.api_mode,
                         }
 
-                        # Evict cached agent so the next turn creates a fresh
-                        # agent from the override rather than relying on the
-                        # stale cache signature to trigger a rebuild.
-                        _self._evict_cached_agent(_session_key)
+                        # Keep the live agent when switch_model succeeded so
+                        # the next message continues this chat on the new
+                        # model without a rebuild. Evict only on failure so
+                        # the next turn reconstructs from the override.
+                        if switched:
+                            _self._keep_cached_agent_after_model_switch(
+                                _session_key,
+                                model=result.new_model,
+                                provider=result.target_provider,
+                            )
+                        else:
+                            _self._evict_cached_agent(_session_key)
 
                         # Build confirmation text
                         plabel = result.provider_label or result.target_provider
@@ -9614,6 +9624,7 @@ class GatewayRunner:
             with _cache_lock:
                 cached_entry = _cache.get(session_key)
 
+        switched = False
         if cached_entry and cached_entry[0] is not None:
             try:
                 cached_entry[0].switch_model(
@@ -9623,6 +9634,7 @@ class GatewayRunner:
                     base_url=result.base_url,
                     api_mode=result.api_mode,
                 )
+                switched = True
             except Exception as exc:
                 logger.warning("In-place model switch failed for cached agent: %s", exc)
 
@@ -9659,9 +9671,17 @@ class GatewayRunner:
             "api_mode": result.api_mode,
         }
 
-        # Evict cached agent so the next turn creates a fresh agent from the
-        # override rather than relying on cache signature mismatch detection.
-        self._evict_cached_agent(session_key)
+        # Keep the live agent when switch_model succeeded so the next
+        # message continues this chat on the new model. Evict only when
+        # the in-place swap failed and the next turn must rebuild.
+        if switched:
+            self._keep_cached_agent_after_model_switch(
+                session_key,
+                model=result.new_model,
+                provider=result.target_provider,
+            )
+        else:
+            self._evict_cached_agent(session_key)
 
         # Persist to config if --global
         if persist_global:
@@ -14901,8 +14921,63 @@ class GatewayRunner:
         if release_running_state:
             self._release_running_agent_state(session_key)
 
+    _SWITCHED_CACHE_SIG_PREFIX = "switched:"
+
+    def _switched_cache_sig(self, model: str, provider: str) -> str:
+        return f"{self._SWITCHED_CACHE_SIG_PREFIX}{model}:{provider or ''}"
+
+    def _cached_agent_matches_turn(
+        self,
+        cached: tuple | None,
+        sig: str,
+        turn_model: str,
+        turn_provider: str,
+    ) -> bool:
+        """True when the cached agent can serve this turn.
+
+        After ``/model``, the cache signature is a ``switched:`` marker rather
+        than the full config hash. Reuse the live agent when the marker's
+        model/provider still match — that is the seamless hop: same Python
+        object, same session history, new client.
+        """
+        if not cached:
+            return False
+        agent, cached_sig = cached[0], cached[1]
+        if cached_sig == sig:
+            return True
+        if (
+            isinstance(cached_sig, str)
+            and cached_sig.startswith(self._SWITCHED_CACHE_SIG_PREFIX)
+            and agent is not None
+            and getattr(agent, "model", None) == turn_model
+            and getattr(agent, "provider", None) == turn_provider
+        ):
+            return True
+        return False
+
+    def _keep_cached_agent_after_model_switch(
+        self, session_key: str, *, model: str, provider: str
+    ) -> None:
+        """Keep the in-place-switched agent so the next message does not rebuild.
+
+        ``/model`` used to call ``_evict_cached_agent`` after ``switch_model()``.
+        The next turn then constructed a brand-new AIAgent, which felt like a
+        restart and dropped in-memory tool/runtime state. The live agent already
+        has the new client and an invalidated system prompt — retarget the
+        cache signature instead of throwing it away.
+        """
+        lock = getattr(self, "_agent_cache_lock", None)
+        cache = getattr(self, "_agent_cache", None)
+        if not lock or cache is None or not session_key:
+            return
+        with lock:
+            cached = cache.get(session_key)
+            if not cached or cached[0] is None:
+                return
+            cache[session_key] = (cached[0], self._switched_cache_sig(model, provider))
+
     def _evict_cached_agent(self, session_key: str) -> None:
-        """Remove a cached agent for a session (called on /new, /model, etc)."""
+        """Remove a cached agent for a session (called on /new, failed /model, etc)."""
         _lock = getattr(self, "_agent_cache_lock", None)
         if _lock:
             with _lock:
@@ -16294,8 +16369,17 @@ class GatewayRunner:
             if _cache_lock and _cache is not None:
                 with _cache_lock:
                     cached = _cache.get(session_key)
-                    if cached and cached[1] == _sig:
+                    if cached and self._cached_agent_matches_turn(
+                        cached,
+                        _sig,
+                        turn_route["model"],
+                        turn_route["runtime"].get("provider") or "",
+                    ):
                         agent = cached[0]
+                        # Promote a post-/model switched: marker to the real
+                        # config hash so later turns hit the normal path.
+                        if cached[1] != _sig:
+                            _cache[session_key] = (agent, _sig)
                         # Refresh LRU order so the cap enforcement evicts
                         # truly-oldest entries, not the one we just used.
                         if hasattr(_cache, "move_to_end"):
