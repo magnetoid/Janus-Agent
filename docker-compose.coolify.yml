@@ -36,14 +36,22 @@ services:
       - BLOB_SIGNING_SECRET=${BLOB_SIGNING_SECRET}
       # A provider key, or the agent has nothing to think with. Any one of these is
       # enough; the resolver picks whichever is set.
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # Hosted workspaces use DeepSeek through OpenRouter unless the installer explicitly
-      # chooses another model/provider. Passing both variables matters on a fresh volume:
-      # there is no config.yaml yet from which the gateway could infer either value.
-      - JANUS_TUI_PROVIDER=${JANUS_TUI_PROVIDER:-openrouter}
-      - JANUS_MODEL=${JANUS_MODEL:-deepseek/deepseek-chat}
+      # Hosted workspaces use DeepSeek unless the installer explicitly chooses another
+      # model/provider. Passing both variables matters on a fresh volume: there is no
+      # config.yaml yet from which the gateway could infer either value.
+      #
+      # Direct, via `plugins/model-providers/deepseek` (DEEPSEEK_API_KEY,
+      # api.deepseek.com), not through OpenRouter. The two disagree about the model
+      # name as well as the key — OpenRouter routes by a `vendor/model` slug, so it
+      # wanted `deepseek/deepseek-chat`, while DeepSeek's own API names the model
+      # `deepseek-chat`. Changing the provider without changing the model gives a
+      # 404 on a name the upstream has never heard of, so the two move together.
+      - JANUS_TUI_PROVIDER=${JANUS_TUI_PROVIDER:-deepseek}
+      - JANUS_MODEL=${JANUS_MODEL:-deepseek-chat}
       # The caller gives up at 120s. Janus defaults to 90 iterations and a 30-minute API
       # timeout, which is right for a terminal and hopeless for a chat message, so the
       # turn is capped to something that can finish inside the caller's patience.

@@ -24,3 +24,8 @@ apps/desktop/release/
 # Must stay ignored so `janus update`'s `git stash --include-untracked` does
 # not sweep it away and re-trigger bootstrap on every update (#38529).
 .janus-bootstrap-complete
+
+# Provider keys and deployment secrets. docker-compose reads this file from the
+# repo root, so it holds real credentials and must never be committed.
+.env
+.env.local
