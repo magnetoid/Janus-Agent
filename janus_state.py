@@ -1794,21 +1794,38 @@ class SessionDB:
             """
             params.extend([limit, offset])
         with self._lock:
-            cursor = self._conn.execute(query, params)
-            rows = cursor.fetchall()
+            try:
+                cursor = self._conn.execute(query, params)
+                rows = cursor.fetchall()
+            except sqlite3.Error:
+                logger.warning(
+                    "list_sessions_rich query failed; returning empty list",
+                    exc_info=True,
+                )
+                return []
         sessions = []
         for row in rows:
-            s = dict(row)
-            # Build the preview from the raw substring
-            raw = s.pop("_preview_raw", "").strip()
-            if raw:
-                text = raw[:60]
-                s["preview"] = text + ("..." if len(raw) > 60 else "")
-            else:
-                s["preview"] = ""
-            # Drop the internal ordering column so callers see a clean dict.
-            s.pop("_effective_last_active", None)
-            sessions.append(s)
+            try:
+                s = dict(row)
+                # Build the preview from the raw substring
+                raw = s.pop("_preview_raw", "") or ""
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", errors="replace")
+                raw = str(raw).strip()
+                if raw:
+                    text = raw[:60]
+                    s["preview"] = text + ("..." if len(raw) > 60 else "")
+                else:
+                    s["preview"] = ""
+                # Drop the internal ordering column so callers see a clean dict.
+                s.pop("_effective_last_active", None)
+                sessions.append(s)
+            except Exception:
+                logger.warning(
+                    "Skipping corrupt session row in list_sessions_rich",
+                    exc_info=True,
+                )
+                continue
 
         # Project compression roots forward to their tips. Each row whose
         # end_reason is 'compression' has a continuation child; replace the
@@ -3091,8 +3108,12 @@ class SessionDB:
                 # instr() for snippet uses first search token
                 like_params = [non_op_tokens[0]] + like_params
                 with self._lock:
-                    like_cursor = self._conn.execute(like_sql, like_params)
-                    matches = [dict(row) for row in like_cursor.fetchall()]
+                    try:
+                        like_cursor = self._conn.execute(like_sql, like_params)
+                        matches = [dict(row) for row in like_cursor.fetchall()]
+                    except sqlite3.Error:
+                        logger.warning("search_messages LIKE path failed", exc_info=True)
+                        return []
         else:
             with self._lock:
                 try:

@@ -2426,6 +2426,29 @@ DEFAULT_CONFIG = {
         # 1 = serial (pre-v0.9 behaviour).
         # Also overridable via JANUS_CRON_MAX_PARALLEL env var.
         "max_parallel_jobs": None,
+        # Default False: cron loads MEMORY.md (read-only) and last-run continuity.
+        # Per-job skip_memory=True restores goldfish mode.
+        "skip_memory": False,
+    },
+
+    # HMAC-signed outbound lifecycle webhooks. Disabled until a URL is set.
+    # Per-JANUS_HOME config so Linda/Morpheus subprocess homes stay isolated
+    # from the operator gateway. Env: JANUS_OUTBOUND_WEBHOOK_URL / _SECRET.
+    "webhooks": {
+        "outbound": {
+            "enabled": False,
+            "secret": "",
+            "urls": [],
+            "events": [
+                "session.start",
+                "session.end",
+                "session.finalize",
+                "subagent.start",
+                "subagent.stop",
+                "cron.complete",
+                "api.error",
+            ],
+        },
     },
 
     # Kanban multi-agent coordination — controls the dispatcher loop that

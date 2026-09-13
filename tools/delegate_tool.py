@@ -2961,6 +2961,48 @@ DELEGATE_TASK_SCHEMA = {
 # --- Registry ---
 from tools.registry import registry, tool_error
 
+
+def list_children() -> str:
+    """Snapshot running subagents in this process (same JANUS_HOME)."""
+    children = list_active_subagents()
+    return json.dumps({"success": True, "count": len(children), "children": children}, indent=2)
+
+
+def stop_child(subagent_id: str) -> str:
+    """Interrupt a running child at its next iteration boundary. Partial work is kept."""
+    sid = (subagent_id or "").strip()
+    if not sid:
+        return tool_error("subagent_id is required")
+    if interrupt_subagent(sid):
+        return json.dumps({"success": True, "stopped": sid})
+    return tool_error(f"No running child with id '{sid}'. Use list_children first.")
+
+
+def steer_child(subagent_id: str, message: str) -> str:
+    """Inject a mid-flight note into a child without interrupting the current tool call."""
+    sid = (subagent_id or "").strip()
+    text = (message or "").strip()
+    if not sid:
+        return tool_error("subagent_id is required")
+    if not text:
+        return tool_error("message is required")
+    with _active_subagents_lock:
+        record = _active_subagents.get(sid)
+    if not record:
+        return tool_error(f"No running child with id '{sid}'. Use list_children first.")
+    agent = record.get("agent")
+    steer_fn = getattr(agent, "steer", None)
+    if not callable(steer_fn):
+        return tool_error(f"Child '{sid}' does not support steer.")
+    try:
+        ok = bool(steer_fn(text))
+    except Exception as exc:
+        return tool_error(f"steer failed: {exc}")
+    if not ok:
+        return tool_error("steer was ignored (empty message).")
+    return json.dumps({"success": True, "steered": sid})
+
+
 registry.register(
     name="delegate_task",
     toolset="delegation",
@@ -2979,4 +3021,82 @@ registry.register(
     check_fn=check_delegate_requirements,
     emoji="🔀",
     dynamic_schema_overrides=_build_dynamic_schema_overrides,
+)
+
+registry.register(
+    name="list_children",
+    toolset="delegation",
+    schema={
+        "name": "list_children",
+        "description": (
+            "List running subagents in this Janus process. Returns subagent_id, "
+            "goal, depth, status. Use before stop_child / steer_child. "
+            "Empty when no children are in flight (delegate_task is synchronous "
+            "by default — these tools are for TUI/gateway/same-process observers "
+            "and nested trees)."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    handler=lambda args, **kw: list_children(),
+    check_fn=check_delegate_requirements,
+    emoji="📋",
+)
+
+registry.register(
+    name="stop_child",
+    toolset="delegation",
+    schema={
+        "name": "stop_child",
+        "description": (
+            "Stop a running subagent at its next iteration boundary without "
+            "hard-killing the thread. Partial work is saved on the child session. "
+            "Pass the subagent_id from list_children."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subagent_id": {
+                    "type": "string",
+                    "description": "Id from list_children.",
+                },
+            },
+            "required": ["subagent_id"],
+        },
+    },
+    handler=lambda args, **kw: stop_child(args.get("subagent_id") or ""),
+    check_fn=check_delegate_requirements,
+    emoji="🛑",
+)
+
+registry.register(
+    name="steer_child",
+    toolset="delegation",
+    schema={
+        "name": "steer_child",
+        "description": (
+            "Inject a mid-flight instruction into a running subagent after its "
+            "next tool call, without interrupting the current tool. "
+            "Pass the subagent_id from list_children."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subagent_id": {
+                    "type": "string",
+                    "description": "Id from list_children.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Instruction to inject (e.g. 'stop after this file, skip tests').",
+                },
+            },
+            "required": ["subagent_id", "message"],
+        },
+    },
+    handler=lambda args, **kw: steer_child(
+        args.get("subagent_id") or "",
+        args.get("message") or "",
+    ),
+    check_fn=check_delegate_requirements,
+    emoji="🎯",
 )
