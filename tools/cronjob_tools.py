@@ -447,6 +447,8 @@ def _format_job(job: Dict[str, Any]) -> Dict[str, Any]:
         result["script"] = job["script"]
     if job.get("no_agent"):
         result["no_agent"] = True
+    if job.get("skip_memory"):
+        result["skip_memory"] = True
     if job.get("enabled_toolsets"):
         result["enabled_toolsets"] = job["enabled_toolsets"]
     if job.get("workdir"):
@@ -477,6 +479,7 @@ def cronjob(
     workdir: Optional[str] = None,
     profile: Optional[str] = None,
     no_agent: Optional[bool] = None,
+    skip_memory: Optional[bool] = None,
     task_id: str = None,
 ) -> str:
     """Unified cron job management tool."""
@@ -544,6 +547,7 @@ def cronjob(
                 workdir=_normalize_optional_job_value(workdir),
                 profile=_normalize_optional_job_value(profile),
                 no_agent=_no_agent,
+                skip_memory=bool(skip_memory) if skip_memory is not None else False,
             )
             return json.dumps(
                 {
@@ -695,6 +699,8 @@ def cronjob(
                             success=False,
                         )
                 updates["no_agent"] = target_no_agent
+            if skip_memory is not None:
+                updates["skip_memory"] = bool(skip_memory)
             if repeat is not None:
                 # Normalize: treat 0 or negative as None (infinite)
                 normalized_repeat = None if repeat <= 0 else repeat
@@ -831,6 +837,11 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                 "type": "string",
                 "description": "Optional Janus profile name to run the job under: resolves the profile, applies a context-local Janus home override, loads its config/.env for the run (restored after the job exits), and bridges JANUS_HOME into subprocesses. Use 'default' for the root profile; named profiles must already exist. Unset (default) preserves the scheduler's existing profile. Empty string clears on update. Jobs with profile run sequentially (not parallel) to keep profile-scoped runtime state isolated."
             },
+            "skip_memory": {
+                "type": "boolean",
+                "default": False,
+                "description": "Default False: cron loads MEMORY.md/USER.md (read-only) and injects this job's previous run as continuity. True restores goldfish mode (no memory, no last-run context). The memory write toolset is always disabled for cron so USER.md cannot be rewritten. On update, pass true/false to toggle.",
+            },
         },
         "required": ["action"]
     }
@@ -887,6 +898,7 @@ registry.register(
         workdir=args.get("workdir"),
         profile=args.get("profile"),
         no_agent=args.get("no_agent"),
+        skip_memory=args.get("skip_memory"),
         task_id=kw.get("task_id"),
     ))(),
     check_fn=check_cronjob_requirements,

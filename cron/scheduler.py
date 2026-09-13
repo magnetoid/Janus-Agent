@@ -72,7 +72,9 @@ def _resolve_cron_disabled_toolsets(cfg: dict) -> list[str]:
     ordinary agent runs (#25752 — LLM-supplied enabled_toolsets was widening
     past config.yaml's denylist).
     """
-    disabled = ["cronjob", "messaging", "clarify"]
+    # ``memory`` stays write-disabled so a cron tick cannot rewrite USER.md.
+    # Cron still *loads* MEMORY.md when skip_memory is False (default).
+    disabled = ["cronjob", "messaging", "clarify", "memory"]
     agent_cfg = (cfg or {}).get("agent") or {}
     user_disabled = agent_cfg.get("disabled_toolsets") or []
     for name in user_disabled:
@@ -1151,7 +1153,7 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
     # Inject output from referenced cron jobs as context.
     context_from = job.get("context_from")
     if context_from:
-        from cron.jobs import OUTPUT_DIR
+        from cron.jobs import latest_job_output
         if isinstance(context_from, str):
             context_from = [context_from]
         for source_job_id in context_from:
@@ -1165,35 +1167,32 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
                     _cron_job_origin_log_suffix(job),
                 )
                 continue
-            try:
-                job_output_dir = OUTPUT_DIR / source_job_id
-                if not job_output_dir.exists():
-                    continue  # silent skip — no output yet
-                output_files = sorted(
-                    job_output_dir.glob("*.md"),
-                    key=lambda f: f.stat().st_mtime,
-                    reverse=True,
+            latest_output = latest_job_output(source_job_id)
+            if latest_output:
+                prompt = (
+                    f"## Output from job '{source_job_id}'\n"
+                    "The following is the most recent output from a preceding "
+                    "cron job. Use it as context for your analysis.\n\n"
+                    f"```\n{latest_output}\n```\n\n"
+                    f"{prompt}"
                 )
-                if not output_files:
-                    continue  # silent skip — no output yet
-                latest_output = output_files[0].read_text(encoding="utf-8").strip()
-                # Truncate to 8K characters to avoid prompt bloat
-                _MAX_CONTEXT_CHARS = 8000
-                if len(latest_output) > _MAX_CONTEXT_CHARS:
-                    latest_output = latest_output[:_MAX_CONTEXT_CHARS] + "\n\n[... output truncated ...]"
-                if latest_output:
-                    prompt = (
-                        f"## Output from job '{source_job_id}'\n"
-                        "The following is the most recent output from a preceding "
-                        "cron job. Use it as context for your analysis.\n\n"
-                        f"```\n{latest_output}\n```\n\n"
-                        f"{prompt}"
-                    )
-                else:
-                    continue  # silent skip — empty output
-            except (OSError, PermissionError) as e:
-                logger.warning("context_from: failed to read output for job %r: %s", source_job_id, e)
-                # silent skip — do not pollute the prompt with error messages
+
+    # Same-job continuity: inject this job's last run unless skip_memory.
+    # Isolated JANUS_HOME (Linda / Morpheus subprocess) still works — output
+    # lives under that home's cron/output, never the operator ~/.janus.
+    if not job.get("skip_memory"):
+        from cron.jobs import latest_job_output as _latest_self
+        this_id = str(job.get("id") or "")
+        prior = _latest_self(this_id) if this_id else None
+        if prior:
+            prompt = (
+                "## Previous run of this job\n"
+                "The following is the most recent output from the last time "
+                "this cron job ran. Use it as continuity — do not repeat "
+                "unchanged findings; report only what is new or different.\n\n"
+                f"```\n{prior}\n```\n\n"
+                f"{prompt}"
+            )
 
     # Always prepend cron execution guidance so the agent knows how
     # delivery works and can suppress delivery when appropriate.
@@ -1796,7 +1795,10 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             # Without a workdir, keep cwd context discovery disabled.
             skip_context_files=not bool(_job_workdir),
             load_soul_identity=True,
-            skip_memory=True,  # Cron system prompts would corrupt user representations
+            # Default False: cron loads MEMORY.md / USER.md (read-only — the
+            # memory toolset is in disabled_toolsets). Per-job skip_memory=True
+            # restores the old goldfish behaviour for hermetic watchdogs.
+            skip_memory=bool(job.get("skip_memory", False)),
             platform="cron",
             session_id=_cron_session_id,
             session_db=_session_db,
@@ -2147,11 +2149,31 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> i
                     error = "Agent completed but produced empty response (model error, timeout, or misconfiguration)"
 
                 mark_job_run(job["id"], success, error, delivery_error=delivery_error)
+                try:
+                    from agent.outbound_webhooks import emit_cron_complete
+                    emit_cron_complete(
+                        job_id=str(job["id"]),
+                        name=str(job.get("name") or ""),
+                        success=bool(success),
+                        error=error,
+                    )
+                except Exception:
+                    logger.debug("cron outbound webhook emit failed", exc_info=True)
                 return True
 
             except Exception as e:
                 logger.error("Error processing job %s: %s", job['id'], e)
                 mark_job_run(job["id"], False, str(e))
+                try:
+                    from agent.outbound_webhooks import emit_cron_complete
+                    emit_cron_complete(
+                        job_id=str(job["id"]),
+                        name=str(job.get("name") or ""),
+                        success=False,
+                        error=str(e),
+                    )
+                except Exception:
+                    logger.debug("cron outbound webhook emit failed", exc_info=True)
                 return False
 
         # Partition due jobs: jobs with a per-job workdir and/or profile touch

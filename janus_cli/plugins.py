@@ -1733,8 +1733,17 @@ def invoke_hook(hook_name: str, **kwargs: Any) -> List[Any]:
     """Invoke a lifecycle hook on all loaded plugins.
 
     Returns a list of non-``None`` return values from plugin callbacks.
+    Also fans a subset of hooks out to HMAC-signed outbound webhooks
+    (no-op unless ``webhooks.outbound.enabled`` or ``JANUS_OUTBOUND_WEBHOOK_URL``).
     """
-    return get_plugin_manager().invoke_hook(hook_name, **kwargs)
+    results = get_plugin_manager().invoke_hook(hook_name, **kwargs)
+    try:
+        from agent.outbound_webhooks import emit_hook
+
+        emit_hook(hook_name, **kwargs)
+    except Exception:
+        logger.debug("outbound webhook emit_hook failed", exc_info=True)
+    return results
 
 
 def invoke_middleware(kind: str, **kwargs: Any) -> List[Any]:
