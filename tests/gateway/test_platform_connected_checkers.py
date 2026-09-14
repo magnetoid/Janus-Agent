@@ -98,6 +98,9 @@ def test_checker_returns_true_when_configured(platform, checker, monkeypatch):
         mock_config.extra = {"app_id": "app", "app_secret": "sec"}
     elif platform == Platform.DINGTALK:
         mock_config.extra = {"client_id": "id", "client_secret": "sec"}
+    elif platform == Platform.BLOB:
+        mock_config.extra = {"url": "https://chat.example.com"}
+        mock_config.token = "blob-bot-token"
     else:
         pytest.skip(f"No synthetic config defined for {platform.value}")
 

@@ -453,6 +453,13 @@ _PLATFORM_CONNECTED_CHECKERS: dict[Platform, Callable[[PlatformConfig], bool]] =
         (cfg.extra.get("client_id") or os.getenv("DINGTALK_CLIENT_ID"))
         and (cfg.extra.get("client_secret") or os.getenv("DINGTALK_CLIENT_SECRET"))
     ),
+    # Blob dials out rather than being dialled, so "connected" is only ever a question
+    # about credentials: these two are exactly what BlobAdapter.__init__ refuses to
+    # start without, and the websocket it opens with them is not a config concern.
+    Platform.BLOB: lambda cfg: bool(
+        (cfg.extra.get("url") or os.getenv("BLOB_URL"))
+        and (cfg.token or os.getenv("BLOB_BOT_TOKEN"))
+    ),
 }
 
 
