@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import time
 import uuid
 from collections import deque
 from typing import Any, Dict, Optional
@@ -19,10 +20,34 @@ from gateway.session import SessionSource
 
 logger = logging.getLogger(__name__)
 
+#: How often, in seconds, a working run tells Blob it is still working.
+#:
+#: Blob ends a run that has gone quiet. The deadline is AGUI_TIMEOUT_SEC +
+#: AGUI_READ_TIMEOUT_SEC — 150 seconds by default — and it is reset *only* by an event
+#: frame relayed into that run, never by the ``{"t": "ping"}`` heartbeat below, which
+#: keeps the websocket open and touches nothing else. A socket in perfect health is
+#: therefore not evidence that the run is still alive.
+RUN_KEEPALIVE_SECONDS = 20.0
+
+#: Characters per TEXT_MESSAGE_CONTENT frame.
+#:
+#: Blob refuses a frame over MAX_FRAME_BYTES (512 KiB). ``json.dumps`` escapes
+#: non-ASCII to ``\uXXXX``, so Serbian or Cyrillic text costs up to six bytes per
+#: character and reaches that cap roughly six times sooner than a character count
+#: suggests. 8,000 characters is under 48 KiB even at the worst rate.
+TEXT_CHUNK_CHARS = 8000
+
+from gateway.platforms._http_client_limits import platform_httpx_limits
+
 try:
     import websockets
 except ImportError:  # pragma: no cover - exercised by requirements check
     websockets = None  # type: ignore[assignment]
+
+try:
+    import httpx
+except ImportError:  # pragma: no cover - only the REST send path needs it
+    httpx = None  # type: ignore[assignment]
 
 
 def blob_agent_url(base_url: str) -> str:
@@ -37,6 +62,26 @@ def blob_agent_url(base_url: str) -> str:
     path = parsed.path.rstrip("/")
     if not path.endswith("/ws/agent"):
         path = f"{path}/ws/agent" if path else "/ws/agent"
+    return urlunsplit((scheme, parsed.netloc, path, "", ""))
+
+
+def blob_api_base(base_url: str) -> str:
+    """Normalize the same configured URL to Blob's HTTP origin.
+
+    One setting, two transports: runs arrive on the websocket and anything Janus says
+    on its own initiative goes out over REST. Deriving the second from the first means
+    there is no way to point them at different deployments by mistake.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        raise ValueError("BLOB_URL is required")
+    parsed = urlsplit(value if "://" in value else f"https://{value}")
+    scheme = {"ws": "http", "wss": "https", "http": "http", "https": "https"}.get(parsed.scheme)
+    if scheme is None or not parsed.netloc:
+        raise ValueError("BLOB_URL must be an HTTP(S) or WS(S) URL")
+    path = parsed.path.rstrip("/")
+    if path.endswith("/ws/agent"):
+        path = path[: -len("/ws/agent")]
     return urlunsplit((scheme, parsed.netloc, path, "", ""))
 
 
@@ -70,6 +115,10 @@ class BlobAdapter(BasePlatformAdapter):
         self._seen_runs: set[str] = set()
         self._seen_order: deque[str] = deque()
         self._seen_limit = max(100, int(extra.get("dedup_limit", 2000)))
+        self._run_keepalive_seconds = float(
+            extra.get("run_keepalive_seconds") or RUN_KEEPALIVE_SECONDS
+        )
+        self._api_base = blob_api_base(self.base_url)
         self._concurrency = asyncio.Semaphore(max(1, int(extra.get("max_concurrent_runs", 4))))
         self._reconnect_min = max(0.1, float(extra.get("reconnect_min_seconds", 1)))
         self._reconnect_max = max(self._reconnect_min, float(extra.get("reconnect_max_seconds", 30)))
@@ -241,21 +290,18 @@ class BlobAdapter(BasePlatformAdapter):
             return
         thread_id = str(run_input.get("threadId") or run_id)
         await self._event(socket, run_id, {"type": "RUN_STARTED", "threadId": thread_id, "runId": run_id})
+        keepalive = asyncio.create_task(
+            self._keep_run_alive(socket, run_id), name=f"blob-alive-{run_id}"
+        )
         try:
             if self._message_handler is None:
                 raise RuntimeError("Blob adapter has no Janus message handler")
             async with self._concurrency:
                 response = await self._message_handler(self._message_event(run_input))
+            await self._stop_keepalive(keepalive)
             text, _ttl = self._unwrap_ephemeral(response)
             if text:
-                message_id = str(uuid.uuid4())
-                await self._event(socket, run_id, {"type": "TEXT_MESSAGE_START", "messageId": message_id})
-                await self._event(
-                    socket,
-                    run_id,
-                    {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": text},
-                )
-                await self._event(socket, run_id, {"type": "TEXT_MESSAGE_END", "messageId": message_id})
+                await self._emit_text(socket, run_id, text)
             await self._event(socket, run_id, {"type": "RUN_FINISHED", "threadId": thread_id, "runId": run_id})
         except asyncio.CancelledError:
             with contextlib.suppress(Exception):
@@ -265,8 +311,69 @@ class BlobAdapter(BasePlatformAdapter):
             logger.exception("Blob run %s failed", run_id)
             await self._event(socket, run_id, {"type": "RUN_ERROR", "message": str(error)[:400]})
         finally:
+            await self._stop_keepalive(keepalive)
             with contextlib.suppress(Exception):
                 await self._send_frame(socket, {"t": "done", "runId": run_id})
+
+    @staticmethod
+    async def _stop_keepalive(task: "asyncio.Task[None]") -> None:
+        """Idempotent: called on the success path and again in ``finally``."""
+        if task.done():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+    async def _keep_run_alive(self, socket: Any, run_id: str) -> None:
+        """Say the run is still working, until the handler returns.
+
+        Without this the adapter sends RUN_STARTED and then nothing at all until the
+        whole Janus run is finished, so Blob sees a run that has gone silent and drops
+        the answer that was still coming. Short questions survive; a run with tools in
+        it does not, which is the worst shape a bug can have — it works in a demo and
+        fails on the real work.
+
+        ACTIVITY_SNAPSHOT rather than a stream of steps: Blob's run card keeps at most
+        MAX_STEPS = 30 steps and drops the rest, while the activity line is a single
+        slot meant to be overwritten. One STEP_STARTED opens the card so it is not
+        blank while the first interval elapses.
+        """
+        started = time.monotonic()
+        with contextlib.suppress(Exception):
+            await self._event(socket, run_id, {"type": "STEP_STARTED", "stepName": "working"})
+        while True:
+            await asyncio.sleep(self._run_keepalive_seconds)
+            elapsed = int(time.monotonic() - started)
+            await self._event(
+                socket,
+                run_id,
+                {
+                    "type": "ACTIVITY_SNAPSHOT",
+                    "message": f"Working\u2026 {elapsed // 60}:{elapsed % 60:02d}",
+                },
+            )
+
+    async def _emit_text(self, socket: Any, run_id: str, text: str) -> None:
+        """Stream the reply in chunks Blob will actually read.
+
+        Blob answers an oversized frame with an error frame that this adapter treats as
+        non-fatal by design, so a single large delta would be dropped in silence rather
+        than failing loudly. Chunking also lets the run card count the text as it lands
+        instead of jumping from nothing to everything.
+        """
+        message_id = str(uuid.uuid4())
+        await self._event(socket, run_id, {"type": "TEXT_MESSAGE_START", "messageId": message_id})
+        for start in range(0, len(text), TEXT_CHUNK_CHARS):
+            await self._event(
+                socket,
+                run_id,
+                {
+                    "type": "TEXT_MESSAGE_CONTENT",
+                    "messageId": message_id,
+                    "delta": text[start : start + TEXT_CHUNK_CHARS],
+                },
+            )
+        await self._event(socket, run_id, {"type": "TEXT_MESSAGE_END", "messageId": message_id})
 
     async def _event(self, socket: Any, run_id: str, event: Dict[str, Any]) -> None:
         await self._send_frame(socket, {"t": "event", "runId": run_id, "event": event})
@@ -282,10 +389,56 @@ class BlobAdapter(BasePlatformAdapter):
         reply_to: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
-        # Normal replies are returned by _handle_run as AG-UI events. A bare chat_id is
-        # insufficient for an unsolicited Blob post because the socket run deliberately
-        # does not expose the parent channel when threadId identifies a thread.
-        return SendResult(success=False, error="Blob replies require an active /ws/agent run")
+        """Post into Blob over its bot API.
+
+        The other direction from a run. A run's answer goes back as AG-UI events on the
+        socket, where Blob already knows which message is being answered; this is for
+        everything Janus says on its own initiative — a cron digest, a scheduled
+        standup, an alert — which has no run to ride on.
+
+        ``chat_id`` must name a channel: an id, or a name like ``#general``, both of
+        which Blob resolves. It is *not* the ``chat_id`` of a live run — that one is a
+        thread id, because the socket protocol deliberately does not hand out the
+        parent channel. Replies belong on the socket anyway.
+
+        No second credential: ``/api/v1/`` authenticates with the same bot token the
+        websocket used, and needs the ``messages:write`` scope the manifest asks for.
+        """
+        if httpx is None:
+            return SendResult(success=False, error="httpx is required to post into Blob")
+        payload: Dict[str, Any] = {
+            "channel": chat_id,
+            "text": content,
+            # Every Blob write is idempotent on this, so the retry in base does not
+            # post twice when the reply was delivered and the acknowledgement was lost.
+            "clientMsgId": str((metadata or {}).get("client_msg_id") or uuid.uuid4()),
+        }
+        if reply_to:
+            payload["threadRootId"] = reply_to
+        try:
+            async with httpx.AsyncClient(timeout=30.0, limits=platform_httpx_limits()) as client:
+                response = await client.post(
+                    f"{self._api_base}/api/v1/chat.postMessage",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"},
+                )
+        except Exception as error:  # network, DNS, TLS — all worth another attempt
+            return SendResult(success=False, error=str(error)[:200], retryable=True)
+        if response.status_code >= 400:
+            # 5xx is the server having a bad minute; 4xx is this request being wrong,
+            # and retrying a wrong request just spends the rate limit.
+            return SendResult(
+                success=False,
+                error=f"Blob answered {response.status_code}: {response.text[:200]}",
+                retryable=response.status_code >= 500 or response.status_code == 429,
+            )
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        message = body.get("message") if isinstance(body, dict) else None
+        message_id = str(message.get("id")) if isinstance(message, dict) and message.get("id") else None
+        return SendResult(success=True, message_id=message_id, raw_response=body)
 
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
         return {"id": chat_id, "type": "blob"}

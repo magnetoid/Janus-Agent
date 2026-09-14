@@ -6,7 +6,7 @@ import pytest
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import SendResult
-from gateway.platforms.blob import BlobAdapter, blob_agent_url
+from gateway.platforms.blob import BlobAdapter, blob_agent_url, blob_api_base
 
 
 def config(**extra):
@@ -143,11 +143,141 @@ async def test_failure_emits_run_error_then_done():
     assert frames[-1] == {"t": "done", "runId": "run-error"}
 
 
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("https://chat.example.com", "https://chat.example.com"),
+        ("wss://chat.example.com/ws/agent", "https://chat.example.com"),
+        ("http://localhost:8000/", "http://localhost:8000"),
+    ],
+)
+def test_blob_api_base(base, expected):
+    """One setting, two transports — the REST origin is derived, never configured twice."""
+    assert blob_api_base(base) == expected
+
+
+def _fake_httpx(monkeypatch, handler):
+    """Point the adapter's own AsyncClient at a MockTransport."""
+    import httpx as real_httpx
+
+    from gateway.platforms import blob as blob_module
+
+    class _Client(real_httpx.AsyncClient):
+        def __init__(self, **kwargs):
+            kwargs.pop("limits", None)
+            super().__init__(transport=real_httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(blob_module.httpx, "AsyncClient", _Client)
+
+
 @pytest.mark.asyncio
-async def test_send_is_not_used_outside_an_active_blob_run():
+async def test_send_posts_into_blob_over_the_bot_api(monkeypatch):
+    """The outbound half: a cron digest has no run to ride on, so it goes over REST."""
+    seen = {}
+
+    def handler(request):
+        import httpx as real_httpx
+
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return real_httpx.Response(201, json={"message": {"id": "m-9"}})
+
+    _fake_httpx(monkeypatch, handler)
+    result = await BlobAdapter(config()).send("#general", "Standup is ready", reply_to="thread-1")
+
+    assert result.success is True
+    assert result.message_id == "m-9"
+    assert seen["url"] == "https://chat.example.com/api/v1/chat.postMessage"
+    assert seen["auth"] == "Bearer blob-bot-test"
+    assert seen["body"]["channel"] == "#general"
+    assert seen["body"]["text"] == "Standup is ready"
+    assert seen["body"]["threadRootId"] == "thread-1"
+    # Every Blob write is idempotent on this, so base's retry cannot double-post.
+    assert seen["body"]["clientMsgId"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "retryable"), [(500, True), (429, True), (403, False), (404, False)]
+)
+async def test_send_only_retries_what_is_worth_retrying(monkeypatch, status, retryable):
+    """Retrying a wrong request just spends the rate limit."""
+
+    def handler(request):
+        import httpx as real_httpx
+
+        return real_httpx.Response(status, json={"error": {"message": "no"}})
+
+    _fake_httpx(monkeypatch, handler)
+    result = await BlobAdapter(config()).send("#general", "hi")
+    assert result.success is False
+    assert result.retryable is retryable
+
+
+@pytest.mark.asyncio
+async def test_a_working_run_keeps_telling_blob_it_is_alive():
+    """The bug this pins: RUN_STARTED then silence until the run ends.
+
+    Blob resets a run's idle deadline only on an event relayed into that run — the
+    websocket ping keeps the socket open and touches nothing else — and ends a run that
+    has been quiet for AGUI_TIMEOUT_SEC + AGUI_READ_TIMEOUT_SEC, 150s by default. A
+    short question answered fast survived that; a run with tools in it did not, and the
+    answer was discarded while it was still coming.
+    """
+    adapter = BlobAdapter(config(run_keepalive_seconds=0.02))
+    socket = AsyncMock()
+
+    async def slow(_event):
+        await asyncio.sleep(0.15)
+        return "done at last"
+
+    adapter.set_message_handler(slow)
+    await adapter._handle_run(
+        socket,
+        {"t": "run", "runId": "run-slow", "input": {"threadId": "c1", "messages": [{"role": "user", "content": "hi"}]}},
+    )
+
+    kinds = [
+        json.loads(call.args[0]).get("event", {}).get("type")
+        for call in socket.send.await_args_list
+    ]
+    assert kinds[0] == "RUN_STARTED"
+    assert "STEP_STARTED" in kinds, "the card would be blank while the first interval elapses"
+    assert kinds.count("ACTIVITY_SNAPSHOT") >= 2, kinds
+    # And it stops the moment the handler returns, rather than racing the reply.
+    assert kinds.index("TEXT_MESSAGE_START") > kinds.index("ACTIVITY_SNAPSHOT")
+    assert "ACTIVITY_SNAPSHOT" not in kinds[kinds.index("TEXT_MESSAGE_START") :]
+    # The last event is the run ending; the last *frame* after it is `done`, which
+    # carries no event at all — that ordering is the protocol and is asserted elsewhere.
+    assert [k for k in kinds if k][-1] == "RUN_FINISHED"
+
+
+@pytest.mark.asyncio
+async def test_a_long_reply_is_split_into_frames_blob_will_read():
+    """Blob refuses a frame over 512 KiB, and answers with an error this adapter treats
+    as non-fatal — so one oversized delta vanished in silence instead of failing."""
     adapter = BlobAdapter(config())
-    result = await adapter.send("channel-1", "hello")
-    assert result == SendResult(success=False, error="Blob replies require an active /ws/agent run")
+    socket = AsyncMock()
+    body = "\u0161" * 20_000  # non-ASCII: json escapes each to six bytes
+
+    async def handler(_event):
+        return body
+
+    adapter.set_message_handler(handler)
+    await adapter._handle_run(
+        socket,
+        {"t": "run", "runId": "run-long", "input": {"threadId": "c1", "messages": [{"role": "user", "content": "hi"}]}},
+    )
+
+    frames = [json.loads(call.args[0]) for call in socket.send.await_args_list]
+    deltas = [f["event"]["delta"] for f in frames if f.get("event", {}).get("type") == "TEXT_MESSAGE_CONTENT"]
+    assert len(deltas) == 3
+    assert "".join(deltas) == body
+    # One message id for the whole reply, or Blob would post three separate messages.
+    ids = {f["event"]["messageId"] for f in frames if "messageId" in f.get("event", {})}
+    assert len(ids) == 1
+    assert max(len(json.dumps(f).encode()) for f in frames) < 512 * 1024
 
 
 @pytest.mark.asyncio
