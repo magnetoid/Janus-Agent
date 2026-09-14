@@ -5096,6 +5096,14 @@ class GatewayRunner:
                 return None
             return SlackAdapter(config)
 
+        elif platform == Platform.BLOB:
+            from gateway.platforms.blob import BlobAdapter
+            try:
+                return BlobAdapter(config)
+            except ValueError as error:
+                logger.warning("Blob: %s", error)
+                return None
+
         elif platform == Platform.SIGNAL:
             from gateway.platforms.signal import SignalAdapter, check_signal_requirements
             if not check_signal_requirements():
