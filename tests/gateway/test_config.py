@@ -882,3 +882,62 @@ class TestHomeChannelEnvOverrides:
             home = config.platforms[platform].home_channel
             assert home is not None, f"{platform.value}: home_channel should not be None"
             assert (home.chat_id, home.name) == expected, platform.value
+
+
+class TestBlobEnv:
+    """Blob can be enabled from the environment alone.
+
+    Every other platform here is: TELEGRAM_BOT_TOKEN turns Telegram on, and so on. Blob
+    had the connected-checker and the empty-token warning but no `_enable_from_env`
+    block, so BLOB_URL + BLOB_BOT_TOKEN — the exact two lines Blob's own admin page
+    prints — enabled nothing, and the platform was reachable only through config.yaml.
+    """
+
+    def test_env_alone_enables_and_connects(self, monkeypatch):
+        monkeypatch.setenv("BLOB_URL", "https://chat.example.com")
+        monkeypatch.setenv("BLOB_BOT_TOKEN", "blob-bot-env")
+        config = GatewayConfig(platforms={})
+        _apply_env_overrides(config)
+        blob = config.platforms[Platform.BLOB]
+        assert blob.enabled is True
+        assert blob.token == "blob-bot-env"
+        assert blob.extra["url"] == "https://chat.example.com"
+        assert Platform.BLOB in config.get_connected_platforms()
+
+    def test_env_wins_over_yaml_for_token_and_url(self, monkeypatch):
+        """Env over config.yaml, the precedence every other platform keeps here."""
+        monkeypatch.setenv("BLOB_URL", "https://env.example.com")
+        monkeypatch.setenv("BLOB_BOT_TOKEN", "from-env")
+        config = GatewayConfig(
+            platforms={
+                Platform.BLOB: PlatformConfig(
+                    enabled=True, token="from-yaml", extra={"url": "https://yaml.example.com"}
+                ),
+            },
+        )
+        _apply_env_overrides(config)
+        blob = config.platforms[Platform.BLOB]
+        assert blob.token == "from-env"
+        assert blob.extra["url"] == "https://env.example.com"
+
+    def test_an_explicit_yaml_disable_is_not_overridden_by_env(self, monkeypatch):
+        """`enabled: false` written by hand stays off — the `_enabled_explicit` rule."""
+        monkeypatch.setenv("BLOB_URL", "https://chat.example.com")
+        monkeypatch.setenv("BLOB_BOT_TOKEN", "blob-bot-env")
+        config = GatewayConfig(
+            platforms={
+                Platform.BLOB: PlatformConfig(
+                    enabled=False, extra={"_enabled_explicit": True}
+                ),
+            },
+        )
+        _apply_env_overrides(config)
+        assert config.platforms[Platform.BLOB].enabled is False
+        assert Platform.BLOB not in config.get_connected_platforms()
+
+    def test_no_token_means_no_platform(self, monkeypatch):
+        monkeypatch.setenv("BLOB_URL", "https://chat.example.com")
+        monkeypatch.delenv("BLOB_BOT_TOKEN", raising=False)
+        config = GatewayConfig(platforms={})
+        _apply_env_overrides(config)
+        assert Platform.BLOB not in config.platforms

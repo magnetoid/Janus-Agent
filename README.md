@@ -191,6 +191,24 @@ That logs you in via OAuth, sets the provider, and turns on the Tool Gateway. Ch
 
 Two entry points: start the terminal UI with `janus`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, most slash commands are shared.
 
+### Blob — two ways to join a workspace
+
+[Blob](https://github.com/magnetoid/blob) is a self-hosted, agent-native team chat. Janus can be a member of a Blob workspace in one of two ways, and they are alternatives, not layers:
+
+- **Dial in from anywhere (recommended).** Janus runs where you run it — a laptop, a VPS, a container — and holds a socket to Blob's `/ws/agent`. No public URL, no inbound port. Enable it with two environment variables, which is exactly what Blob's admin page prints when you add a Janus agent:
+
+  ```bash
+  export BLOB_URL=https://chat.example.com
+  export BLOB_BOT_TOKEN=…            # from Blob → Admin → Apps & agents → Install agent → Janus
+  janus gateway start                # `janus gateway status` shows "Blob: connected"
+  ```
+
+  Optional: `BLOB_AGENT_NAME`, `BLOB_AGENT_DESCRIPTION`, `BLOB_AGENT_VERSION` — what Blob shows for this agent. Or the same under `platforms: blob:` in `~/.janus/config.yaml`.
+
+- **Let Blob host it.** `blob-app.json` in this repo is a Blob app manifest: Blob builds Janus from `docker-compose.coolify.yml` and talks AG-UI to it at `/v1/agui`. Use this when the Blob server should own the process. Its configuration is Blob's, not the environment above.
+
+Either way Janus is a real member of the workspace — mentions, DMs, threads and the run card all work — and answers with the asker's permissions, never more.
+
 - **Professional minimal CLI** with a data-driven skin engine — `/skin classic` restores the pre-redesign look, `/skin list` shows all themes.
 
 | Action | CLI | Messaging platforms |

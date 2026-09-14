@@ -1294,6 +1294,19 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
             platform_config.enabled = True
         return platform_config
     
+    # Blob. Dials out rather than being dialled, so the two things it needs are a
+    # token and where to dial. Env wins over config.yaml for both, as it does for every
+    # other platform here; the adapter reads BLOB_AGENT_NAME / _DESCRIPTION / _VERSION
+    # itself, so they need no seeding. Without this block the env block Blob's own admin
+    # page prints did nothing — the platform was reachable only through config.yaml.
+    blob_token = os.getenv("BLOB_BOT_TOKEN")
+    if blob_token:
+        blob_config = _enable_from_env(Platform.BLOB)
+        blob_config.token = blob_token
+        blob_url = os.getenv("BLOB_URL")
+        if blob_url:
+            blob_config.extra["url"] = blob_url
+
     # Telegram
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if telegram_token:

@@ -202,14 +202,24 @@ class TestCallbacks:
         assert events == []
 
     def test_a_tool_call_becomes_a_start_and_an_end(self) -> None:
+        # The agent's real invocation: `(tool_call_id, name, args)` on start and the same
+        # plus the result on completion (`agent/tool_executor.py`). This test used to pass
+        # one positional and call it the name — which is what the adapter did too, so the
+        # two agreed with each other and disagreed with the agent, and the run card showed
+        # call ids where tool names belonged.
         events: list = []
         callbacks = agui.make_agui_callbacks(events.append)
-        callbacks.tool_start_callback("search_docs")
-        callbacks.tool_complete_callback("search_docs")
+        callbacks.tool_start_callback("call_7", "search_docs", {"q": "socket"})
+        callbacks.tool_complete_callback("call_7", "search_docs", {"q": "socket"}, "3 hits")
 
-        assert [e["type"] for e in events] == ["TOOL_CALL_START", "TOOL_CALL_END"]
+        assert [e["type"] for e in events] == [
+            "TOOL_CALL_START",
+            "TOOL_CALL_ARGS",
+            "TOOL_CALL_RESULT",
+            "TOOL_CALL_END",
+        ]
         assert events[0]["toolCallName"] == "search_docs"
-        assert events[0]["toolCallId"] == events[1]["toolCallId"]
+        assert {e["toolCallId"] for e in events} == {"call_7"}
 
     def test_a_callback_that_is_handed_nonsense_does_not_raise(self) -> None:
         # The agent silences callback exceptions, so raising here would lose the event
@@ -304,3 +314,66 @@ class TestReadingTheBody:
         )
 
         assert len(read) > 1_000
+
+
+class TestToolCallbacks:
+    """What a tool call looks like on Blob's run card.
+
+    The agent invokes these as ``(tool_call_id, name, args)`` and
+    ``(tool_call_id, name, args, result)`` — ``agent/tool_executor.py``. The first
+    version of the adapter read one positional and called it the name, so the card showed
+    call ids where names belonged; and it minted ids keyed by name, so two calls to one
+    tool shared an id and the second end closed the first. These pin the real contract.
+    """
+
+    def _run(self, *calls):
+        from gateway.platforms.agui import make_agui_callbacks
+
+        events = []
+        cb = make_agui_callbacks(events.append)
+        for kind, args in calls:
+            (cb.tool_start_callback if kind == "start" else cb.tool_complete_callback)(*args)
+        return events
+
+    def test_the_name_is_the_name_and_the_id_is_the_id(self) -> None:
+        events = self._run(("start", ("call_1", "web_search", {"q": "blob"})))
+        start = events[0]
+        assert start["type"] == "TOOL_CALL_START"
+        assert start["toolCallId"] == "call_1"
+        assert start["toolCallName"] == "web_search"
+
+    def test_two_calls_to_one_tool_keep_their_own_ids(self) -> None:
+        events = self._run(
+            ("start", ("call_1", "web_search", {"q": "a"})),
+            ("start", ("call_2", "web_search", {"q": "b"})),
+            ("complete", ("call_1", "web_search", {"q": "a"}, "first")),
+            ("complete", ("call_2", "web_search", {"q": "b"}, "second")),
+        )
+        ends = [e["toolCallId"] for e in events if e["type"] == "TOOL_CALL_END"]
+        assert ends == ["call_1", "call_2"]
+
+    def test_args_and_result_reach_the_card(self) -> None:
+        events = self._run(
+            ("start", ("call_1", "web_search", {"q": "blob"})),
+            ("complete", ("call_1", "web_search", {"q": "blob"}, {"hits": 3})),
+        )
+        kinds = [e["type"] for e in events]
+        assert kinds == ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_RESULT", "TOOL_CALL_END"]
+        # The fields Blob's CardFold reads: `delta` on ARGS, `content` on RESULT.
+        assert '"q": "blob"' in events[1]["delta"]
+        assert '"hits": 3' in events[2]["content"]
+        assert events[2]["role"] == "tool"
+
+    def test_a_huge_result_is_capped_not_fatal(self) -> None:
+        from gateway.platforms.agui import TOOL_RESULT_CHARS
+
+        events = self._run(
+            ("start", ("call_1", "read_file", {})),
+            ("complete", ("call_1", "read_file", {}, "x" * (TOOL_RESULT_CHARS * 3))),
+        )
+        result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
+        assert len(result["content"]) == TOOL_RESULT_CHARS
+
+    def test_a_complete_for_an_unknown_id_is_ignored(self) -> None:
+        events = self._run(("complete", ("never_started", "web_search", {}, "r")))
+        assert events == []

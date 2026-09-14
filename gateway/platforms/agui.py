@@ -272,6 +272,41 @@ def tool_call_end(tool_call_id: str) -> Dict[str, Any]:
     return {"type": "TOOL_CALL_END", "toolCallId": tool_call_id}
 
 
+#: Caps on what a tool-call event carries. Blob's run card keeps a few thousand
+#: characters of each and drops the rest, and its socket refuses a frame over 512 KiB
+#: — a tool that returns a whole file must not take the run down with it.
+TOOL_ARGS_CHARS = 4_000
+TOOL_RESULT_CHARS = 8_000
+
+
+def _render(value: Any) -> str:
+    """Args and results as text, JSON when they are structured, never raising."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return str(value)
+
+
+def tool_call_args(tool_call_id: str, delta: str) -> Dict[str, Any]:
+    """The arguments a tool was called with, as one delta (Blob concatenates deltas)."""
+    return {"type": "TOOL_CALL_ARGS", "toolCallId": tool_call_id, "delta": delta}
+
+
+def tool_call_result(tool_call_id: str, content: str) -> Dict[str, Any]:
+    """What the tool answered. `role: tool` and a message id are what the spec asks."""
+    return {
+        "type": "TOOL_CALL_RESULT",
+        "messageId": f"tr_{tool_call_id}",
+        "toolCallId": tool_call_id,
+        "content": content,
+        "role": "tool",
+    }
+
+
 def text_message(message_id: str, text: str) -> List[Dict[str, Any]]:
     """A complete message as the triad the protocol expects."""
     return [
@@ -317,21 +352,47 @@ def make_agui_callbacks(enqueue: Callable[[Dict[str, Any]], None]) -> AGUICallba
         except Exception:
             pass
 
-    def on_tool_start(name: Any = "", *_args: Any, **_kwargs: Any) -> None:
+    # The agent calls these as `(tool_call_id, name, args)` and
+    # `(tool_call_id, name, args, result)` — `agent/tool_executor.py`, four call sites.
+    # The first version here took one positional and called it the name, so the run
+    # card showed call ids where tool names belonged, and it minted its own ids keyed by
+    # *name*, so two calls to one tool collided and the second end closed the first.
+    # The real id is the key now, and args and result are forwarded rather than dropped:
+    # Blob's card reads `delta` on ARGS and `content` on RESULT.
+    def on_tool_start(
+        tool_call_id: Any = "", name: Any = "", args: Any = None, *_args: Any, **_kwargs: Any
+    ) -> None:
         try:
             tool_name = name if isinstance(name, str) and name else "a tool"
-            call_id = f"tc_{len(state.setdefault('tools', {})) + 1}"
-            state["tools"][tool_name] = call_id
+            call_id = (
+                tool_call_id
+                if isinstance(tool_call_id, str) and tool_call_id
+                else f"tc_{len(state.setdefault('tools', {})) + 1}"
+            )
+            state.setdefault("tools", {})[call_id] = tool_name
             enqueue(tool_call_start(call_id, tool_name))
+            rendered = _render(args)
+            if rendered:
+                enqueue(tool_call_args(call_id, rendered[:TOOL_ARGS_CHARS]))
         except Exception:
             pass
 
-    def on_tool_complete(name: Any = "", *_args: Any, **_kwargs: Any) -> None:
+    def on_tool_complete(
+        tool_call_id: Any = "",
+        name: Any = "",
+        args: Any = None,
+        result: Any = None,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> None:
         try:
-            tool_name = name if isinstance(name, str) and name else "a tool"
-            call_id = state.get("tools", {}).get(tool_name)
-            if call_id:
-                enqueue(tool_call_end(call_id))
+            call_id = tool_call_id if isinstance(tool_call_id, str) and tool_call_id else None
+            if call_id is None or call_id not in state.get("tools", {}):
+                return
+            rendered = _render(result)
+            if rendered:
+                enqueue(tool_call_result(call_id, rendered[:TOOL_RESULT_CHARS]))
+            enqueue(tool_call_end(call_id))
         except Exception:
             pass
 
