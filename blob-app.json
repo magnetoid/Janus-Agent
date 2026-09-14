@@ -1,7 +1,7 @@
 {
   "slug": "janus",
   "name": "Janus",
-  "description": "A self-healing agentic platform, answering in your workspace.",
+  "description": "A dedicated Janus Agent installation for this workspace, with isolated configuration, memory, tools, and persistent storage.",
   "version": "0.16.0",
   "build": "dockercompose",
   "composePath": "/docker-compose.coolify.yml",
