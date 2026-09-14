@@ -21,6 +21,7 @@ from cron.jobs import (
     advance_next_run,
     get_due_jobs,
     save_job_output,
+    latest_job_output,
 )
 
 
@@ -991,3 +992,26 @@ class TestSaveJobOutput:
         with pytest.raises(ValueError, match="output path"):
             save_job_output(str(tmp_cron_dir / "outside"), "# Results")
         assert not (tmp_cron_dir / "outside").exists()
+
+    def test_latest_job_output_reads_newest(self, tmp_cron_dir):
+        save_job_output("abc123def456", "first")
+        save_job_output("abc123def456", "second")
+        assert latest_job_output("abc123def456") == "second"
+
+    def test_latest_job_output_rejects_escape(self, tmp_cron_dir):
+        assert latest_job_output("../escape") is None
+
+
+class TestCronSkipMemory:
+    def test_create_defaults_skip_memory_false(self, tmp_cron_dir):
+        job = create_job(prompt="Remember me", schedule="every 1h")
+        assert job.get("skip_memory") is False
+
+    def test_create_skip_memory_true(self, tmp_cron_dir):
+        job = create_job(prompt="Goldfish", schedule="every 1h", skip_memory=True)
+        assert job.get("skip_memory") is True
+
+    def test_update_skip_memory(self, tmp_cron_dir):
+        job = create_job(prompt="Toggle", schedule="every 1h")
+        updated = update_job(job["id"], {"skip_memory": True})
+        assert updated["skip_memory"] is True

@@ -68,6 +68,40 @@ def _job_output_dir(job_id: str) -> Path:
     return OUTPUT_DIR / text
 
 
+def latest_job_output(job_id: str, max_chars: int = 8000) -> Optional[str]:
+    """Return the most recent markdown output for a job, truncated.
+
+    Used for ``context_from`` chaining and same-job continuity. Returns
+    ``None`` when the id is unsafe, the directory is missing, or the
+    latest file is empty/unreadable.
+    """
+    try:
+        job_output_dir = _job_output_dir(job_id)
+    except ValueError:
+        return None
+    if not job_output_dir.exists():
+        return None
+    try:
+        output_files = sorted(
+            job_output_dir.glob("*.md"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    if not output_files:
+        return None
+    try:
+        text = output_files[0].read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    if len(text) > max_chars:
+        return text[:max_chars] + "\n\n[... output truncated ...]"
+    return text
+
+
 def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = None) -> List[str]:
     """Normalize legacy/single-skill and multi-skill inputs into a unique ordered list."""
     if skills is None:
@@ -565,6 +599,7 @@ def create_job(
     workdir: Optional[str] = None,
     profile: Optional[str] = None,
     no_agent: bool = False,
+    skip_memory: bool = False,
 ) -> Dict[str, Any]:
     """
     Create a new cron job.
@@ -614,6 +649,11 @@ def create_job(
                 and deliver its stdout directly. Empty stdout = silent (no
                 delivery). Requires ``script`` to be set. Ideal for classic
                 watchdogs and periodic alerts that don't need LLM reasoning.
+        skip_memory: When True, the cron agent does not load MEMORY.md / USER.md
+                and does not inject this job's previous run as continuity.
+                Default False — cron jobs remember the user and their last
+                output. The memory *write* toolset stays disabled so cron
+                cannot rewrite USER.md.
 
     Returns:
         The created job dict
@@ -703,6 +743,7 @@ def create_job(
         "enabled_toolsets": normalized_toolsets,
         "workdir": normalized_workdir,
         "profile": normalized_profile,
+        "skip_memory": bool(skip_memory),
     }
 
     jobs = load_jobs()
