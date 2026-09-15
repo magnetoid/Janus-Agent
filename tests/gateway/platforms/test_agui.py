@@ -14,9 +14,13 @@ import hashlib
 import hmac
 import json
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
 
+from gateway.config import PlatformConfig
 from gateway.platforms import agui
 from gateway.platforms import api_server
 
@@ -96,6 +100,38 @@ def run_body(**overrides: object) -> dict:
     return body
 
 
+def _agui_test_app() -> tuple[api_server.APIServerAdapter, web.Application]:
+    """A real adapter and app with only `/v1/agui` registered — everything
+    `_handle_agui` needs, and nothing `start()` would also bring up."""
+    adapter = api_server.APIServerAdapter(
+        PlatformConfig(enabled=True, extra={"blob_signing_secret": SECRET})
+    )
+    mws = [
+        mw
+        for mw in (api_server.cors_middleware, api_server.security_headers_middleware)
+        if mw is not None
+    ]
+    app = web.Application(middlewares=mws)
+    app["api_server_adapter"] = adapter
+    app.router.add_post("/v1/agui", adapter._handle_agui)
+    return adapter, app
+
+
+async def _post_signed_agui(cli: TestClient, body: dict):
+    """Sign `body` the way Blob does and POST it — the only way `/v1/agui` accepts one."""
+    raw = json.dumps(body).encode()
+    timestamp = str(int(time.time()))
+    return await cli.post(
+        "/v1/agui",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Blob-Request-Timestamp": timestamp,
+            "X-Blob-Signature": sign(raw, int(timestamp)),
+        },
+    )
+
+
 class TestParsing:
     def test_the_last_message_is_the_question_and_the_rest_is_history(self) -> None:
         run = agui.parse_run_input(run_body())
@@ -155,6 +191,27 @@ class TestInstructions:
         assert len(run.instructions) == agui.MAX_INSTRUCTIONS_CHARS
 
 
+class TestInstructionsEdgeCases:
+    """Every shape that must not become an instruction, pinned in one place: a run with
+    none of these behaves exactly as a run predating this feature."""
+
+    @pytest.mark.parametrize(
+        "forwarded_props",
+        [{"instructions": ""}, {"instructions": "   "}, "not a dict"],
+        ids=["empty-string", "whitespace-only", "forwardedProps-not-a-dict"],
+    )
+    def test_instructions_is_none(self, forwarded_props: object) -> None:
+        run = agui.parse_run_input(run_body(forwardedProps=forwarded_props))
+        assert run.instructions is None
+
+    def test_instructions_is_none_when_forwarded_props_is_absent(self) -> None:
+        # Not the {} the rest of this module's bodies send deliberately — the key
+        # missing entirely, as every caller before this feature existed always sent it.
+        body = run_body()
+        del body["forwardedProps"]
+        assert agui.parse_run_input(body).instructions is None
+
+
 class TestEphemeralPrompt:
     """The per-run system prompt: the workspace's instructions, then the room's context."""
 
@@ -174,6 +231,54 @@ class TestEphemeralPrompt:
         run = agui.parse_run_input(run_body(context=[]))
         assert run.context_prompt is None
         assert agui.ephemeral_prompt(run) is None
+
+
+class TestAGUIHandler:
+    """`_handle_agui` end to end: a real signed POST, `_run_agent` mocked, asserting on
+    the `ephemeral_system_prompt` kwarg it receives — the one line this feature adds to
+    the handler. Everything else in this module tests `agui.py`'s pure functions without
+    a server, by design (see the module docstring); this class is the deliberate
+    exception, because the wiring it checks lives in `api_server.py`, not here, and
+    reading it is not the same as watching a signed request reach it.
+    """
+
+    @staticmethod
+    def _mock_result() -> tuple:
+        return (
+            {"final_response": "ok", "messages": [], "api_calls": 1},
+            {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        )
+
+    @pytest.mark.asyncio
+    async def test_instructions_reach_run_agent_ahead_of_the_context(self) -> None:
+        adapter, app = _agui_test_app()
+        async with TestClient(TestServer(app)) as cli:
+            with patch.object(adapter, "_run_agent", new_callable=AsyncMock) as mock_run:
+                mock_run.return_value = self._mock_result()
+                resp = await _post_signed_agui(
+                    cli, run_body(forwardedProps={"instructions": "Be brief."})
+                )
+                assert resp.status == 200
+                await resp.text()  # drain the SSE body so the handler has returned
+
+        prompt = mock_run.call_args.kwargs["ephemeral_system_prompt"]
+        assert prompt.startswith(agui.INSTRUCTIONS_HEADING)
+        assert "Be brief." in prompt
+        assert prompt.endswith("You are answering in a group chat. channel: general.")
+
+    @pytest.mark.asyncio
+    async def test_without_instructions_the_context_reaches_run_agent_alone(self) -> None:
+        adapter, app = _agui_test_app()
+        async with TestClient(TestServer(app)) as cli:
+            with patch.object(adapter, "_run_agent", new_callable=AsyncMock) as mock_run:
+                mock_run.return_value = self._mock_result()
+                resp = await _post_signed_agui(cli, run_body())
+                assert resp.status == 200
+                await resp.text()
+
+        assert mock_run.call_args.kwargs["ephemeral_system_prompt"] == (
+            "You are answering in a group chat. channel: general."
+        )
 
 
 class TestFraming:
