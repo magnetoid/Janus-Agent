@@ -2772,6 +2772,7 @@ class GatewayRunner:
             
             # Set up message + fatal error handlers
             adapter.set_message_handler(self._handle_message)
+            adapter.set_restart_handler(self._request_gateway_restart)
             adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
             adapter.set_session_store(self.session_store)
             adapter.set_busy_session_handler(self._handle_active_session_busy_message)
@@ -4524,6 +4525,7 @@ class GatewayRunner:
                         continue
 
                     adapter.set_message_handler(self._handle_message)
+                    adapter.set_restart_handler(self._request_gateway_restart)
                     adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
                     adapter.set_session_store(self.session_store)
                     adapter.set_busy_session_handler(self._handle_active_session_busy_message)
@@ -9190,21 +9192,23 @@ class GatewayRunner:
             logger.debug("Failed to write restart dedup marker: %s", e)
 
         active_agents = self._running_agent_count()
-        # When running under a service manager (systemd/launchd) or inside a
-        # Docker/Podman container, use the service restart path: exit with
-        # code 75 so the service manager / container restart policy restarts
-        # us.  The detached subprocess approach (setsid + bash) doesn't work
-        # under systemd (KillMode=mixed kills the cgroup) or Docker (tini
-        # exits when the gateway dies, taking the detached helper with it).
-        _under_service = bool(os.environ.get("INVOCATION_ID"))  # systemd sets this
-        _in_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
-        if _under_service or _in_container:
-            self.request_restart(detached=False, via_service=True)
-        else:
-            self.request_restart(detached=True, via_service=False)
+        self._request_gateway_restart()
         if active_agents:
             return t("gateway.draining", count=active_agents)
         return EphemeralReply(t("gateway.restart.restarting"))
+
+    def _request_gateway_restart(self) -> bool:
+        """Ask for the graceful restart the /restart command performs.
+
+        Under systemd or in a container the process exits 75 after the drain and the
+        service manager or supervisor starts it again; anywhere else it re-execs itself
+        detached. Returns False when a restart was already under way.
+        """
+        under_service = bool(os.environ.get("INVOCATION_ID"))  # systemd sets this
+        in_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+        if under_service or in_container:
+            return self.request_restart(detached=False, via_service=True)
+        return self.request_restart(detached=True, via_service=False)
 
     def _is_stale_restart_redelivery(self, event: MessageEvent) -> bool:
         """Return True if this /restart is a Telegram re-delivery we already handled.

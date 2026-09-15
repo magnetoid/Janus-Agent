@@ -1797,6 +1797,10 @@ class BasePlatformAdapter(ABC):
         self.config = config
         self.platform = platform
         self._message_handler: Optional[MessageHandler] = None
+        # Let this adapter ask the gateway for a graceful restart (set by the
+        # runner beside the message handler). None for an adapter running
+        # without a gateway, e.g. the standalone API server.
+        self._restart_handler: Optional[Callable[[], bool]] = None
         # Optional hook (e.g. Telegram DM topic recovery) that rewrites
         # ``event.source.thread_id`` before session keying. Returns the
         # corrected thread_id or None to leave the source untouched.
@@ -2161,6 +2165,14 @@ class BasePlatformAdapter(ABC):
         an optional response string.
         """
         self._message_handler = handler
+
+    def set_restart_handler(self, handler: Callable[[], bool]) -> None:
+        """Let this adapter ask the gateway for a graceful restart.
+
+        Set by the runner beside the message handler. An adapter running without a
+        gateway — the standalone API server — has none, and says so instead of failing.
+        """
+        self._restart_handler = handler
 
     def set_topic_recovery_fn(
         self,
