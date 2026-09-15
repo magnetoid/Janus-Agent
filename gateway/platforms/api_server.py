@@ -3634,7 +3634,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     self._run_agent(
                         user_message=run.user_message,
                         conversation_history=run.history,
-                        ephemeral_system_prompt=run.context_prompt,
+                        ephemeral_system_prompt=agui_protocol.ephemeral_prompt(run),
                         stream_delta_callback=callbacks.stream_delta_callback,
                         tool_start_callback=callbacks.tool_start_callback,
                         tool_complete_callback=callbacks.tool_complete_callback,

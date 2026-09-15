@@ -48,6 +48,10 @@ DEFAULT_KEEPALIVE_SECONDS = 15.0
 #: Channel context is untrusted text. It informs the turn; it does not get to be large.
 MAX_CONTEXT_PROMPT_BYTES = 8_192
 
+#: A workspace admin's standing instructions, forwarded on every run. Untrusted text like
+#: the context above, and bounded the same way.
+MAX_INSTRUCTIONS_CHARS = 4_000
+
 _SESSION_KEY_SAFE = re.compile(r"[^A-Za-z0-9._:-]")
 
 
@@ -125,6 +129,9 @@ class RunInput:
     #: Everything before the trailing user turn, oldest first, in OpenAI shape.
     history: List[Dict[str, str]]
     context_prompt: Optional[str]
+    #: The workspace admin's standing instructions, forwarded on every run as
+    #: ``forwardedProps.instructions``. A caller that sends none behaves exactly as before.
+    instructions: Optional[str] = None
 
 
 def parse_run_input(body: Dict[str, Any]) -> RunInput:
@@ -174,12 +181,20 @@ def parse_run_input(body: Dict[str, Any]) -> RunInput:
         # The transcript ends on the agent's own turn: there is no question pending.
         raise ValueError("the last message must be from someone other than the agent")
 
+    forwarded = body.get("forwardedProps")
+    instructions = None
+    if isinstance(forwarded, dict):
+        raw = forwarded.get("instructions")
+        if isinstance(raw, str) and raw.strip():
+            instructions = raw.strip()[:MAX_INSTRUCTIONS_CHARS]
+
     return RunInput(
         thread_id=thread_id,
         run_id=run_id,
         user_message=last["content"],
         history=history,
         context_prompt=_context_prompt(body.get("context")),
+        instructions=instructions,
     )
 
 
@@ -202,6 +217,19 @@ def _context_prompt(context: Any) -> Optional[str]:
         return None
     joined = "You are answering in a group chat. " + "; ".join(lines) + "."
     return joined[:MAX_CONTEXT_PROMPT_BYTES]
+
+
+INSTRUCTIONS_HEADING = "Instructions from this workspace's admin:"
+
+
+def ephemeral_prompt(run: RunInput) -> Optional[str]:
+    """The per-run system prompt: the workspace's instructions, then the room's context."""
+    parts = []
+    if run.instructions:
+        parts.append(f"{INSTRUCTIONS_HEADING}\n{run.instructions}")
+    if run.context_prompt:
+        parts.append(run.context_prompt)
+    return "\n\n".join(parts) or None
 
 
 def sanitize_session_key(thread_id: str) -> str:

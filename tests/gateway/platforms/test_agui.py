@@ -139,6 +139,43 @@ class TestParsing:
                 agui.parse_run_input(run_body(**{missing: ""}))
 
 
+class TestInstructions:
+    """`RunInput.instructions`: forwardedProps.instructions, stripped and capped."""
+
+    def test_instructions_are_read_from_forwarded_props(self) -> None:
+        run = agui.parse_run_input(run_body(forwardedProps={"instructions": "  Be brief.  "}))
+        assert run.instructions == "Be brief."
+
+    def test_instructions_that_are_not_a_string_are_ignored(self) -> None:
+        run = agui.parse_run_input(run_body(forwardedProps={"instructions": ["no"]}))
+        assert run.instructions is None
+
+    def test_instructions_are_capped(self) -> None:
+        run = agui.parse_run_input(run_body(forwardedProps={"instructions": "x" * 5000}))
+        assert len(run.instructions) == agui.MAX_INSTRUCTIONS_CHARS
+
+
+class TestEphemeralPrompt:
+    """The per-run system prompt: the workspace's instructions, then the room's context."""
+
+    def test_instructions_come_before_the_context(self) -> None:
+        run = agui.parse_run_input(run_body(forwardedProps={"instructions": "Be brief."}))
+        prompt = agui.ephemeral_prompt(run)
+        assert prompt is not None
+        assert prompt.startswith(agui.INSTRUCTIONS_HEADING)
+        assert prompt.index("Be brief.") < prompt.index("channel: general")
+
+    def test_the_context_alone_when_there_are_no_instructions(self) -> None:
+        run = agui.parse_run_input(run_body())
+        assert run.instructions is None
+        assert agui.ephemeral_prompt(run) == run.context_prompt
+
+    def test_neither_leaves_no_prompt_at_all(self) -> None:
+        run = agui.parse_run_input(run_body(context=[]))
+        assert run.context_prompt is None
+        assert agui.ephemeral_prompt(run) is None
+
+
 class TestFraming:
     def test_a_frame_is_one_record(self) -> None:
         frame = agui.sse({"type": "RUN_STARTED", "threadId": "t", "runId": "r"})
