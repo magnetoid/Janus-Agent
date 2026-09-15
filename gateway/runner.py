@@ -9203,6 +9203,11 @@ class GatewayRunner:
         Under systemd or in a container the process exits 75 after the drain and the
         service manager or supervisor starts it again; anywhere else it re-execs itself
         detached. Returns False when a restart was already under way.
+
+        The detached subprocess approach (setsid + bash) doesn't work under systemd
+        (KillMode=mixed kills the cgroup) or Docker (tini exits when the gateway dies,
+        taking the detached helper with it) — those two environments get the
+        service-restart path instead.
         """
         under_service = bool(os.environ.get("INVOCATION_ID"))  # systemd sets this
         in_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")

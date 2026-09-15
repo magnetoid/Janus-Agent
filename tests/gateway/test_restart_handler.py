@@ -14,7 +14,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gateway.config import GatewayConfig, Platform, PlatformConfig
 from gateway.platforms.base import MessageEvent, MessageType
+from gateway.run import GatewayRunner
 from tests.gateway.restart_test_helpers import (
     RestartTestAdapter,
     make_restart_runner,
@@ -142,6 +144,44 @@ async def test_handle_restart_command_calls_request_gateway_restart_once(gateway
 
     runner._request_gateway_restart.assert_called_once_with()
     assert "Restarting" in result
+
+
+# ── start() wires set_restart_handler onto every adapter ────────────────
+
+
+@pytest.mark.asyncio
+async def test_start_wires_restart_handler_onto_adapter(monkeypatch, tmp_path):
+    """start() calls adapter.set_restart_handler(self._request_gateway_restart)
+    at the same point it calls set_message_handler (gateway/runner.py:2775).
+
+    make_restart_runner() builds its GatewayRunner via object.__new__, which
+    skips __init__ — enough for the handler-level tests above, but start()
+    itself reads real __init__ state (e.g. self._busy_text_mode) that fixture
+    never sets. tests/gateway/test_platform_reconnect.py's heavier start()
+    tests show what driving it through an object.__new__ runner actually
+    costs: half a dozen extra patches (discover_plugins, load_config,
+    build_channel_directory, process-registry recovery, a faked
+    asyncio.create_task...) to keep unrelated startup machinery from running
+    or crashing. A real GatewayRunner(config) gets all of that for free —
+    tests/gateway/test_runner_fatal_adapter.py already drives start() this
+    way with nothing patched but _create_adapter — so that construction is
+    used here too; RestartTestAdapter (the same stub the tests above use) is
+    still the adapter.
+    """
+    config = GatewayConfig(
+        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="test")},
+        sessions_dir=tmp_path / "sessions",
+    )
+    runner = GatewayRunner(config)
+    adapter = RestartTestAdapter()
+    monkeypatch.setattr(runner, "_create_adapter", lambda platform, platform_config: adapter)
+
+    ok = await runner.start()
+
+    assert ok is True
+    # Bound methods compare equal by (__self__, __func__), not identity — two
+    # attribute reads of the same bound method are equal but not `is`.
+    assert adapter._restart_handler == runner._request_gateway_restart
 
 
 # ── BasePlatformAdapter.set_restart_handler / _restart_handler ──────────
