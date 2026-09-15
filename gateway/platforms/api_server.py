@@ -8,6 +8,8 @@ Exposes an HTTP server with endpoints:
 - DELETE /v1/responses/{response_id} — Delete a stored response
 - GET  /v1/models                  — lists janus-agent as an available model
 - GET  /v1/capabilities            — machine-readable API capabilities for external UIs
+- GET  /v1/config                  — effective configuration + config.yaml as text
+- PUT  /v1/config                  — write a config change and (optionally) restart
 - GET  /api/sessions               — list client-visible Janus sessions
 - POST /api/sessions               — create an empty Janus session
 - GET/PATCH/DELETE /api/sessions/{session_id} — read/update/delete a session
@@ -54,6 +56,7 @@ except ImportError:
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms import agui as agui_protocol
+from gateway.platforms import api_config
 from gateway.platforms.base import (
     BasePlatformAdapter,
     SendResult,
@@ -109,6 +112,16 @@ def _coerce_port(value: Any, default: int = DEFAULT_PORT) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _janus_version() -> str:
+    """The running package version, for clients that feature-gate on it."""
+    try:
+        from janus_cli import __version__
+
+        return str(__version__)
+    except Exception:  # pragma: no cover - defensive
+        return "unknown"
 
 
 _TRUE_REQUEST_BOOL_STRINGS = frozenset({"1", "true", "yes", "on"})
@@ -792,6 +805,11 @@ class APIServerAdapter(BasePlatformAdapter):
         # in-flight run by run_id.
         self._run_approval_sessions: Dict[str, str] = {}
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
+        # Set when PUT /v1/config asked the gateway to restart, so a client
+        # that polls GET /v1/config knows the process it is talking to is on
+        # its way out. Cleared by the restart itself — the attribute dies
+        # with the process.
+        self._restart_pending: bool = False
 
     @staticmethod
     def _parse_cors_origins(value: Any) -> tuple[str, ...]:
@@ -1186,6 +1204,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 "session_chat_streaming": True,
                 "session_fork": True,
                 "admin_config_rw": False,
+                "config": True,
                 "jobs_admin": False,
                 "memory_write_api": False,
                 "skills_api": True,
@@ -1208,6 +1227,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"},
                 "skills": {"method": "GET", "path": "/v1/skills"},
                 "toolsets": {"method": "GET", "path": "/v1/toolsets"},
+                "config": {"method": "GET", "path": "/v1/config"},
+                "config_update": {"method": "PUT", "path": "/v1/config"},
                 "sessions": {"method": "GET", "path": "/api/sessions"},
                 "session_create": {"method": "POST", "path": "/api/sessions"},
                 "session": {"method": "GET", "path": "/api/sessions/{session_id}"},
@@ -1305,6 +1326,94 @@ class APIServerAdapter(BasePlatformAdapter):
             "object": "list",
             "platform": "api_server",
             "data": data,
+        })
+
+    # ------------------------------------------------------------------
+    # /v1/config — read and write this Janus's configuration
+    # ------------------------------------------------------------------
+
+    async def _handle_get_config(self, request: "web.Request") -> "web.Response":
+        """GET /v1/config — the effective configuration, plus the file itself.
+
+        For a host that runs Janus as a service and shows a settings page.
+        Refused with 409 on a managed install (NixOS / systemd), exactly as
+        ``janus config set`` is: the config there belongs to the package
+        manager, and a UI that let you edit it would be lying.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        if api_config.is_managed():
+            return web.json_response({"error": "configuration is managed"}, status=409)
+
+        try:
+            view = await asyncio.to_thread(
+                api_config.read_view,
+                version=_janus_version(),
+                restart_pending=self._restart_pending,
+            )
+        except Exception:
+            logger.exception("GET /v1/config failed")
+            return web.json_response(
+                _openai_error("Failed to read configuration", err_type="server_error"),
+                status=500,
+            )
+        return web.json_response(view)
+
+    async def _handle_put_config(self, request: "web.Request") -> "web.Response":
+        """PUT /v1/config — write a change, then ask the gateway to restart.
+
+        The change is on disk before the restart is asked for, so a restart
+        that cannot happen (no gateway — the standalone ``janus api`` server)
+        costs a warning rather than the edit.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        if api_config.is_managed():
+            return web.json_response({"error": "configuration is managed"}, status=409)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        try:
+            applied, warnings = await asyncio.to_thread(api_config.apply_change, body)
+        except api_config.ConfigChangeError as exc:
+            return web.json_response(exc.payload, status=exc.status)
+        except Exception:
+            logger.exception("PUT /v1/config failed")
+            return web.json_response(
+                _openai_error("Failed to write configuration", err_type="server_error"),
+                status=500,
+            )
+
+        restarting = False
+        if _coerce_request_bool(body.get("restart"), default=True):
+            if self._restart_handler is None:
+                warnings.append({
+                    "severity": "warning",
+                    "message": (
+                        "no gateway to restart: the change is on disk and takes "
+                        "effect at the next start"
+                    ),
+                    "hint": "Restart the Janus service to apply it now",
+                })
+            else:
+                restarting = bool(self._restart_handler())
+                self._restart_pending = restarting
+
+        # In a thread: the write just invalidated the config cache, so this
+        # re-parses config.yaml rather than hitting it.
+        drain_timeout = await asyncio.to_thread(api_config.drain_timeout_seconds)
+        return web.json_response({
+            "applied": applied,
+            "warnings": warnings,
+            "restarting": restarting,
+            "drain_timeout_seconds": drain_timeout,
         })
 
     # ------------------------------------------------------------------
@@ -4323,6 +4432,9 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
             self._app.router.add_get("/v1/skills", self._handle_skills)
             self._app.router.add_get("/v1/toolsets", self._handle_toolsets)
+            # Configuration read/write for a host that runs Janus as a service.
+            self._app.router.add_get("/v1/config", self._handle_get_config)
+            self._app.router.add_put("/v1/config", self._handle_put_config)
             # AG-UI. Registered only when a signing secret is configured: the route
             # authenticates by HMAC rather than the bearer key, so without a secret there
             # is nothing to check and it must not exist at all.
