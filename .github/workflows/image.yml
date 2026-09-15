@@ -1,0 +1,56 @@
+# Publish the image Blob's stack pins.
+#
+# Blob can run Janus as a service inside its own Compose stack, beside its app and worker,
+# on an internal network with no public hostname. That compose file pins a tag here rather
+# than building from this repository, for two reasons: Blob's own deploy is already nine to
+# ten minutes on a server fixed at one build at a time, and a build failure here must not
+# become a failed *Blob* deploy. The image that was tested is the image that runs.
+#
+# The version is read from blob-app.json rather than typed again — that file already
+# declares it and Blob reads it.
+
+name: image
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read the version the manifest declares
+        id: manifest
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('blob-app.json'))['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publishing ghcr.io/${{ github.repository_owner }}/janus:$version"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Both tags on purpose: the version is what a deployment pins and reads, the SHA
+          # is what makes a build reproducible when two pushes share a version.
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/janus:${{ steps.manifest.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/janus:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
