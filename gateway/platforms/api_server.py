@@ -1392,7 +1392,9 @@ class APIServerAdapter(BasePlatformAdapter):
             )
 
         restarting = False
-        if _coerce_request_bool(body.get("restart"), default=True):
+        # Cannot raise here: apply_change validated the flag before it wrote
+        # anything, so an unusable value already came back as a 400.
+        if api_config.restart_requested(body):
             if self._restart_handler is None:
                 warnings.append({
                     "severity": "warning",

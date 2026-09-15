@@ -97,10 +97,14 @@ class TestGetConfig:
         assert data["personalities"] == []
         assert data["restart_pending"] is False
         assert isinstance(data["version"], str) and data["version"]
-        assert set(data["toolsets"]) == {"available", "enabled"}
+        assert set(data["toolsets"]) == {"available", "enabled", "error"}
+        assert data["toolsets"]["error"] is None
         assert data["providers"], "the registry has API-key providers"
         assert all(p["key"]["set"] is False for p in data["providers"])
         assert all(p["env"] and p["id"] and p["name"] for p in data["providers"])
+        # The registry aliases several ids (novita / novita-ai / novitaai).
+        ids = [p["id"] for p in data["providers"]]
+        assert len(ids) == len(set(ids)), f"duplicate providers: {ids}"
 
     @pytest.mark.asyncio
     async def test_effective_values_show_even_when_the_file_omits_them(self, adapter, monkeypatch):
@@ -156,7 +160,7 @@ class TestGetConfig:
         assert data["agent"]["personality"] == "concise"
 
     @pytest.mark.asyncio
-    async def test_models_are_fetched_from_the_provider_and_sorted(self, adapter, monkeypatch):
+    async def test_models_come_from_the_configured_provider(self, adapter, monkeypatch):
         _write_config("model:\n  provider: deepseek\n  default: deepseek-v4-pro\n")
         calls = []
 
@@ -172,6 +176,8 @@ class TestGetConfig:
 
         assert calls == ["deepseek"]
         assert data["models"]["provider"] == "deepseek"
+        # Passed through as the fetch returned them — sorting is
+        # provider_models' job, covered in TestProviderModels.
         assert data["models"]["ids"] == ["deepseek-v4-pro", "deepseek-flash"]
         assert data["models"]["reason"] is None
 
@@ -244,6 +250,27 @@ class TestGetConfig:
         assert all(isinstance(name, str) for name in available + enabled)
         assert available == sorted(available)
         assert enabled == sorted(enabled)
+        assert data["toolsets"]["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_toolset_failure_is_reported_not_swallowed(self, adapter, monkeypatch):
+        """Empty lists would read as "this Janus has no tools" — say what happened."""
+        monkeypatch.setattr(api_config, "provider_models", _no_models)
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("toolset registry unavailable")
+
+        monkeypatch.setattr("janus_cli.tools_config._get_platform_tools", boom)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.get("/v1/config")
+            assert resp.status == 200
+            data = await resp.json()
+
+        assert data["toolsets"]["available"] == []
+        assert data["toolsets"]["enabled"] == []
+        assert data["toolsets"]["error"] == "RuntimeError: toolset registry unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -307,17 +334,58 @@ class TestPutMerge:
         assert _read_config() == {"model": {"default": "m", "provider": "deepseek"}}
 
     @pytest.mark.asyncio
-    async def test_toolsets_are_set_whole(self, adapter):
-        _write_config("toolsets:\n  - janus-cli\n")
+    async def test_toolsets_are_set_whole_on_the_platform_key(self, adapter):
+        """``platform_toolsets.api_server`` is what _get_platform_tools reads.
+
+        The root ``toolsets:`` key is the CLI's own list — writing that would
+        report success and change nothing this server does.
+        """
+        _write_config("platform_toolsets:\n  api_server:\n    - web\n")
 
         app = _create_app(adapter)
         async with TestClient(TestServer(app)) as cli:
-            resp = await cli.put("/v1/config", json={"toolsets": ["janus-cli", "web"], "restart": False})
+            resp = await cli.put("/v1/config", json={"toolsets": ["web", "terminal"], "restart": False})
             assert resp.status == 200
             data = await resp.json()
 
-        assert data["applied"]["toolsets"] == ["janus-cli", "web"]
-        assert _read_config()["toolsets"] == ["janus-cli", "web"]
+        assert data["applied"]["toolsets"] == ["web", "terminal"]
+        after = _read_config()
+        assert after["platform_toolsets"]["api_server"] == ["web", "terminal"]
+        assert "toolsets" not in after
+
+    @pytest.mark.asyncio
+    async def test_a_toolsets_change_shows_in_the_next_get(self, adapter, monkeypatch):
+        """The round trip: what PUT writes is what GET reports as enabled."""
+        monkeypatch.setattr(api_config, "provider_models", _no_models)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            before = (await (await cli.get("/v1/config")).json())["toolsets"]
+            assert "web" in before["available"] and "terminal" in before["available"]
+
+            resp = await cli.put(
+                "/v1/config", json={"toolsets": ["web", "terminal"], "restart": False}
+            )
+            assert resp.status == 200
+
+            after = (await (await cli.get("/v1/config")).json())["toolsets"]
+
+        assert after["enabled"] == ["terminal", "web"]
+        assert after["enabled"] != before["enabled"], "the default selection is wider"
+
+    @pytest.mark.asyncio
+    async def test_a_legacy_scalar_model_survives_a_partial_merge(self, adapter):
+        """``model: name`` is the default model — a provider-only PUT keeps it."""
+        _write_config("model: some-name\n")
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put(
+                "/v1/config", json={"model": {"provider": "deepseek"}, "restart": False}
+            )
+            assert resp.status == 200
+
+        assert _read_config()["model"] == {"default": "some-name", "provider": "deepseek"}
 
     @pytest.mark.asyncio
     async def test_the_personality_goes_to_the_key_the_config_uses(self, adapter):
@@ -384,6 +452,29 @@ class TestPutRaw:
 
         assert data["applied"]["raw"] is True
         assert _read_config() == {"model": {"default": "new"}}
+
+    @pytest.mark.asyncio
+    async def test_raw_is_written_verbatim_and_round_trips(self, adapter, monkeypatch):
+        """Comments and formatting are the operator's; a save must not eat them."""
+        monkeypatch.setattr(api_config, "provider_models", _no_models)
+        text = (
+            "# the model this box runs on\n"
+            "model:\n"
+            "  default: new      # chosen 2026-09-16\n"
+            "\n"
+            "agent:\n"
+            "  max_turns: 42\n"
+        )
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"raw": text, "restart": False})
+            assert resp.status == 200
+            data = await (await cli.get("/v1/config")).json()
+
+        assert get_config_path().read_text(encoding="utf-8") == text
+        assert data["raw"] == text
+        assert data["model"]["default"] == "new"
 
     @pytest.mark.asyncio
     async def test_a_scalar_is_refused(self, adapter):
@@ -620,6 +711,24 @@ class TestPutApiKeys:
         assert "lowercase_api_key" in data["error"]
 
     @pytest.mark.asyncio
+    async def test_a_non_ascii_value_is_refused_not_stripped(self, adapter, capsys):
+        """save_env_value would strip it and print the offending characters."""
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put(
+                "/v1/config", json={"api_keys": {"DEEPSEEK_API_KEY": "sk-tëst-a4f2"}, "restart": False}
+            )
+            assert resp.status == 400
+            body = await resp.text()
+
+        assert "DEEPSEEK_API_KEY" in body
+        assert "ASCII" in body
+        assert "sk-t" not in body
+        assert not get_env_path().exists()
+        printed = capsys.readouterr()
+        assert "ë" not in printed.out + printed.err
+
+    @pytest.mark.asyncio
     async def test_a_non_string_value_is_refused(self, adapter):
         app = _create_app(adapter)
         async with TestClient(TestServer(app)) as cli:
@@ -696,6 +805,21 @@ class TestPutRestart:
 
         assert calls == []
         assert data["restarting"] is False
+
+    @pytest.mark.asyncio
+    async def test_an_unusable_restart_flag_is_refused_before_any_write(self, adapter):
+        calls = []
+        adapter.set_restart_handler(lambda: calls.append(1) or True)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"model": {"default": "x"}, "restart": "maybe"})
+            assert resp.status == 400
+            data = await resp.json()
+
+        assert "restart" in data["error"]
+        assert calls == []
+        assert not get_config_path().exists(), "refused before anything was written"
 
     @pytest.mark.asyncio
     async def test_a_refused_restart_reports_false(self, adapter):

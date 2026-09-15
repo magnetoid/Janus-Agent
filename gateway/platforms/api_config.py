@@ -38,7 +38,7 @@ from janus_cli.config import (
     save_env_value,
     validate_config_structure,
 )
-from utils import atomic_yaml_write
+from utils import atomic_text_write, atomic_yaml_write
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,15 @@ __all__ = [
     "is_managed",
     "provider_models",
     "read_view",
+    "restart_requested",
 ]
+
+# The platform whose toolset selection this route reads and writes. The API
+# server's tools are ``platform_toolsets.api_server`` — the root ``toolsets:``
+# key is the CLI's own list and is NOT what ``_get_platform_tools`` consults
+# for a platform, so writing it would report success and change nothing.
+# ``janus tools`` writes the same per-platform key.
+PLATFORM = "api_server"
 
 # An API key or token, and nothing else. The outer gate on ``api_keys``:
 # ``_reject_denylisted_env_var`` runs behind it, but no denylisted name
@@ -82,6 +90,13 @@ _CHANGE_KEYS = ("model", "agent", "toolsets", "api_keys", "raw")
 _INT_KEYS = frozenset({"max_turns", "gateway_timeout"})
 
 MODELS_FETCH_TIMEOUT_SECONDS = 10.0
+
+# The spellings ``_coerce_request_bool`` in api_server.py accepts, because a
+# client that writes "false" means it. Anything outside this vocabulary is
+# refused rather than defaulted: silently restarting the gateway because a flag
+# was misspelled is the one wrong answer here.
+_TRUE_RESTART_STRINGS = frozenset({"1", "true", "yes", "on"})
+_FALSE_RESTART_STRINGS = frozenset({"0", "false", "no", "off"})
 
 
 class ConfigChangeError(Exception):
@@ -139,8 +154,13 @@ def _personality_names(config: Dict[str, Any]) -> List[str]:
     return sorted(str(name) for name in personalities)
 
 
-def _toolsets_view(config: Dict[str, Any]) -> Dict[str, List[str]]:
-    """What ``/v1/toolsets`` reports, reduced to two name lists."""
+def _toolsets_view(config: Dict[str, Any]) -> Dict[str, Any]:
+    """What ``/v1/toolsets`` reports, reduced to two name lists.
+
+    A failure is reported rather than swallowed: empty lists with no
+    explanation read as "this Janus has no tools", which is a different and
+    much more alarming thing than "I could not enumerate them".
+    """
     try:
         from janus_cli.tools_config import (
             _get_effective_configurable_toolsets,
@@ -152,14 +172,18 @@ def _toolsets_view(config: Dict[str, Any]) -> Dict[str, List[str]]:
             {
                 str(name)
                 for name in _get_platform_tools(
-                    config, "api_server", include_default_mcp_servers=False
+                    config, PLATFORM, include_default_mcp_servers=False
                 )
             }
         )
-        return {"available": available, "enabled": enabled}
-    except Exception as exc:  # pragma: no cover - defensive
+        return {"available": available, "enabled": enabled, "error": None}
+    except Exception as exc:
         logger.debug("toolset enumeration failed: %s", exc)
-        return {"available": [], "enabled": []}
+        return {
+            "available": [],
+            "enabled": [],
+            "error": _scrub(f"{type(exc).__name__}: {exc}", ""),
+        }
 
 
 def _providers_view() -> List[Dict[str, Any]]:
@@ -167,9 +191,17 @@ def _providers_view() -> List[Dict[str, Any]]:
     from janus_cli.auth import PROVIDER_REGISTRY
 
     out: List[Dict[str, Any]] = []
+    # The registry maps alias keys onto the same ProviderConfig (``novita``,
+    # ``novita-ai`` and ``novitaai`` all carry id "novita"), so iterate its
+    # values and keep the first of each id — a settings page showing one
+    # provider three times is a bug the registry hands you for free.
+    seen: set[str] = set()
     for pconfig in PROVIDER_REGISTRY.values():
         if pconfig.auth_type != "api_key" or not pconfig.api_key_env_vars:
             continue
+        if pconfig.id in seen:
+            continue
+        seen.add(pconfig.id)
         env_name = pconfig.api_key_env_vars[0]
         value = os.environ.get(env_name) or get_env_value(env_name) or ""
         key: Dict[str, Any] = {"set": bool(value)}
@@ -308,6 +340,27 @@ def _scrub(text: str, secret: str) -> str:
     return line
 
 
+def restart_requested(body: Dict[str, Any]) -> bool:
+    """Whether this change asks for the gateway to restart. Default: yes.
+
+    Refuses anything that is not a boolean or one of the true/false spellings a
+    JSON-shy client might send. ``{"restart": "maybe"}`` used to be truthy, and
+    a typo that restarts the gateway is not an acceptable failure mode.
+    """
+    value = body.get("restart", True)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _TRUE_RESTART_STRINGS:
+            return True
+        if normalized in _FALSE_RESTART_STRINGS:
+            return False
+    raise ConfigChangeError(400, {"error": "restart must be true or false"})
+
+
 def drain_timeout_seconds() -> float:
     """How long a restart waits for in-flight runs — what the caller will see."""
     from gateway.restart import parse_restart_drain_timeout
@@ -328,6 +381,10 @@ def _validate_shape(body: Any) -> None:
         raise ConfigChangeError(400, {"error": "body must be a JSON object"})
     if not any(key in body for key in _CHANGE_KEYS):
         raise ConfigChangeError(400, {"error": "empty body"})
+
+    # Raises for an unusable value, so a misspelled restart flag refuses the
+    # whole request instead of writing the change and then restarting anyway.
+    restart_requested(body)
 
     if "raw" in body and any(key in body for key in ("model", "agent", "toolsets")):
         raise ConfigChangeError(
@@ -387,6 +444,23 @@ def _validate_shape(body: Any) -> None:
                 raise ConfigChangeError(400, {"error": f"{name}: {exc}"}) from exc
             if not isinstance(value, str):
                 raise ConfigChangeError(400, {"error": f"{name}: value must be a string"})
+            try:
+                value.encode("ascii")
+            except UnicodeEncodeError as exc:
+                # Refused rather than silently stripped. ``save_env_value``
+                # would strip the non-ASCII characters and print them to
+                # stderr — which both breaks the no-key-in-any-log rule and
+                # saves a key that is not the one the operator pasted. The
+                # message names the key, never its value.
+                raise ConfigChangeError(
+                    400,
+                    {
+                        "error": (
+                            f"{name}: value must be ASCII — a copy-paste from a PDF or "
+                            "rich-text editor can substitute lookalike characters"
+                        )
+                    },
+                ) from exc
 
 
 def _validated_mapping(mapping: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -449,15 +523,29 @@ def apply_change(body: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, s
             if not isinstance(loaded, dict):
                 raise ConfigChangeError(400, {"error": "raw must be a YAML mapping"})
             warnings.extend(_validated_mapping(loaded))
-            atomic_yaml_write(get_config_path(), loaded, sort_keys=False)
+            # The parse proved the text is a valid mapping; the *text* is what
+            # gets written. Dumping ``loaded`` back out would cost the
+            # operator every comment and every deliberate bit of formatting,
+            # and GET's ``raw`` would not return what was just saved.
+            atomic_text_write(get_config_path(), body["raw"])
             applied["raw"] = True
 
         elif any(key in body for key in ("model", "agent", "toolsets")):
             mapping = _current_user_mapping()
 
-            for key, value in (body.get("model") or {}).items():
-                if value is None:
-                    continue
+            model_change = {
+                key: value for key, value in (body.get("model") or {}).items() if value is not None
+            }
+            if model_change:
+                existing_model = mapping.get("model")
+                if existing_model and not isinstance(existing_model, dict):
+                    # Legacy scalar form: ``model: some-name`` is the default
+                    # model's name. ``_set_nested`` replaces a scalar leaf with
+                    # a fresh dict, so without this a partial merge
+                    # (``{"model": {"provider": "x"}}``) would silently drop
+                    # the model Janus is running on.
+                    mapping["model"] = {"default": existing_model}
+            for key, value in model_change.items():
                 _set_nested(mapping, f"model.{key}", value)
                 applied["model"][key] = value
 
@@ -468,7 +556,9 @@ def apply_change(body: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, s
                 applied["agent"][key] = value
 
             if "toolsets" in body:
-                mapping["toolsets"] = list(body["toolsets"])
+                # ``platform_toolsets.api_server``, not the root ``toolsets:``
+                # key — see PLATFORM above.
+                _set_nested(mapping, f"platform_toolsets.{PLATFORM}", list(body["toolsets"]))
                 applied["toolsets"] = list(body["toolsets"])
 
             warnings.extend(_validated_mapping(mapping))
