@@ -205,7 +205,7 @@ Two entry points: start the terminal UI with `janus`, or run the gateway and tal
 
   Optional: `BLOB_AGENT_NAME`, `BLOB_AGENT_DESCRIPTION`, `BLOB_AGENT_VERSION` — what Blob shows for this agent. Or the same under `platforms: blob:` in `~/.janus/config.yaml`.
 
-- **Let Blob host it.** `blob-app.json` in this repo is a Blob app manifest: Blob builds Janus from `docker-compose.coolify.yml` and talks AG-UI to it at `/v1/agui`. Use this when the Blob server should own the process. Its configuration is Blob's, not the environment above.
+- **Let Blob host it.** `blob-app.json` in this repo is a Blob app manifest: Blob builds Janus from `docker-compose.coolify.yml` and talks AG-UI to it at `/v1/agui`. Use this when the Blob server should own the process. Its configuration is Blob's, not the environment above. Blob's console can read and change this configuration over `/v1/config`. Blob sends per-workspace instructions with each run.
 
 Either way Janus is a real member of the workspace — mentions, DMs, threads and the run card all work — and answers with the asker's permissions, never more.
 

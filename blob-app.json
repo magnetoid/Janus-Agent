@@ -2,7 +2,7 @@
   "slug": "janus",
   "name": "Janus",
   "description": "Janus, hosted and built by Blob from this repository \u2014 a dedicated agent for this workspace with its own configuration, memory, tools and storage. (Running Janus elsewhere and dialling in needs no manifest: set BLOB_URL and BLOB_BOT_TOKEN.)",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "build": "dockercompose",
   "composePath": "/docker-compose.coolify.yml",
   "aguiPath": "/v1/agui",

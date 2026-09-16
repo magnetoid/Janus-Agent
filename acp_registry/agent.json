@@ -1,7 +1,7 @@
 {
   "id": "janus-agent",
   "name": "Janus Agent",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Self-improving open-source AI agent by Cloud Industry with ACP editor integration, persistent memory, skills, and rich tool support.",
   "repository": "https://github.com/magnetoid/janus",
   "website": "https://github.com/magnetoid/janus",
@@ -9,7 +9,7 @@
   "license": "MIT",
   "distribution": {
     "uvx": {
-      "package": "janus-agent[acp]==0.16.0",
+      "package": "janus-agent[acp]==0.17.0",
       "args": ["janus-acp"]
     }
   }
