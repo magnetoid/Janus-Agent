@@ -25,7 +25,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from utils import atomic_json_write, atomic_replace, atomic_yaml_write
+from utils import atomic_json_write, atomic_replace, atomic_text_write, atomic_yaml_write
 
 
 # ─── Direct helper ────────────────────────────────────────────────────────────
@@ -118,6 +118,19 @@ def test_atomic_yaml_write_preserves_symlink(tmp_path: Path) -> None:
     assert link.is_symlink()
     data = yaml.safe_load(real.read_text(encoding="utf-8"))
     assert data == {"model": {"provider": "openrouter"}}
+
+
+def test_atomic_text_write_preserves_symlink(tmp_path: Path) -> None:
+    real = tmp_path / "real.yaml"
+    link = tmp_path / "link.yaml"
+    real.write_text("placeholder: true\n", encoding="utf-8")
+    link.symlink_to(real)
+
+    atomic_text_write(link, "# hand-edited\nmodel:\n  default: x\n")
+
+    assert link.is_symlink(), "symlink must not be replaced with a regular file"
+    assert real.read_text(encoding="utf-8") == "# hand-edited\nmodel:\n  default: x\n"
+    assert link.read_text(encoding="utf-8") == real.read_text(encoding="utf-8")
 
 
 def test_atomic_json_write_preserves_symlink_permissions(tmp_path: Path) -> None:

@@ -1391,6 +1391,12 @@ class APIServerAdapter(BasePlatformAdapter):
                 status=500,
             )
 
+        # Read before the restart is asked for: the handler may be tearing the
+        # process down, and this re-parses config.yaml (the write just
+        # invalidated the cache), which is not something to be doing on the way
+        # out. In a thread for the same reason.
+        drain_timeout = await asyncio.to_thread(api_config.drain_timeout_seconds)
+
         restarting = False
         # Cannot raise here: apply_change validated the flag before it wrote
         # anything, so an unusable value already came back as a 400.
@@ -1406,11 +1412,12 @@ class APIServerAdapter(BasePlatformAdapter):
                 })
             else:
                 restarting = bool(self._restart_handler())
-                self._restart_pending = restarting
+                # Never cleared by a later save. _request_gateway_restart
+                # returns False when a restart is already under way, so a
+                # second PUT during the drain window would otherwise tell the
+                # client the process it is about to lose is staying put.
+                self._restart_pending = self._restart_pending or restarting
 
-        # In a thread: the write just invalidated the config cache, so this
-        # re-parses config.yaml rather than hitting it.
-        drain_timeout = await asyncio.to_thread(api_config.drain_timeout_seconds)
         return web.json_response({
             "applied": applied,
             "warnings": warnings,

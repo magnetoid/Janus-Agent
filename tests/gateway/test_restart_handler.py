@@ -9,8 +9,10 @@ PUT /v1/config route Task 3 adds — can ask for the same graceful restart.
 Nothing in this task *uses* that handler yet.
 """
 
+import asyncio
 import os
-from unittest.mock import MagicMock
+import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -181,6 +183,78 @@ async def test_start_wires_restart_handler_onto_adapter(monkeypatch, tmp_path):
     assert ok is True
     # Bound methods compare equal by (__self__, __func__), not identity — two
     # attribute reads of the same bound method are equal but not `is`.
+    assert adapter._restart_handler == runner._request_gateway_restart
+
+
+# ── the reconnect path wires it too ─────────────────────────────────────
+
+
+def _make_reconnect_runner() -> GatewayRunner:
+    """A GatewayRunner with only what ``_platform_reconnect_watcher`` touches.
+
+    ``make_restart_runner`` builds the state the /restart tests need, which is
+    a different set — no ``_failed_platforms``, no ``adapters``. This is the
+    recipe ``tests/gateway/test_platform_reconnect.py::_make_runner`` uses,
+    which is the fixture that already drives this watcher successfully.
+    """
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(
+        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="test")}
+    )
+    runner._running = True
+    runner._shutdown_event = asyncio.Event()
+    runner._exit_reason = None
+    runner._exit_with_failure = False
+    runner._exit_cleanly = False
+    runner._failed_platforms = {}
+    runner.adapters = {}
+    runner.delivery_router = MagicMock()
+    runner._running_agents = {}
+    runner._pending_messages = {}
+    runner._pending_approvals = {}
+    runner._honcho_managers = {}
+    runner._honcho_configs = {}
+    runner._shutdown_all_gateway_honcho = lambda: None
+    runner.session_store = MagicMock()
+    runner._sync_voice_mode_state_to_adapter = MagicMock()
+    return runner
+
+
+@pytest.mark.asyncio
+async def test_platform_reconnect_wires_restart_handler_onto_adapter():
+    """The second wiring site (gateway/runner.py ~4528).
+
+    A platform that failed at startup and came back later gets a *new* adapter
+    from ``_create_adapter``; without the handler set there too, /v1/config on
+    a reconnected API server would report "no gateway to restart" forever.
+    """
+    runner = _make_reconnect_runner()
+    runner._failed_platforms[Platform.TELEGRAM] = {
+        "config": PlatformConfig(enabled=True, token="test"),
+        "attempts": 1,
+        "next_retry": time.monotonic() - 1,  # due now
+    }
+    adapter = RestartTestAdapter()
+    real_sleep = asyncio.sleep
+
+    calls = 0
+
+    async def fake_sleep(_seconds):
+        # The first sleep is the watcher's startup delay; stop it after the
+        # pass that follows, the way test_platform_reconnect.py drives it.
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            runner._running = False
+        await real_sleep(0)
+
+    with patch.object(runner, "_create_adapter", return_value=adapter):
+        with patch("gateway.run.build_channel_directory", create=True):
+            with patch("asyncio.sleep", side_effect=fake_sleep):
+                await runner._platform_reconnect_watcher()
+
+    assert runner.adapters[Platform.TELEGRAM] is adapter
+    # Bound methods compare equal by (__self__, __func__), not identity.
     assert adapter._restart_handler == runner._request_gateway_restart
 
 

@@ -82,14 +82,19 @@ when `is_managed()` (NixOS / systemd-managed installs), exactly as `janus config
 * `providers` is every `auth_type == "api_key"` entry of `PROVIDER_REGISTRY`, deduplicated
   by id (the registry maps several alias keys onto the same provider), with the first of
   its `api_key_env_vars` as `env`, and whether a value is present in the process
-  environment or `$JANUS_HOME/.env` — `set`, and the last four characters as `tail`. **The
-  value itself appears nowhere in any response.**
+  environment or `$JANUS_HOME/.env` — `set`, and the last four characters as `tail`.
+  `tail` is **omitted**, not `null`, when the stored value is four characters or shorter:
+  the last four characters of a four-character secret are the secret. **The value itself
+  appears nowhere in any response.**
 * `models` is the configured provider's own list: `GET {inference_base_url}/models` with
   the resolved key, a ten-second timeout, `data[].id` sorted. Only for API-key providers
   whose base URL speaks the OpenAI shape (DeepSeek and OpenAI do; OpenRouter does);
   otherwise, or on any failure, `ids` is `null` and `reason` says why in one line. Never a
   cache: the point is that a retired name disappears from the list. This request is live on
-  every `GET`, so a client waiting out a restart should poll `/health`, not this route.
+  every `GET` — with one carve-out: while `restart_pending` is true the call is skipped and
+  `reason` is `"restart pending"`, because a ten-second call to a provider is the wrong
+  thing to be doing in the window where the process is going away. A client waiting out a
+  restart should poll `/health`, not this route.
 * `raw` is `$JANUS_HOME/config.yaml` as text, or `""` when it does not exist.
 * `restart_pending` is true after a `PUT` asked for a restart and until the process exits.
 
@@ -107,9 +112,13 @@ when `is_managed()` (NixOS / systemd-managed installs), exactly as `janus config
 }
 ```
 
-Every key optional; an empty body is 400. `raw` may not be combined with `model`, `agent`
-or `toolsets` (400): a merged edit and a whole-file edit cannot both be the truth. In
-order:
+Every key optional; an empty body is 400, and so is one whose sections change nothing
+after `null` values are dropped (`{"model": {}}`, `{"agent": {"max_turns": null}}`,
+`{"api_keys": {}}`). The one exception is a **restart-only body**: `{"restart": true}`
+with no change keys writes nothing, asks for the restart, and answers `applied: {}` —
+"apply what is already on disk" is a real request. `{"restart": false}` alone is still
+400. `raw` may not be combined with `model`, `agent` or `toolsets` (400): a merged edit
+and a whole-file edit cannot both be the truth. In order:
 
 1. **`raw`** is `yaml.safe_load`ed; anything but a mapping is 400. It is run through
    `validate_config_structure(mapping)`; any `error`-severity issue is 400 with the issues
@@ -117,6 +126,7 @@ order:
    the same `{severity, message, hint}` shape, not strings — come back in the 200 body. On
    success the *text Blob sent* is written verbatim, not the parsed-and-redumped mapping,
    so a comment or a deliberate bit of formatting round-trips to the next `GET`'s `raw`.
+   `raw` over 1 MB is 400.
 2. **`model` / `agent` / `toolsets`** are merged into the *raw user file* — read with
    `yaml.safe_load`, not `load_config()`, so no default is ever dumped into the operator's
    file — key by key through `_set_nested` (`model.default`, `model.provider`,
@@ -126,26 +136,35 @@ order:
    `api_server` platform actually reads, not the root `toolsets:` key — so a client must
    send the full `enabled` list it wants, including any entry that is not in `available`
    (a non-configurable MCP server can appear in `enabled`, and is dropped if the `PUT`
-   omits it). Unknown keys inside `model`/`agent` are 400. The merged mapping is validated
-   as in 1 before it is written.
+   omits it). Unknown keys inside `model`/`agent` are 400, as is a value of the wrong
+   type (`max_turns` as `"60"`). The merged mapping is validated as in 1 before anything
+   is written; the writes themselves then go through `utils.atomic_roundtrip_yaml_update`,
+   one dotted key at a time, so a hand-edited file keeps its comments, blank lines and
+   ordering exactly as `janus config set` leaves them. A legacy scalar `model: some-name`
+   is carried over as an explicit `model.default` write first, so a partial merge does not
+   drop the model the gateway is running on.
 3. **`api_keys`**: each name must match `^[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)$` and pass
    `_reject_denylisted_env_var`; each value must be ASCII, or the whole request is 400 (a
    paste from a PDF or a rich-text editor can substitute lookalike characters, and
    stripping them silently would save a key that is not the one pasted). A surviving value
-   goes through `save_env_value`; an empty string removes the key from `.env`. Names are
-   echoed back under `applied.api_keys`; values never are, and are never logged.
+   goes through `save_env_value`, and is 400 over 4 KB; an empty string removes the key
+   from `.env`. Names are echoed back under `applied.api_keys`; values never are, and are
+   never logged.
 4. **`restart`** (default true) calls the restart handler. The value must be a JSON
    boolean, or a recognised true/false spelling for a JSON-shy client
    (`true`/`1`/`yes`/`on`, `false`/`0`/`no`/`off`) — anything else is 400, raised before
    any write. Response:
-   `{"applied": {"model": {...}, "agent": {...}, "toolsets": [...], "api_keys": ["DEEPSEEK_API_KEY"], "raw": true|false},
+   `{"applied": {"model": {...}, "agent": {...}, "toolsets": [...], "api_keys": ["DEEPSEEK_API_KEY"], "raw": true},
    "warnings": [{"severity", "message", "hint"}, ...], "restarting": true,
    "drain_timeout_seconds": 180}`. With no handler, `"restarting": false` and a warning
-   naming why. With `restart: false`, `"restarting": false`.
+   naming why. With `restart: false`, `"restarting": false`. `applied` carries only the
+   sections that were actually applied — a restart-only body answers `{}`.
 
 The config cache: `load_config()` is keyed on the file's mtime and size, so a write is
 seen by the next read in-process. `restart_pending` is an adapter attribute set when the
-handler was called.
+handler was called, and never cleared by a later `PUT`: a restart already under way makes
+the handler answer `false`, and a save during the drain window must not tell the client
+that the process it is about to lose is staying put.
 
 ## Tests
 

@@ -38,7 +38,7 @@ from janus_cli.config import (
     save_env_value,
     validate_config_structure,
 )
-from utils import atomic_text_write, atomic_yaml_write
+from utils import atomic_roundtrip_yaml_update, atomic_text_write
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,13 @@ _CHANGE_KEYS = ("model", "agent", "toolsets", "api_keys", "raw")
 _INT_KEYS = frozenset({"max_turns", "gateway_timeout"})
 
 MODELS_FETCH_TIMEOUT_SECONDS = 10.0
+
+# Caps on what a single change may carry. aiohttp already refuses a body over
+# MAX_REQUEST_BYTES (10 MB); these are the per-field limits, so a runaway editor
+# buffer or a pasted file is refused with a sentence instead of being written to
+# the config the gateway boots from.
+MAX_RAW_BYTES = 1_000_000
+MAX_KEY_VALUE_BYTES = 4_096
 
 # The spellings ``_coerce_request_bool`` in api_server.py accepts, because a
 # client that writes "false" means it. Anything outside this vocabulary is
@@ -221,7 +228,10 @@ def _providers_view() -> List[Dict[str, Any]]:
 
 
 def _models_view(
-    provider_id: str, fetch_models: Optional[Callable[..., Tuple[Optional[List[str]], Optional[str]]]]
+    provider_id: str,
+    fetch_models: Optional[Callable[..., Tuple[Optional[List[str]], Optional[str]]]],
+    *,
+    restart_pending: bool = False,
 ) -> Dict[str, Any]:
     """The configured provider's own model list, fetched live or explained away."""
     from janus_cli.auth import PROVIDER_REGISTRY
@@ -242,6 +252,12 @@ def _models_view(
             "ids": None,
             "reason": f"provider '{provider_id}' is not an API-key provider",
         }
+
+    if restart_pending:
+        # The process is on its way out and the client is watching for it to
+        # come back. A ten-second call to a provider is the wrong thing to be
+        # doing in that window.
+        return {"provider": provider_id, "ids": None, "reason": "restart pending"}
 
     fetch = fetch_models or provider_models
     ids, reason = fetch(provider_id, timeout=MODELS_FETCH_TIMEOUT_SECONDS)
@@ -277,7 +293,9 @@ def read_view(
         "personalities": _personality_names(config),
         "toolsets": _toolsets_view(config),
         "providers": _providers_view(),
-        "models": _models_view(model["provider"], fetch_models),
+        "models": _models_view(
+            model["provider"], fetch_models, restart_pending=bool(restart_pending)
+        ),
         "raw": raw,
         "restart_pending": bool(restart_pending),
     }
@@ -375,24 +393,58 @@ def drain_timeout_seconds() -> float:
 # ---------------------------------------------------------------------------
 
 
+def _given(body: Dict[str, Any], section: str) -> Dict[str, Any]:
+    """The values actually being set in one section — ``None`` means "leave alone"."""
+    given = body.get(section) or {}
+    if not isinstance(given, dict):
+        return {}
+    return {key: value for key, value in given.items() if value is not None}
+
+
+def _changes_anything(body: Dict[str, Any]) -> bool:
+    """Whether this body asks for any write at all.
+
+    ``{"model": {}}`` and ``{"agent": {"max_turns": null}}`` name a section and
+    then change nothing in it; saying so beats writing the file and reporting
+    an empty ``applied``.
+    """
+    return bool(
+        "raw" in body
+        or "toolsets" in body  # [] is a real change: it turns every toolset off
+        or _given(body, "model")
+        or _given(body, "agent")
+        or (body.get("api_keys") or {})
+    )
+
+
 def _validate_shape(body: Any) -> None:
     """Refuse a body that cannot mean anything, before anything is written."""
     if not isinstance(body, dict):
         raise ConfigChangeError(400, {"error": "body must be a JSON object"})
-    if not any(key in body for key in _CHANGE_KEYS):
-        raise ConfigChangeError(400, {"error": "empty body"})
 
-    # Raises for an unusable value, so a misspelled restart flag refuses the
-    # whole request instead of writing the change and then restarting anyway.
-    restart_requested(body)
+    # First: raises for an unusable value, so a misspelled restart flag refuses
+    # the whole request instead of writing the change and restarting anyway.
+    wants_restart = restart_requested(body)
+
+    if not any(key in body for key in _CHANGE_KEYS):
+        # A restart-only body is a legitimate request — "apply what is already
+        # on disk" — but only when it says so: a bare {} is still a mistake.
+        if "restart" in body and wants_restart:
+            return
+        raise ConfigChangeError(400, {"error": "empty body"})
 
     if "raw" in body and any(key in body for key in ("model", "agent", "toolsets")):
         raise ConfigChangeError(
             400,
             {"error": "raw cannot be combined with model, agent or toolsets"},
         )
-    if "raw" in body and not isinstance(body["raw"], str):
-        raise ConfigChangeError(400, {"error": "raw must be a string"})
+    if "raw" in body:
+        if not isinstance(body["raw"], str):
+            raise ConfigChangeError(400, {"error": "raw must be a string"})
+        if len(body["raw"].encode("utf-8")) > MAX_RAW_BYTES:
+            raise ConfigChangeError(
+                400, {"error": f"raw is too large (limit {MAX_RAW_BYTES} bytes)"}
+            )
 
     for section, allowed in (("model", MODEL_KEYS), ("agent", AGENT_KEYS)):
         if section not in body:
@@ -461,6 +513,16 @@ def _validate_shape(body: Any) -> None:
                         )
                     },
                 ) from exc
+            if len(value.encode("utf-8")) > MAX_KEY_VALUE_BYTES:
+                # No length in the message beyond the limit itself — the size of
+                # a secret is a fact about the secret.
+                raise ConfigChangeError(
+                    400,
+                    {"error": f"{name}: value is too large (limit {MAX_KEY_VALUE_BYTES} bytes)"},
+                )
+
+    if not _changes_anything(body):
+        raise ConfigChangeError(400, {"error": "empty body"})
 
 
 def _validated_mapping(mapping: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -474,6 +536,33 @@ def _validated_mapping(mapping: Dict[str, Any]) -> List[Dict[str, str]]:
     return _issue_dicts([issue for issue in issues if issue.severity != "error"])
 
 
+def _is_yaml_error(exc: BaseException) -> bool:
+    """True for a YAML parse failure from either parser.
+
+    ``yaml.safe_load`` accepts a file the round-trip writer refuses — duplicate
+    keys being the one that shows up in the wild — so the write can fail on a
+    file the read just accepted. That is a bad config file, not a server fault.
+    """
+    try:
+        from ruamel.yaml.error import YAMLError as RuamelYAMLError
+    except Exception:  # pragma: no cover - ruamel is a pinned dependency
+        return isinstance(exc, yaml.YAMLError)
+    return isinstance(exc, (yaml.YAMLError, RuamelYAMLError))
+
+
+def _config_unparseable(exc: BaseException) -> ConfigChangeError:
+    """The one thing said about a broken config.yaml — never the parser's text.
+
+    The parser quotes the line it choked on, and a line of the server's own
+    config.yaml can hold a credential (a ``custom_providers`` entry carries
+    ``api_key``). The log gets the kind of failure; the caller gets the fact.
+    Echoing a parse error for the ``raw`` the *caller* just sent is a different
+    case — that is their own text coming back to them.
+    """
+    logger.debug("config.yaml could not be parsed: %s", type(exc).__name__)
+    return ConfigChangeError(400, {"error": "config.yaml could not be parsed"})
+
+
 def _current_user_mapping() -> Dict[str, Any]:
     """``config.yaml`` as the operator wrote it — no defaults merged in."""
     path = get_config_path()
@@ -482,9 +571,7 @@ def _current_user_mapping() -> Dict[str, Any]:
     try:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise ConfigChangeError(
-            400, {"error": f"config.yaml could not be parsed: {_scrub(str(exc), '')}"}
-        ) from exc
+        raise _config_unparseable(exc) from exc
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
@@ -501,13 +588,9 @@ def apply_change(body: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, s
     """
     _validate_shape(body)
 
-    applied: Dict[str, Any] = {
-        "model": {},
-        "agent": {},
-        "toolsets": None,
-        "api_keys": [],
-        "raw": False,
-    }
+    # Only what was actually applied appears here, so a restart-only body
+    # answers {} rather than a row of empty sections.
+    applied: Dict[str, Any] = {}
     warnings: List[Dict[str, str]] = []
 
     with _CONFIG_LOCK:
@@ -532,37 +615,54 @@ def apply_change(body: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, s
 
         elif any(key in body for key in ("model", "agent", "toolsets")):
             mapping = _current_user_mapping()
+            updates: List[Tuple[str, Any]] = []
 
-            model_change = {
-                key: value for key, value in (body.get("model") or {}).items() if value is not None
-            }
+            model_change = _given(body, "model")
             if model_change:
                 existing_model = mapping.get("model")
-                if existing_model and not isinstance(existing_model, dict):
+                if (
+                    existing_model
+                    and not isinstance(existing_model, dict)
+                    and "default" not in model_change
+                ):
                     # Legacy scalar form: ``model: some-name`` is the default
-                    # model's name. ``_set_nested`` replaces a scalar leaf with
-                    # a fresh dict, so without this a partial merge
-                    # (``{"model": {"provider": "x"}}``) would silently drop
-                    # the model Janus is running on.
-                    mapping["model"] = {"default": existing_model}
+                    # model's name, and writing into ``model.*`` replaces the
+                    # scalar leaf with a fresh mapping. Carrying the name over
+                    # as an explicit ``model.default`` write keeps a partial
+                    # merge (``{"model": {"provider": "x"}}``) from silently
+                    # dropping the model Janus is running on.
+                    updates.append(("model.default", existing_model))
             for key, value in model_change.items():
-                _set_nested(mapping, f"model.{key}", value)
-                applied["model"][key] = value
+                updates.append((f"model.{key}", value))
+                applied.setdefault("model", {})[key] = value
 
-            for key, value in (body.get("agent") or {}).items():
-                if value is None:
-                    continue
-                _set_nested(mapping, _AGENT_PATHS[key], value)
-                applied["agent"][key] = value
+            for key, value in _given(body, "agent").items():
+                updates.append((_AGENT_PATHS[key], value))
+                applied.setdefault("agent", {})[key] = value
 
             if "toolsets" in body:
                 # ``platform_toolsets.api_server``, not the root ``toolsets:``
                 # key — see PLATFORM above.
-                _set_nested(mapping, f"platform_toolsets.{PLATFORM}", list(body["toolsets"]))
+                updates.append((f"platform_toolsets.{PLATFORM}", list(body["toolsets"])))
                 applied["toolsets"] = list(body["toolsets"])
 
+            # Validate against a plain merged mapping, then write through the
+            # round-trip editor. Dumping the plain mapping would hand the
+            # operator's file back with every comment and blank line gone —
+            # ``janus config set`` does not do that, and neither should a save
+            # from a settings page.
+            for path, value in updates:
+                _set_nested(mapping, path, value)
             warnings.extend(_validated_mapping(mapping))
-            atomic_yaml_write(get_config_path(), mapping, sort_keys=False)
+            try:
+                for path, value in updates:
+                    atomic_roundtrip_yaml_update(get_config_path(), path, value)
+            except Exception as exc:
+                if not _is_yaml_error(exc):
+                    raise
+                # The writer refused a file the reader accepted, so nothing was
+                # written — the first update loads before it dumps.
+                raise _config_unparseable(exc) from exc
 
         # Keys last: the file is written before a secret is, so a refused
         # config never leaves a key behind it.
@@ -571,6 +671,6 @@ def apply_change(body: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, s
                 save_env_value(name, value)
             else:
                 remove_env_value(name)
-            applied["api_keys"].append(name)
+            applied.setdefault("api_keys", []).append(name)
 
     return applied, warnings

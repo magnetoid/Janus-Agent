@@ -307,6 +307,33 @@ class TestPutMerge:
         assert set(after) == set(before)
 
     @pytest.mark.asyncio
+    async def test_comments_and_blank_lines_survive_a_merge(self, adapter):
+        """``janus config set`` preserves a hand-edited file; so must a save."""
+        _write_config(
+            "# Janus, as set up on 2026-09-01\n"
+            "model:\n"
+            "  default: old-model   # picked for the long context\n"
+            "  provider: deepseek\n"
+            "\n"
+            "# leave this alone, it is load-bearing\n"
+            "agent:\n"
+            "  max_turns: 42\n"
+        )
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"model": {"default": "x"}, "restart": False})
+            assert resp.status == 200
+
+        text = get_config_path().read_text(encoding="utf-8")
+        assert "# Janus, as set up on 2026-09-01" in text
+        assert "# picked for the long context" in text
+        assert "# leave this alone, it is load-bearing" in text
+        assert "\n\n" in text, "the blank line survived"
+        assert _read_config()["model"]["default"] == "x"
+        assert _read_config()["agent"]["max_turns"] == 42
+
+    @pytest.mark.asyncio
     async def test_the_merge_never_writes_defaults_into_the_users_file(self, adapter):
         _write_config("model:\n  default: old-model\n")
 
@@ -415,6 +442,36 @@ class TestPutMerge:
 
         assert data["applied"]["model"] == {"provider": "deepseek"}
         assert _read_config()["model"] == {"default": "keep-me", "provider": "deepseek"}
+
+    @pytest.mark.asyncio
+    async def test_an_unparseable_config_file_is_reported_without_its_text(self, adapter):
+        """PyYAML quotes the line it choked on, and that line can hold a key."""
+        _write_config("providers:\n  mine:\n    api_key: [sk-secret-in-the-file\n")
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"model": {"default": "x"}, "restart": False})
+            assert resp.status == 400
+            body = await resp.text()
+
+        assert json.loads(body)["error"] == "config.yaml could not be parsed"
+        assert "sk-secret-in-the-file" not in body
+        assert "api_key" not in body
+
+    @pytest.mark.asyncio
+    async def test_a_file_the_writer_refuses_is_a_400_not_a_500(self, adapter):
+        """safe_load takes the last duplicate key; the round-trip writer refuses."""
+        _write_config("model:\n  default: a\nmodel:\n  default: b\n")
+        before = get_config_path().read_text(encoding="utf-8")
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"model": {"provider": "x"}, "restart": False})
+            assert resp.status == 400
+            data = await resp.json()
+
+        assert data["error"] == "config.yaml could not be parsed"
+        assert get_config_path().read_text(encoding="utf-8") == before
 
     @pytest.mark.asyncio
     async def test_a_merge_that_would_break_the_file_is_refused(self, adapter):
@@ -566,6 +623,78 @@ class TestPutRefusals:
             data = await resp.json()
 
         assert data["error"] == "empty body"
+
+    @pytest.mark.asyncio
+    async def test_a_section_that_changes_nothing_is_refused(self, adapter):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            for body in (
+                {"model": {}},
+                {"api_keys": {}},
+                {"agent": {"max_turns": None}},
+                {"model": {}, "restart": True},
+            ):
+                resp = await cli.put("/v1/config", json=body)
+                assert resp.status == 400, body
+                assert (await resp.json())["error"] == "empty body"
+
+        assert not get_config_path().exists()
+
+    @pytest.mark.asyncio
+    async def test_a_restart_only_body_is_allowed(self, adapter):
+        """"Apply what is already on disk" is a real request, and writes nothing."""
+        calls = []
+        adapter.set_restart_handler(lambda: calls.append(1) or True)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"restart": True})
+            assert resp.status == 200
+            data = await resp.json()
+
+        assert data["applied"] == {}
+        assert data["restarting"] is True
+        assert calls == [1]
+        assert not get_config_path().exists()
+
+    @pytest.mark.asyncio
+    async def test_restart_false_alone_is_still_an_empty_body(self, adapter):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put("/v1/config", json={"restart": False})
+            assert resp.status == 400
+            assert (await resp.json())["error"] == "empty body"
+
+    @pytest.mark.asyncio
+    async def test_an_oversized_raw_is_refused(self, adapter):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put(
+                "/v1/config",
+                json={"raw": "x" * (api_config.MAX_RAW_BYTES + 1), "restart": False},
+            )
+            assert resp.status == 400
+            assert "too large" in (await resp.json())["error"]
+
+        assert not get_config_path().exists()
+
+    @pytest.mark.asyncio
+    async def test_an_oversized_key_value_is_refused(self, adapter):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put(
+                "/v1/config",
+                json={
+                    "api_keys": {"X_API_KEY": "s" * (api_config.MAX_KEY_VALUE_BYTES + 1)},
+                    "restart": False,
+                },
+            )
+            assert resp.status == 400
+            body = await resp.text()
+
+        assert "too large" in json.loads(body)["error"]
+        assert "ssss" not in body
+        assert not get_env_path().exists()
 
     @pytest.mark.asyncio
     async def test_invalid_json_is_refused(self, adapter):
@@ -822,6 +951,21 @@ class TestPutRestart:
         assert not get_config_path().exists(), "refused before anything was written"
 
     @pytest.mark.asyncio
+    async def test_a_second_put_during_the_drain_keeps_restart_pending(self, adapter):
+        """request_restart returns False while one is already under way."""
+        results = iter([True, False])
+        adapter.set_restart_handler(lambda: next(results))
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            first = await (await cli.put("/v1/config", json={"model": {"default": "x"}})).json()
+            second = await (await cli.put("/v1/config", json={"model": {"default": "y"}})).json()
+
+        assert first["restarting"] is True
+        assert second["restarting"] is False, "the gateway is already restarting"
+        assert adapter._restart_pending is True, "the process is still on its way out"
+
+    @pytest.mark.asyncio
     async def test_a_refused_restart_reports_false(self, adapter):
         adapter.set_restart_handler(lambda: False)
 
@@ -832,6 +976,29 @@ class TestPutRestart:
 
         assert data["restarting"] is False
         assert adapter._restart_pending is False
+
+    @pytest.mark.asyncio
+    async def test_no_provider_fetch_while_a_restart_is_pending(self, adapter, monkeypatch):
+        _write_config("model:\n  provider: deepseek\n")
+        calls = []
+
+        def fake(provider_id, *, timeout=10.0):
+            calls.append(provider_id)
+            return ["a"], None
+
+        monkeypatch.setattr(api_config, "provider_models", fake)
+        adapter.set_restart_handler(lambda: True)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            assert (await (await cli.get("/v1/config")).json())["models"]["ids"] == ["a"]
+            await cli.put("/v1/config", json={"model": {"default": "x"}})
+            data = await (await cli.get("/v1/config")).json()
+
+        assert calls == ["deepseek"], "the second GET did not call out"
+        assert data["models"]["provider"] == "deepseek"
+        assert data["models"]["ids"] is None
+        assert data["models"]["reason"] == "restart pending"
 
     @pytest.mark.asyncio
     async def test_restart_pending_shows_in_the_next_get(self, adapter, monkeypatch):
