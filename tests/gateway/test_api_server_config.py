@@ -656,6 +656,7 @@ class TestPutRefusals:
         assert data["restarting"] is True
         assert calls == [1]
         assert not get_config_path().exists()
+        assert not get_env_path().exists()
 
     @pytest.mark.asyncio
     async def test_restart_false_alone_is_still_an_empty_body(self, adapter):
