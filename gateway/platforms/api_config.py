@@ -19,6 +19,7 @@ Two rules the code exists to keep:
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
@@ -46,12 +47,14 @@ __all__ = [
     "AGENT_KEYS",
     "KEY_NAME_RE",
     "MODEL_KEYS",
+    "REDACTED",
     "ConfigChangeError",
     "apply_change",
     "drain_timeout_seconds",
     "is_managed",
     "provider_models",
     "read_view",
+    "redact_raw",
     "restart_requested",
 ]
 
@@ -69,6 +72,143 @@ KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)$")
 
 MODEL_KEYS = ("default", "provider", "base_url")
 AGENT_KEYS = ("max_turns", "reasoning_effort", "gateway_timeout", "personality")
+
+# ---------------------------------------------------------------------------
+# What ``raw`` may carry out of the process
+# ---------------------------------------------------------------------------
+#
+# ``GET /v1/config`` hands config.yaml back as text so an editor can round-trip
+# what the operator wrote. Until 0.17.1 it handed the text back verbatim, and a
+# ``custom_providers`` entry or a platform block can carry a credential inline —
+# which then travelled to every client of this route, and into whatever that
+# client logged or rendered. The client Blob ships redacts what it receives with
+# a line rule, and a line rule cannot see a flow map, a block scalar, a quoted
+# key or a value that wraps onto a second line. The file is parsed here, where
+# the YAML is understood, and every value under a key that names a credential
+# is replaced before the text leaves.
+#
+# The placeholder is the one Blob already refuses on the way back in, so a
+# redacted copy saved through either side is rejected rather than written.
+REDACTED = "«redacted»"
+
+# A key that names a credential: the last word of the name is what counts, so
+# ``OPENAI_API_KEY``, ``bot_token``, ``blob_signing_secret``, ``password`` and
+# their plurals all match, and ``token_ttl`` or ``max_tokens`` do not.
+_SECRET_KEY_RE = re.compile(r"(?:api[-_]?key|token|secret|password)s?$", re.IGNORECASE)
+
+# ``${VAR}`` — expanded from the environment when the file loads, and the
+# documented way to keep a key *out* of config.yaml. It names a variable, not a
+# value, so it stays. A bare ``$VAR`` is not expanded and is therefore a literal.
+_ENV_REF_RE = re.compile(r"^\$\{[^}]+\}$")
+
+# The fallback for text the parser refuses: one key/value line at a time, with
+# an optional ``#`` so a commented-out credential goes too. A value of ``|`` or
+# ``>`` opens a block scalar and is left alone; the lines beneath it are not
+# seen by this rule, which is exactly why the parser runs first.
+_SECRET_LINE_RE = re.compile(
+    r"^(?P<head>[^\S\n]*(?:#[^\S\n]*)?(?:-[^\S\n]+)*[\"']?[\w.\-]*"
+    r"(?:api[-_]?key|token|secret|password)s?[\"']?[^\S\n]*:[^\S\n]+)"
+    r"(?P<value>\"[^\"\n]*\"|'[^'\n]*'|[^\s#][^\n]*?)"
+    r"(?=[^\S\n]+#|[^\S\n]*$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_BLOCK_INDICATOR_RE = re.compile(r"^[|>][+-]?\d*$")
+
+# An all-digit value this long under a credential key is a credential; a small
+# integer under one (``pin_token: 3``) is a setting, and replacing it would
+# break the file for no gain.
+_MIN_NUMERIC_SECRET_DIGITS = 8
+
+
+def _is_credential(value: Any) -> bool:
+    """A value worth hiding: text with something in it that is not a ``${VAR}``."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, int):
+        return len(str(abs(value))) >= _MIN_NUMERIC_SECRET_DIGITS
+    if isinstance(value, str):
+        stripped = value.strip()
+        return bool(stripped) and _ENV_REF_RE.match(stripped) is None
+    return False
+
+
+def _redact_tree(node: Any, under_secret: bool) -> bool:
+    """Replace credentials in a parsed document in place. True when anything changed.
+
+    ``under_secret`` carries a matching key's meaning down to its children, so
+    a mapping or list *named* ``api_keys`` or ``tokens`` has every leaf under
+    it treated as one.
+    """
+    changed = False
+    if isinstance(node, dict):
+        for key in list(node.keys()):
+            value = node[key]
+            secret = under_secret or (isinstance(key, str) and _SECRET_KEY_RE.search(key) is not None)
+            if isinstance(value, (dict, list)):
+                changed = _redact_tree(value, secret) or changed
+            elif secret and _is_credential(value):
+                node[key] = REDACTED
+                changed = True
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            if isinstance(value, (dict, list)):
+                changed = _redact_tree(value, under_secret) or changed
+            elif under_secret and _is_credential(value):
+                node[index] = REDACTED
+                changed = True
+    return changed
+
+
+def _redact_line(match: "re.Match[str]") -> str:
+    value = match.group("value")
+    bare = value.strip("\"'")
+    if _BLOCK_INDICATOR_RE.match(value) or _ENV_REF_RE.match(bare) or not bare:
+        return match.group(0)
+    return match.group("head") + REDACTED
+
+
+def _redact_lines(text: str, *, comments_only: bool) -> str:
+    """The line rule, over every line or over the ``#`` lines alone."""
+    if not comments_only:
+        return _SECRET_LINE_RE.sub(_redact_line, text)
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("#"):
+            line = _SECRET_LINE_RE.sub(_redact_line, line)
+        out.append(line)
+    return "".join(out)
+
+
+def redact_raw(text: str) -> str:
+    """config.yaml as text with every inline credential replaced by ``REDACTED``.
+
+    Parsed with the round-trip loader so comments, key order and quoting
+    survive; a file that holds no credential comes back byte for byte, so an
+    editor round-trips exactly what the operator wrote. Comments are text the
+    parser keeps verbatim, so a commented-out key goes through the line rule
+    afterwards. Text the parser refuses — a broken file the CLI would also
+    refuse — gets the line rule alone rather than going out untouched.
+    """
+    if not text.strip():
+        return text
+    try:
+        from ruamel.yaml import YAML
+
+        loader = YAML(typ="rt")
+        loader.preserve_quotes = True
+        loader.allow_unicode = True
+        loader.width = 10_000
+        loader.indent(mapping=2, sequence=4, offset=2)
+        document = loader.load(text)
+        if _redact_tree(document, False):
+            buffer = io.StringIO()
+            loader.dump(document, buffer)
+            text = buffer.getvalue()
+    except Exception as exc:  # a parse or dump failure — the line rule is the floor
+        logger.debug("config.yaml could not be redacted structurally: %s", type(exc).__name__)
+        return _redact_lines(text, comments_only=False)
+    return _redact_lines(text, comments_only=True)
+
 
 # Where each writable key lives in config.yaml. ``agent.personality`` is the
 # odd one out: the config names the default personality under ``display``
@@ -296,7 +436,7 @@ def read_view(
         "models": _models_view(
             model["provider"], fetch_models, restart_pending=bool(restart_pending)
         ),
-        "raw": raw,
+        "raw": redact_raw(raw),
         "restart_pending": bool(restart_pending),
     }
 
@@ -444,6 +584,20 @@ def _validate_shape(body: Any) -> None:
         if len(body["raw"].encode("utf-8")) > MAX_RAW_BYTES:
             raise ConfigChangeError(
                 400, {"error": f"raw is too large (limit {MAX_RAW_BYTES} bytes)"}
+            )
+        # The text GET hands out has its credentials replaced. Saving that copy
+        # would write the placeholder over a real key, so it is refused here as
+        # well as by the client that redacted it.
+        if REDACTED in body["raw"]:
+            raise ConfigChangeError(
+                400,
+                {
+                    "error": (
+                        f"raw still holds {REDACTED} where a credential was — put the "
+                        "real value back, or write it as ${VAR} and keep the key in "
+                        "the environment"
+                    )
+                },
             )
 
     for section, allowed in (("model", MODEL_KEYS), ("agent", AGENT_KEYS)):

@@ -8,7 +8,7 @@ Exposes an HTTP server with endpoints:
 - DELETE /v1/responses/{response_id} — Delete a stored response
 - GET  /v1/models                  — lists janus-agent as an available model
 - GET  /v1/capabilities            — machine-readable API capabilities for external UIs
-- GET  /v1/config                  — effective configuration + config.yaml as text
+- GET  /v1/config                  — effective configuration + config.yaml as text, credentials redacted
 - PUT  /v1/config                  — write a config change and (optionally) restart
 - GET  /api/sessions               — list client-visible Janus sessions
 - POST /api/sessions               — create an empty Janus session

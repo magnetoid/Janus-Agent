@@ -1138,3 +1138,128 @@ class TestProviderModels:
 
         assert ids is None
         assert "key" in reason
+
+
+# ---------------------------------------------------------------------------
+# What ``raw`` may carry out of the process (0.17.1)
+# ---------------------------------------------------------------------------
+
+
+class TestRawIsRedactedAtTheSource:
+    """Every inline credential is replaced before the text leaves the process.
+
+    The parser does the work, so the shapes a line rule cannot see — a flow
+    map, a block scalar, a quoted key, a value on a continuation line — are
+    covered; comments go through the line rule because the parser keeps them
+    verbatim; and a file with nothing to hide comes back byte for byte.
+    """
+
+    def test_block_mapping_values_go_and_key_names_stay(self):
+        text = (
+            "api_keys:\n"
+            "  OPENAI_API_KEY: sk-live-abcdef123456\n"
+            '  ANTHROPIC_API_KEY: "sk-ant-xyz-987654"\n'
+        )
+        out = api_config.redact_raw(text)
+        assert "sk-live" not in out and "sk-ant" not in out
+        assert "OPENAI_API_KEY" in out and "ANTHROPIC_API_KEY" in out
+        assert out.count(api_config.REDACTED) == 2
+
+    def test_nested_under_a_platform(self):
+        text = "platforms:\n  blob:\n    bot_token: xoxb-1234567890\n    url: https://chat.example\n"
+        out = api_config.redact_raw(text)
+        assert "xoxb" not in out
+        assert "url: https://chat.example" in out
+
+    def test_flow_maps_block_scalars_and_quoted_keys(self):
+        text = (
+            'platforms: {telegram: {bot_token: "123456:ABC-DEF"}}\n'
+            "signing_secret: |\n"
+            "  first-line-of-the-secret\n"
+            "  second-line-of-it\n"
+            '"api_key": sk-quoted-9999\n'
+        )
+        out = api_config.redact_raw(text)
+        for leaked in ("123456:ABC", "first-line", "second-line", "sk-quoted"):
+            assert leaked not in out, leaked
+        assert out.count(api_config.REDACTED) == 3
+
+    def test_an_env_reference_is_not_a_credential(self):
+        text = "custom_providers:\n  - api_key: ${OPENAI_API_KEY}\n    base_url: https://x.test\n"
+        assert api_config.redact_raw(text) == text
+
+    def test_comments_survive_and_a_commented_out_key_still_goes(self):
+        text = (
+            "# api_key: sk-in-a-comment-000\n"
+            "model:\n"
+            "  default: x  # chosen 2026-09-16\n"
+            "  api_key: sk-real-11112222\n"
+        )
+        out = api_config.redact_raw(text)
+        assert "sk-in-a-comment" not in out and "sk-real" not in out
+        assert "# chosen 2026-09-16" in out
+        assert "default: x" in out
+        assert out.startswith("# api_key: " + api_config.REDACTED)
+
+    def test_a_file_with_nothing_to_hide_is_returned_byte_for_byte(self):
+        text = (
+            "# the model this box runs on\n"
+            "model:\n"
+            "  default: new      # chosen 2026-09-16\n"
+            "\n"
+            "agent:\n"
+            "  max_turns: 42\n"
+            "use_token: true\n"
+            "secret: null\n"
+            'password: ""\n'
+            "pin_token: 3\n"
+        )
+        assert api_config.redact_raw(text) == text
+        assert api_config.redact_raw("") == ""
+
+    def test_lists_under_a_credential_key_and_long_numbers(self):
+        text = "tokens:\n  - abc123456789\n  - ${FROM_ENV}\ntoken: 123456789012\n"
+        out = api_config.redact_raw(text)
+        assert "abc123456789" not in out and "123456789012" not in out
+        assert "${FROM_ENV}" in out
+        assert out.count(api_config.REDACTED) == 2
+
+    def test_text_the_parser_refuses_still_gets_the_line_rule(self):
+        text = "model:\n  - [unclosed\napi_key: sk-broken-12345678\nsecret: |\n"
+        out = api_config.redact_raw(text)
+        assert "sk-broken" not in out
+        assert "[unclosed" in out
+        assert "secret: |" in out  # a block indicator is not a value
+
+    @pytest.mark.asyncio
+    async def test_get_hands_out_the_redacted_text(self, adapter, monkeypatch):
+        monkeypatch.setattr(api_config, "provider_models", _no_models)
+        _write_config("model:\n  default: x\ncustom_providers:\n  - api_key: sk-live-44445555\n")
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            data = await (await cli.get("/v1/config")).json()
+
+        assert "sk-live" not in data["raw"]
+        assert api_config.REDACTED in data["raw"]
+        assert data["model"]["default"] == "x"
+        # The file itself is untouched: only the copy that leaves is redacted.
+        assert "sk-live-44445555" in get_config_path().read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_put_refuses_a_raw_that_still_holds_the_placeholder(self, adapter, monkeypatch):
+        monkeypatch.setattr(api_config, "provider_models", _no_models)
+        before = "model:\n  default: x\n"
+        _write_config(before)
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.put(
+                "/v1/config",
+                json={"raw": f"model:\n  default: y\napi_key: {api_config.REDACTED}\n", "restart": False},
+            )
+            assert resp.status == 400
+            data = await resp.json()
+
+        assert api_config.REDACTED in data["error"]
+        assert get_config_path().read_text(encoding="utf-8") == before

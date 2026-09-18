@@ -204,3 +204,16 @@ publishes `ghcr.io/magnetoid/janus:0.17.0` and `:<sha>`. Blob then pins `0.17.0`
 
 Anthropic's model list (its `/models` needs its own headers — the text field covers it),
 editing skills or SOUL.md, any change to existing routes.
+
+## As built, 0.17.1 (2026-09-18): `raw` is redacted at the source
+
+`GET /v1/config` no longer hands `config.yaml` out verbatim. The file is parsed with the
+round-trip loader and every value under a key whose last word names a credential
+(`api_key`, `token`, `secret`, `password`, plural or not, any depth, in a mapping, a list,
+a flow map or a block scalar) is replaced by `«redacted»` before the text leaves the
+process; `${VAR}` references, empty strings, nulls, booleans and short integers stay.
+Comments are re-checked with a line rule because the parser keeps them verbatim, and text
+the parser refuses gets the line rule alone. A file with nothing to hide comes back byte
+for byte. `PUT /v1/config` with a `raw` that still holds the placeholder is refused with
+400, so a redacted copy is never written over a real key. Blob's own line-based redaction
+stays in place as defence in depth; the placeholder is the same string on both sides.
