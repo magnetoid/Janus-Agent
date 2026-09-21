@@ -22,6 +22,7 @@ Two details in the AG-UI catalogue cost more to rediscover than to write down:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -221,15 +222,26 @@ def _context_prompt(context: Any) -> Optional[str]:
 
 INSTRUCTIONS_HEADING = "Instructions from this workspace's admin:"
 
+#: How a reply hands somebody a file on Blob. Every other platform's hint says the same in
+#: `PLATFORM_HINTS`; an AG-UI run is `api_server` to the agent, whose hint is for a caller
+#: that renders nothing, so the Blob half is said here, where only Blob runs are.
+FILE_DELIVERY_HINT = (
+    "To hand somebody a file you made — a page, a document, a spreadsheet, an image — put "
+    "MEDIA:/absolute/path/to/the/file on its own line in your reply. It arrives in the "
+    "chat as an attachment they can open beside the conversation and download."
+)
+
 
 def ephemeral_prompt(run: RunInput) -> Optional[str]:
-    """The per-run system prompt: the workspace's instructions, then the room's context."""
+    """The per-run system prompt: the workspace's instructions, the room's context, and
+    how to hand over a file."""
     parts = []
     if run.instructions:
         parts.append(f"{INSTRUCTIONS_HEADING}\n{run.instructions}")
     if run.context_prompt:
         parts.append(run.context_prompt)
-    return "\n\n".join(parts) or None
+    parts.append(FILE_DELIVERY_HINT)
+    return "\n\n".join(parts)
 
 
 def sanitize_session_key(thread_id: str) -> str:
@@ -333,6 +345,42 @@ def tool_call_result(tool_call_id: str, content: str) -> Dict[str, Any]:
         "content": content,
         "role": "tool",
     }
+
+
+#: File bytes per `blob.file.chunk`. Base64 makes a piece four thirds its size, and Blob
+#: refuses a socket frame over 512 KiB, so 192 KiB leaves room for the frame around it.
+FILE_PIECE_BYTES = 192 * 1024
+
+
+def file_events(
+    file_id: str, name: str, mime_type: str, data: bytes, *, piece: int = FILE_PIECE_BYTES
+) -> List[Dict[str, Any]]:
+    """A file as Blob reads one: a start, its bytes in base64 pieces, an end.
+
+    `CUSTOM` because AG-UI has no event for a file an agent made — its multimodal parts
+    are input — and the triad because that is the protocol's own shape for text. Blob
+    attaches the file to the message the run posts next, or to its last one.
+    """
+    events: List[Dict[str, Any]] = [
+        {
+            "type": "CUSTOM",
+            "name": "blob.file.start",
+            "value": {"id": file_id, "name": name, "mimeType": mime_type, "size": len(data)},
+        }
+    ]
+    for offset in range(0, len(data), piece):
+        events.append(
+            {
+                "type": "CUSTOM",
+                "name": "blob.file.chunk",
+                "value": {
+                    "id": file_id,
+                    "data": base64.b64encode(data[offset : offset + piece]).decode("ascii"),
+                },
+            }
+        )
+    events.append({"type": "CUSTOM", "name": "blob.file.end", "value": {"id": file_id}})
+    return events
 
 
 def text_message(message_id: str, text: str) -> List[Dict[str, Any]]:

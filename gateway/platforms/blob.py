@@ -15,7 +15,15 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from gateway.config import Platform, PlatformConfig
-from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
+from gateway.platforms import blob_files
+from gateway.platforms.agui import file_events
+from gateway.platforms.base import (
+    BasePlatformAdapter,
+    EphemeralReply,
+    MessageEvent,
+    MessageType,
+    SendResult,
+)
 from gateway.session import SessionSource
 
 logger = logging.getLogger(__name__)
@@ -300,6 +308,17 @@ class BlobAdapter(BasePlatformAdapter):
                 response = await self._message_handler(self._message_event(run_input))
             await self._stop_keepalive(keepalive)
             text, _ttl = self._unwrap_ephemeral(response)
+            if text and not isinstance(response, EphemeralReply):
+                # A reply's files go down the socket before its text, so Blob holds them
+                # when the text arrives (`blob_files`). A system notice is left as it is,
+                # as every other platform leaves it: its paths are words, not deliveries.
+                handed = await asyncio.to_thread(blob_files.collect, text)
+                for handed_file in handed.files:
+                    for event in file_events(
+                        uuid.uuid4().hex, handed_file.name, handed_file.mime, handed_file.data
+                    ):
+                        await self._event(socket, run_id, event)
+                text = handed.text_with_notes()
             if text:
                 await self._emit_text(socket, run_id, text)
             await self._event(socket, run_id, {"type": "RUN_FINISHED", "threadId": thread_id, "runId": run_id})

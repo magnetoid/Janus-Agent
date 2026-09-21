@@ -213,7 +213,8 @@ class TestInstructionsEdgeCases:
 
 
 class TestEphemeralPrompt:
-    """The per-run system prompt: the workspace's instructions, then the room's context."""
+    """The per-run system prompt: the workspace's instructions, then the room's context,
+    then how to hand somebody a file — which every Blob run needs, so it is always there."""
 
     def test_instructions_come_before_the_context(self) -> None:
         run = agui.parse_run_input(run_body(forwardedProps={"instructions": "Be brief."}))
@@ -225,12 +226,12 @@ class TestEphemeralPrompt:
     def test_the_context_alone_when_there_are_no_instructions(self) -> None:
         run = agui.parse_run_input(run_body())
         assert run.instructions is None
-        assert agui.ephemeral_prompt(run) == run.context_prompt
+        assert agui.ephemeral_prompt(run) == f"{run.context_prompt}\n\n{agui.FILE_DELIVERY_HINT}"
 
-    def test_neither_leaves_no_prompt_at_all(self) -> None:
+    def test_with_neither_the_prompt_is_only_how_to_hand_over_a_file(self) -> None:
         run = agui.parse_run_input(run_body(context=[]))
         assert run.context_prompt is None
-        assert agui.ephemeral_prompt(run) is None
+        assert agui.ephemeral_prompt(run) == agui.FILE_DELIVERY_HINT
 
 
 class TestAGUIHandler:
@@ -264,7 +265,9 @@ class TestAGUIHandler:
         prompt = mock_run.call_args.kwargs["ephemeral_system_prompt"]
         assert prompt.startswith(agui.INSTRUCTIONS_HEADING)
         assert "Be brief." in prompt
-        assert prompt.endswith("You are answering in a group chat. channel: general.")
+        assert prompt.endswith(
+            "You are answering in a group chat. channel: general.\n\n" + agui.FILE_DELIVERY_HINT
+        )
 
     @pytest.mark.asyncio
     async def test_without_instructions_the_context_reaches_run_agent_alone(self) -> None:
@@ -277,7 +280,7 @@ class TestAGUIHandler:
                 await resp.text()
 
         assert mock_run.call_args.kwargs["ephemeral_system_prompt"] == (
-            "You are answering in a group chat. channel: general."
+            "You are answering in a group chat. channel: general.\n\n" + agui.FILE_DELIVERY_HINT
         )
 
 

@@ -209,6 +209,8 @@ Two entry points: start the terminal UI with `janus`, or run the gateway and tal
 
 Either way Janus is a real member of the workspace — mentions, DMs, threads and the run card all work — and answers with the asker's permissions, never more.
 
+Files it makes arrive as attachments on its answer, the same `MEDIA:/path` delivery every other platform uses: the file travels inside the run as Blob's `blob.file.*` events, and people open it beside the conversation or download it. Nothing inside Janus's own state — sessions, memories, logs, tokens — is ever attached, whoever asks.
+
 - **Professional minimal CLI** with a data-driven skin engine — `/skin classic` restores the pre-redesign look, `/skin list` shows all themes.
 
 | Action | CLI | Messaging platforms |
