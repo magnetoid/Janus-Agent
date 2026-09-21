@@ -57,6 +57,7 @@ except ImportError:
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms import agui as agui_protocol
 from gateway.platforms import api_config
+from gateway.platforms import blob_files
 from gateway.platforms.base import (
     BasePlatformAdapter,
     SendResult,
@@ -3765,6 +3766,16 @@ class APIServerAdapter(BasePlatformAdapter):
                 if isinstance(result, dict):
                     answer = str(result.get("final_response") or "").strip()
                 answer = answer or callbacks.accumulated_text.strip()
+                # The files the answer names go out first, so Blob already holds them when
+                # the text arrives and attaches them to it (`blob_files`). Reading them is
+                # blocking I/O, so it happens off the loop.
+                handed = await asyncio.to_thread(blob_files.collect, answer)
+                for handed_file in handed.files:
+                    for event in agui_protocol.file_events(
+                        uuid.uuid4().hex, handed_file.name, handed_file.mime, handed_file.data
+                    ):
+                        enqueue(event)
+                answer = handed.text_with_notes()
                 if answer:
                     for event in agui_protocol.text_message(message_id, answer):
                         enqueue(event)
