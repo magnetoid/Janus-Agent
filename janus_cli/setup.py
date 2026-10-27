@@ -1163,6 +1163,32 @@ def setup_tts(config: dict):
 # =============================================================================
 
 
+def _offer_headless_sandbox(config: dict) -> None:
+    """After the backend choice: offer to sandbox UNATTENDED runs in Docker.
+
+    Interactive sessions keep the chosen backend (local by default); cron jobs,
+    kanban workers and headless one-shots get a container when a usable daemon
+    is present. Writes terminal.headless_backend into the wizard's dict."""
+    try:
+        from tools.environments.docker import docker_usable
+        if not docker_usable():
+            return
+        current = str(cfg_get(config, "terminal", "headless_backend", default="auto") or "auto").lower()
+        if current not in {"auto", "none", ""}:
+            return  # already an explicit choice — keep it
+        print()
+        print_info("Docker is available. Unattended runs (cron jobs, kanban workers,")
+        print_info("headless one-shots) have no human watching them.")
+        if prompt_yes_no("Sandbox unattended runs in Docker? (recommended)", default=True):
+            config.setdefault("terminal", {})["headless_backend"] = "docker"
+            print_success("Unattended runs will use the Docker backend.")
+        else:
+            config.setdefault("terminal", {})["headless_backend"] = "inherit"
+            print_info("Unattended runs will use the same backend as interactive sessions.")
+    except Exception as exc:
+        logger.debug("headless sandbox offer skipped: %s", exc)
+
+
 def setup_terminal_backend(config: dict):
     """Configure the terminal execution backend."""
     import platform as _platform
@@ -3324,6 +3350,7 @@ def run_setup_wizard(args):
     # Section 2: Terminal Backend
     if not (migration_ran and _skip_configured_section(config, "terminal", "Terminal Backend")):
         setup_terminal_backend(config)
+        _offer_headless_sandbox(config)
 
     # Section 3: Agent Settings — no longer prompted. First installs get the
     # recommended defaults silently; existing installs keep whatever they have.
@@ -3394,6 +3421,7 @@ def _run_first_time_quick_setup(config: dict, janus_home, is_existing: bool):
 
     # Step 2: Terminal Backend — where commands run is a core decision
     setup_terminal_backend(config)
+    _offer_headless_sandbox(config)
 
     # Step 3: Apply defaults for everything else
     _apply_default_agent_settings(config)

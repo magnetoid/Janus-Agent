@@ -1577,6 +1577,17 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     )
     for _var_name in _cron_delivery_vars:
         _VAR_MAP[_var_name].set("")
+    # Per-job terminal backend for UNATTENDED execution (terminal.headless_backend).
+    # A contextvar, not os.environ: this thread shares the gateway process with
+    # live interactive sessions that read the process-global TERMINAL_ENV.
+    try:
+        from janus_cli.config import load_config as _load_cfg_for_headless
+        from tools.environments.headless import resolve_headless_backend
+        _VAR_MAP["JANUS_TERMINAL_BACKEND"].set(
+            resolve_headless_backend(_load_cfg_for_headless()) or ""
+        )
+    except Exception:
+        _VAR_MAP["JANUS_TERMINAL_BACKEND"].set("")
 
     # Per-job working directory.  When set (and validated at create/update
     # time), we point TERMINAL_CWD at it so:
@@ -1974,6 +1985,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         clear_session_vars(_ctx_tokens)
         for _var_name in _cron_delivery_vars:
             _VAR_MAP[_var_name].set("")
+        _VAR_MAP["JANUS_TERMINAL_BACKEND"].set("")
         if _session_db:
             # Title the cron session from the job (name → short prompt → id) so
             # sidebars/history show a meaningful label instead of the injected

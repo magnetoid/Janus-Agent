@@ -67,6 +67,11 @@ _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("JANUS_CRON_AUTO_DELIVER_PL
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("JANUS_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("JANUS_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
 
+# Terminal backend override for UNATTENDED runs (cron jobs executing inside the
+# gateway process). Per-task so a sandboxed cron job never flips the
+# process-global TERMINAL_ENV that live interactive gateway sessions read.
+_TERMINAL_BACKEND: ContextVar = ContextVar("JANUS_TERMINAL_BACKEND", default=_UNSET)
+
 _VAR_MAP = {
     "JANUS_SESSION_PLATFORM": _SESSION_PLATFORM,
     "JANUS_SESSION_CHAT_ID": _SESSION_CHAT_ID,
@@ -80,6 +85,7 @@ _VAR_MAP = {
     "JANUS_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
     "JANUS_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "JANUS_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
+    "JANUS_TERMINAL_BACKEND": _TERMINAL_BACKEND,
 }
 
 

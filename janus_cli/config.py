@@ -910,6 +910,15 @@ DEFAULT_CONFIG = {
     
     "terminal": {
         "backend": "local",
+        # Backend for UNATTENDED runs — cron jobs, kanban workers, TTY-less
+        # one-shots — which have no human watching them. Interactive sessions
+        # keep `backend` above (switching them to a container breaks host-cwd
+        # expectations). "auto" uses Docker when a usable daemon is present and
+        # otherwise falls back to `backend`; "inherit" never overrides; or name
+        # an explicit backend (docker, ssh, modal, daytona, singularity).
+        # Also declared in cli.py's load_cli_config defaults — keep in sync
+        # (tests/tools/test_headless_backend.py pins the parity).
+        "headless_backend": "auto",
         "modal_mode": "auto",
         "cwd": ".",  # Use current directory
         "timeout": 180,

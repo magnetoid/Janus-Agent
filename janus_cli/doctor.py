@@ -1267,6 +1267,13 @@ def run_doctor(args):
     # Docker (optional)
     terminal_env = os.getenv("TERMINAL_ENV", "local")
     try:
+        from janus_cli.config import load_config as _load_cfg_for_headless
+        from tools.environments.headless import resolve_headless_backend
+        _headless = resolve_headless_backend(_load_cfg_for_headless()) or terminal_env
+        check_info(f"Unattended runs (cron/kanban/headless) use the '{_headless}' terminal backend")
+    except Exception:
+        pass
+    try:
         from janus_constants import is_container as _is_container
         running_in_container = _is_container()
     except Exception:
