@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -525,8 +526,20 @@ def _count_components(
 # ─── CLI entrypoint ───────────────────────────────────────────────────────────
 
 
+def _posture_rank(severity: str) -> int:
+    """Map a posture severity onto SEVERITY_ORDER (INFO → 0, never gates)."""
+    return SEVERITY_ORDER.get(str(severity or "").upper(), 0)
+
+
+def _attach_posture(payload: dict, findings: list, applied: list, dry_run: bool) -> None:
+    """Add posture results to the OSV JSON payload without changing its existing keys."""
+    payload["posture"] = [f.to_dict() for f in findings]
+    payload["posture_applied"] = [f.to_dict() for f in applied]
+    payload["posture_dry_run"] = bool(dry_run)
+
+
 def cmd_security_audit(args: argparse.Namespace) -> int:
-    """Implementation of `janus security audit`."""
+    """Implementation of `janus security audit`: configuration posture (offline) + supply chain (OSV)."""
     home = Path(get_janus_home())
     skip_venv = bool(getattr(args, "skip_venv", False))
     skip_plugins = bool(getattr(args, "skip_plugins", False))
@@ -540,17 +553,65 @@ def cmd_security_audit(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    threshold = SEVERITY_ORDER[fail_on]
 
+    do_fix = bool(getattr(args, "fix", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    posture_only = bool(getattr(args, "posture_only", False))
+    no_posture = bool(getattr(args, "no_posture", False))
+    set_budget_caps = bool(getattr(args, "set_budget_caps", False))
+
+    # ── Configuration posture: offline, instant, never network-dependent ──
+    posture_findings: list = []
+    applied: list = []
+    if not no_posture:
+        try:
+            from janus_cli.config import get_config_path, is_managed, load_config, read_raw_config
+            from janus_cli.security_posture import apply_fixes, collect
+            from janus_cli.security_posture import render_human as _render_posture
+
+            posture_findings = collect(load_config(), read_raw_config(), home, os.environ)
+            if (do_fix or dry_run) and posture_findings:
+                if do_fix and not dry_run and is_managed():
+                    print(
+                        "--fix is unavailable on a managed install (config.yaml is not "
+                        "writable here); showing what would change instead.",
+                        file=sys.stderr,
+                    )
+                    dry_run = True
+                applied = apply_fixes(
+                    posture_findings, config_path=get_config_path(),
+                    dry_run=dry_run, set_budget_caps=set_budget_caps,
+                )
+                if applied and not dry_run:
+                    # Report the repaired state; what remains is what gates the exit code.
+                    posture_findings = collect(load_config(), read_raw_config(), home, os.environ)
+            if not output_json:
+                print(_render_posture(posture_findings, applied, dry_run))
+        except Exception as exc:
+            print(f"posture check skipped: {exc}", file=sys.stderr)
+
+    posture_exit = 1 if any(_posture_rank(f.severity) >= threshold for f in posture_findings) else 0
+
+    if posture_only:
+        if output_json:
+            payload = {"total_components_scanned": 0, "finding_count": 0, "findings": []}
+            _attach_posture(payload, posture_findings, applied, dry_run)
+            print(json.dumps(payload))
+        return posture_exit
+
+    # ── Supply chain (OSV.dev) ──
     total = _count_components(
         skip_venv=skip_venv, skip_plugins=skip_plugins, skip_mcp=skip_mcp, janus_home=home
     )
     if total == 0:
-        msg = "No components discovered (everything skipped, or empty environment)."
         if output_json:
-            print(json.dumps({"total_components_scanned": 0, "finding_count": 0, "findings": []}))
+            payload = {"total_components_scanned": 0, "finding_count": 0, "findings": []}
+            _attach_posture(payload, posture_findings, applied, dry_run)
+            print(json.dumps(payload))
         else:
-            print(msg)
-        return 0
+            print("No components discovered (everything skipped, or empty environment).")
+        return posture_exit
 
     try:
         findings = run_audit(
@@ -564,13 +625,14 @@ def cmd_security_audit(args: argparse.Namespace) -> int:
         return 2
 
     if output_json:
-        print(_render_json(findings, total))
+        payload = json.loads(_render_json(findings, total))
+        _attach_posture(payload, posture_findings, applied, dry_run)
+        print(json.dumps(payload))
     else:
         print(_render_human(findings, total))
 
-    # Exit code: 1 iff any finding meets or exceeds the --fail-on threshold.
-    threshold = SEVERITY_ORDER[fail_on]
+    # Exit code: 1 iff any finding (either engine) meets or exceeds --fail-on.
     for f in findings:
         if SEVERITY_ORDER.get(f.vuln.severity, 0) >= threshold:
             return 1
-    return 0
+    return posture_exit

@@ -13250,6 +13250,25 @@ def main():
     )
     migrate_hermes.set_defaults(func=cmd_migrate_hermes)
 
+    # migrate claude-code | codex | cursor — import another assistant's setup
+    # (memory, skills, MCP servers; never credentials). Lowers switching cost.
+    from janus_cli.agent_import import import_command as cmd_migrate_agent
+
+    for _src, _help in (
+        ("claude-code", "Import Claude Code's CLAUDE.md, auto-memory, skills/commands and MCP servers"),
+        ("codex", "Import Codex's AGENTS.md, skills and MCP servers"),
+        ("cursor", "Import Cursor's MCP servers (project rules are already read at runtime)"),
+    ):
+        _mp = migrate_subparsers.add_parser(_src, help=_help)
+        _mp.add_argument("--source", help="Path to the assistant's home dir (default: auto-detect under ~)")
+        _mp.add_argument("--dry-run", action="store_true", help="Preview only — make no changes")
+        _mp.add_argument("--overwrite", action="store_true",
+                         help="Overwrite skills / MCP servers that already exist in Janus")
+        _mp.add_argument("--migrate-secrets", action="store_true",
+                         help="Also import MCP server env vars that look like secrets")
+        _mp.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
+        _mp.set_defaults(func=cmd_migrate_agent)
+
     migrate_parser.set_defaults(func=cmd_migrate)
 
     # =========================================================================
@@ -14130,7 +14149,7 @@ def main():
     # =========================================================================
     security_parser = subparsers.add_parser(
         "security",
-        help="Supply-chain audit (OSV.dev) for venv, plugins, and MCP servers",
+        help="Security audit: configuration posture (--fix) + supply chain (OSV.dev)",
         description=(
             "On-demand vulnerability scan against OSV.dev. Covers the Janus "
             "venv (installed PyPI dists), Python deps declared by plugins under "
@@ -14173,6 +14192,31 @@ def main():
         "--skip-mcp",
         action="store_true",
         help="Skip scanning pinned MCP servers in config.yaml",
+    )
+    audit_parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Repair auto-fixable configuration-posture findings (backs up config.yaml first)",
+    )
+    audit_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what --fix would change without writing anything",
+    )
+    audit_parser.add_argument(
+        "--posture-only",
+        action="store_true",
+        help="Only run the offline configuration-posture checks (skip OSV.dev)",
+    )
+    audit_parser.add_argument(
+        "--no-posture",
+        action="store_true",
+        help="Skip the configuration-posture checks (supply-chain audit only)",
+    )
+    audit_parser.add_argument(
+        "--set-budget-caps",
+        action="store_true",
+        help="With --fix: write default spend caps (budget.daily_usd 25, monthly_usd 200) when none are set",
     )
     audit_parser.set_defaults(func=cmd_security)
     security_parser.set_defaults(func=cmd_security)
