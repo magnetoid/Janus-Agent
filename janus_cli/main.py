@@ -2137,6 +2137,17 @@ def cmd_chat(args):
     if getattr(args, "source", None):
         os.environ["JANUS_SESSION_SOURCE"] = args.source
 
+    # Proactive first-run onboarding: on a fresh, interactive, unconfigured
+    # install offer the setup wizard once — before any session or system prompt
+    # exists, so it is prompt-cache-safe. Headless surfaces (gateway, cron,
+    # kanban), -z/--oneshot, scripted queries, and managed installs never see
+    # it. Best-effort; never fails startup.
+    try:
+        from janus_cli.first_run import maybe_offer_first_run as _maybe_offer_first_run
+        _maybe_offer_first_run(args)
+    except Exception:
+        pass
+
     _pin_kanban_board_env()
 
     if use_tui:

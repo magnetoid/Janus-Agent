@@ -1466,6 +1466,18 @@ def setup_terminal_backend(config: dict):
 # =============================================================================
 
 
+def _offer_readonly_learning(config: dict) -> None:
+    """First install only: offer the READ-ONLY learning bundle into the wizard's
+    in-memory config (Phase 2.4). Applies to ``config`` so the wizard's own
+    ``save_config`` persists it — never writes the file directly, which would be
+    clobbered by that later save. Write-side learning stays opt-in."""
+    try:
+        from janus_cli.learning_onboarding import offer_into_config
+        offer_into_config(config)
+    except Exception as exc:
+        logger.debug("learning opt-in offer skipped: %s", exc)
+
+
 def _apply_default_agent_settings(config: dict):
     """Apply recommended defaults for all agent settings without prompting."""
     config.setdefault("agent", {})["max_turns"] = 150
@@ -3318,6 +3330,7 @@ def run_setup_wizard(args):
     # Tune later with `janus setup agent`.
     if not is_existing:
         _apply_default_agent_settings(config)
+        _offer_readonly_learning(config)
 
     # Section 4: Messaging Platforms
     if not (migration_ran and _skip_configured_section(config, "gateway", "Messaging Platforms")):
@@ -3384,6 +3397,7 @@ def _run_first_time_quick_setup(config: dict, janus_home, is_existing: bool):
 
     # Step 3: Apply defaults for everything else
     _apply_default_agent_settings(config)
+    _offer_readonly_learning(config)
 
     save_config(config)
 

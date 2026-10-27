@@ -6,7 +6,7 @@
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   curl -fsSL https://github.com/magnetoid/janus | bash
+#   curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL ... | bash -s -- --no-venv --skip-setup
@@ -73,6 +73,7 @@ SKIP_BROWSER=false
 NO_SKILLS=false
 BRANCH="main"
 INSTALL_COMMIT=""
+INSTALL_TAG=""
 ENSURE_DEPS=""
 POSTINSTALL_MODE=false
 MANIFEST_MODE=false
@@ -115,6 +116,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --commit|-Commit)
             INSTALL_COMMIT="$2"
+            shift 2
+            ;;
+        --tag|-Tag)
+            INSTALL_TAG="$2"
             shift 2
             ;;
         --manifest|-Manifest)
@@ -187,6 +192,8 @@ while [[ $# -gt 0 ]]; do
             echo "  (default /root/.janus).  This keeps Docker bind-mounted volumes"
             echo "  small and ensures the command is on PATH for all shells."
             echo "  Existing installs at \$JANUS_HOME/janus-agent are preserved in-place."
+            echo "  --commit SHA   Pin the checkout to an exact commit (verifiable install)"
+            echo "  --tag TAG      Pin the checkout to a release tag (precedence: commit > tag > branch)"
             echo "  --ensure DEPS  Install only specified deps (comma-separated)"
             echo "                   Supported: node, browser, ripgrep, ffmpeg"
             echo "                   Does NOT clone repo or create venv"
@@ -451,7 +458,7 @@ detect_os() {
             OS="windows"
             DISTRO="windows"
             log_error "Windows detected. Please use the PowerShell installer:"
-            log_info "  iex (irm https://github.com/magnetoid/janus)"
+            log_info "  iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1)"
             exit 1
             ;;
         *)
@@ -1174,6 +1181,12 @@ clone_repo() {
             git fetch origin "$INSTALL_COMMIT" || true
         fi
         git checkout --detach "$INSTALL_COMMIT"
+    elif [ -n "$INSTALL_TAG" ]; then
+        log_info "Pinning checkout to release tag $INSTALL_TAG..."
+        if ! git rev-parse -q --verify "refs/tags/$INSTALL_TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$INSTALL_TAG:refs/tags/$INSTALL_TAG" || true
+        fi
+        git checkout --detach "refs/tags/$INSTALL_TAG"
     fi
 
     log_success "Repository ready"
@@ -2077,7 +2090,7 @@ print_success() {
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}janus${NC}              Start chatting"
+    echo -e "   ${GREEN}janus${NC}              Start chatting (a fresh install offers the setup wizard)"
     echo -e "   ${GREEN}janus setup${NC}        Configure API keys & settings"
     echo -e "   ${GREEN}janus config${NC}       View/edit configuration"
     echo -e "   ${GREEN}janus config edit${NC}  Open config in editor"

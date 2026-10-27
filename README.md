@@ -94,9 +94,40 @@ Rolling <b>USD spend caps</b> and a <b>master kill switch</b> gate every unatten
 
 ## 🚀 Quick Install
 
-Janus installs from source. (Hosted one-line installers will follow once Cloud Industry has install hosting.)
+One command installs Janus (via [uv](https://docs.astral.sh/uv/)) and hands off to the setup wizard. Janus never needs `sudo` for itself.
 
 ### Linux, macOS, WSL2, Termux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1)
+```
+
+Then run `janus` — on a fresh install it offers the setup wizard (model/provider, where commands run, messaging, and the read-only learning loop).
+
+<details>
+<summary><b>Verifiable / pinned install</b> — inspect before you run, or pin a release</summary>
+
+```bash
+# Download, read, then run
+curl -fsSLo install.sh https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh
+less install.sh && bash install.sh
+
+# Pin to a release tag or an exact commit (precedence: commit > tag > branch)
+bash install.sh --tag <release-tag>
+bash install.sh --commit <sha>
+```
+
+Dependencies install hash-verified from `uv.lock`, so a tampered transitive package is rejected rather than installed.
+</details>
+
+<details>
+<summary><b>Developers — install from a clone</b></summary>
 
 ```bash
 git clone https://github.com/magnetoid/janus.git
@@ -114,7 +145,7 @@ uv venv .venv --python 3.11 && source .venv/bin/activate
 uv pip install -e ".[termux]"
 ```
 
-### Windows (native, PowerShell)
+Windows (native, PowerShell) from a clone:
 
 ```powershell
 git clone https://github.com/magnetoid/janus.git
@@ -123,6 +154,7 @@ uv venv .venv --python 3.11
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[all]"
 ```
+</details>
 
 ---
 
