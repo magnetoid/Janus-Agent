@@ -349,6 +349,36 @@ _PRIVDROP_CAP_ARGS = [
 ]
 
 
+_docker_usable_cache: Optional[bool] = None
+
+
+def docker_usable(timeout: float = 5.0) -> bool:
+    """True when a container runtime is installed AND its daemon answers.
+
+    Cached per process (the answer does not change mid-run). Shared by the
+    headless-backend resolver, the setup wizard, and the security posture audit
+    so they can never disagree about whether sandboxing is actually possible."""
+    global _docker_usable_cache
+    if _docker_usable_cache is not None:
+        return _docker_usable_cache
+    ok = False
+    try:
+        exe = find_docker()
+        if exe:
+            result = subprocess.run([exe, "version"], capture_output=True, text=True, timeout=timeout)
+            ok = result.returncode == 0
+    except Exception:
+        ok = False
+    _docker_usable_cache = ok
+    return ok
+
+
+def _reset_docker_usable_cache() -> None:
+    """Test hook: forget the cached daemon probe."""
+    global _docker_usable_cache
+    _docker_usable_cache = None
+
+
 def _build_security_args(run_as_host_user: bool, run_exec: bool = False) -> list[str]:
     """Return the security/cap/tmpfs args tailored to the privilege mode.
 

@@ -12799,6 +12799,27 @@ def _should_background_mcp_startup(args) -> bool:
     return args.command in {None, "chat", "rl"}
 
 
+def _apply_headless_terminal_backend(args) -> None:
+    """Sandbox unattended CLI entrypoints when configured (terminal.headless_backend).
+
+    Covers ``janus cron run|tick`` and a TTY-less ``-z/--oneshot``. Interactive
+    chat/TUI — anything with a human at a terminal — is never touched. The
+    gateway's in-process cron path uses a per-job contextvar instead of this
+    process-global env var."""
+    try:
+        is_cron = args.command == "cron" and getattr(args, "cron_command", None) in {"run", "tick"}
+        is_headless_oneshot = bool(getattr(args, "oneshot", None)) and not sys.stdin.isatty()
+        if not (is_cron or is_headless_oneshot):
+            return
+        from janus_cli.config import load_config
+        from tools.environments.headless import resolve_headless_backend
+        backend = resolve_headless_backend(load_config())
+        if backend:
+            os.environ["TERMINAL_ENV"] = backend
+    except Exception:
+        pass
+
+
 def _prepare_agent_startup(args) -> None:
     """Discover plugins/MCP/hooks for commands that can run an agent turn."""
     _sub_attr, _sub_set = _AGENT_SUBCOMMANDS.get(args.command, (None, None))
@@ -12807,6 +12828,8 @@ def _prepare_agent_startup(args) -> None:
         or (_sub_attr and getattr(args, _sub_attr, None) in _sub_set)
     ):
         return
+
+    _apply_headless_terminal_backend(args)
 
     _accept_hooks = bool(getattr(args, "accept_hooks", False))
     try:

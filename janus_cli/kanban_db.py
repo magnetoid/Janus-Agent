@@ -6791,6 +6791,15 @@ def _default_spawn(
     if task.tenant:
         env["JANUS_TENANT"] = task.tenant
     env["JANUS_KANBAN_TASK"] = task.id
+    # Unattended worker: sandbox it when the operator allows (terminal.headless_backend).
+    try:
+        from janus_cli.config import load_config as _load_cfg_for_headless
+        from tools.environments.headless import resolve_headless_backend
+        _headless_backend = resolve_headless_backend(_load_cfg_for_headless())
+        if _headless_backend:
+            env["TERMINAL_ENV"] = _headless_backend
+    except Exception:
+        pass
     env["JANUS_KANBAN_WORKSPACE"] = workspace
     if task.branch_name:
         env["JANUS_KANBAN_BRANCH"] = task.branch_name

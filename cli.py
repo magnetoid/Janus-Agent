@@ -391,6 +391,7 @@ def load_cli_config() -> Dict[str, Any]:
         },
         "terminal": {
             "env_type": "local",
+            "headless_backend": "auto",  # mirrors DEFAULT_CONFIG; see janus_cli/config.py
             "cwd": ".",  # "." is resolved to os.getcwd() at runtime
             "timeout": 60,
             "lifetime_seconds": 300,

@@ -558,6 +558,23 @@ def _rewrite_real_sudo_invocations(command: str) -> tuple[str, bool]:
     return "".join(out), found
 
 
+def _resolve_terminal_env() -> str:
+    """Active terminal backend: per-task override first, then ``TERMINAL_ENV``.
+
+    Unattended runs (cron inside the gateway process) set ``JANUS_TERMINAL_BACKEND``
+    as a contextvar so they can be sandboxed without touching the process-global
+    ``TERMINAL_ENV`` that interactive sessions rely on. Unset/empty override →
+    exactly the previous ``TERMINAL_ENV`` behaviour."""
+    try:
+        from gateway.session_context import get_session_env
+        override = (get_session_env("JANUS_TERMINAL_BACKEND", "") or "").strip().lower()
+        if override:
+            return override
+    except Exception:
+        pass
+    return (os.getenv("TERMINAL_ENV", "local") or "local").strip().lower() or "local"
+
+
 def _sudo_nopasswd_works() -> bool:
     """Return True when local sudo currently works without prompting.
 
@@ -566,7 +583,7 @@ def _sudo_nopasswd_works() -> bool:
     cache) so an expired sudo timestamp cannot make a later command silently
     block waiting for a password.
     """
-    terminal_env = os.getenv("TERMINAL_ENV", "local").strip().lower() or "local"
+    terminal_env = _resolve_terminal_env()
     if terminal_env != "local":
         return False
 
@@ -1048,7 +1065,7 @@ def _get_env_config() -> Dict[str, Any]:
     """Get terminal environment configuration from environment variables."""
     # Default image with Python and Node.js for maximum compatibility
     default_image = "nikolaik/python-nodejs:python3.11-nodejs20"
-    env_type = os.getenv("TERMINAL_ENV", "local")
+    env_type = _resolve_terminal_env()
     
     mount_docker_cwd = os.getenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", "false").lower() in {"true", "1", "yes"}
 
