@@ -7,11 +7,7 @@ scope for vulnerability reports.
 ## 1. Reporting a Vulnerability
 
 Report privately via [GitHub Security Advisories](https://github.com/magnetoid/janus/security/advisories/new)
-<<<<<<< Updated upstream
 or **security@cloud-industry.com**. Do not open public issues for
-=======
-or **security@cloud-industry.com**. Do not open public issues for
->>>>>>> Stashed changes
 security vulnerabilities. **Janus Agent does not operate a bug
 bounty program.**
 

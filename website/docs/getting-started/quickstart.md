@@ -55,14 +55,14 @@ For a command-line only install without Janus Desktop, run:
 
 #### Linux / macOS / WSL2 / Android (Termux)
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 #### Windows (native)
 
 Run in powershell:
 ```powershell
-iex (irm https://github.com/magnetoid/janus) 
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1) 
 ```
 
 :::tip Android / Termux

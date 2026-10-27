@@ -17,14 +17,14 @@ For a command-line only install without Janus Desktop, run:
 
 #### Linux / macOS / WSL2 / Android (Termux)
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 #### Windows (native)
 
 Run in powershell:
 ```powershell
-iex (irm https://github.com/magnetoid/janus) 
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1) 
 ```
 
 If you want to install & run Janus Desktop after a command-line only install, simply run
@@ -119,12 +119,12 @@ Running Janus as a dedicated unprivileged user (e.g. a `janus` systemd service a
 
 2. **As the unprivileged service user**, run the regular installer. It will detect the missing sudo, skip `--with-deps`, and install Chromium into the user's local Playwright cache:
    ```bash
-   curl -fsSL https://github.com/magnetoid/janus | bash
+   curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
    ```
 
    If you want to skip the Playwright step entirely — for example because you're running headless and don't need browser automation — pass `--skip-browser`:
    ```bash
-   curl -fsSL https://github.com/magnetoid/janus | bash -s -- --skip-browser
+   curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash -s -- --skip-browser
    ```
 
 3. **Make `janus` available to the service user's shells.** The installer writes the launcher to `~/.local/bin/janus`. System service accounts often have a minimal PATH that doesn't include `~/.local/bin`. Either add it to the user's environment, or symlink the launcher into a system location:

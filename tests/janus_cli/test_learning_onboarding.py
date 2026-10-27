@@ -8,6 +8,8 @@ answered surface.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from janus_cli import learning_onboarding as lo
@@ -88,3 +90,78 @@ def test_keyboard_interrupt_is_a_decline_not_a_crash(interactive):
         raise KeyboardInterrupt
     assert lo.offer(input_fn=_boom) is False
     assert interactive == []
+
+
+# ── wizard fold: apply the preset to the wizard's in-memory dict ─────────────
+
+
+def _leaf_paths(d, prefix=""):
+    out = set()
+    for k, v in d.items():
+        path = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out |= _leaf_paths(v, path)
+        else:
+            out.add(path)
+    return out
+
+
+def test_apply_readonly_preset_sets_exactly_the_three_keys():
+    cfg: dict = {}
+    lo.apply_readonly_preset(cfg)
+    assert _leaf_paths(cfg) == {"learning.track_outcomes", "learning.governor.enabled",
+                                "evals.trend.enabled"}
+    assert all(v is True for v in (cfg["learning"]["track_outcomes"],
+                                   cfg["learning"]["governor"]["enabled"],
+                                   cfg["evals"]["trend"]["enabled"]))
+
+
+def test_apply_readonly_preset_is_idempotent_and_preserves_other_keys():
+    cfg = {"learning": {"reflexion": True, "governor": {"caution_ratio": 0.6}},
+           "model": "x"}
+    lo.apply_readonly_preset(cfg)
+    once = {k: v for k, v in cfg.items()}
+    lo.apply_readonly_preset(cfg)
+    assert cfg == once
+    assert cfg["learning"]["reflexion"] is True
+    assert cfg["learning"]["governor"]["caution_ratio"] == 0.6
+    assert cfg["model"] == "x"
+
+
+def test_offer_into_config_yes_applies_to_dict_not_file(interactive):
+    cfg: dict = {}
+    assert lo.offer_into_config(cfg, input_fn=lambda _p: "y") is True
+    assert _leaf_paths(cfg) == {"learning.track_outcomes", "learning.governor.enabled",
+                                "evals.trend.enabled"}
+    assert interactive == []  # never wrote through set_config_value
+    # Never any write-side switch.
+    assert not any(re.search(r"auto_promote|playbook|dialectic|self_improve|session_mining", p)
+                   for p in _leaf_paths(cfg))
+
+
+def test_offer_into_config_decline_leaves_dict_untouched(interactive):
+    cfg = {"model": "x"}
+    assert lo.offer_into_config(cfg, input_fn=lambda _p: "n") is False
+    assert cfg == {"model": "x"}
+
+
+def test_offer_into_config_shares_the_stamp_with_chat_time_offer(interactive):
+    cfg: dict = {}
+    assert lo.offer_into_config(cfg, input_fn=lambda _p: "n") is False
+    # Having been asked in the wizard, the chat-time prompt must never fire.
+    assert lo.offer(input_fn=lambda _p: "y") is None
+    assert interactive == []
+
+
+def test_offer_into_config_silent_when_already_on_in_dict(interactive):
+    cfg = {"learning": {"track_outcomes": True}}
+    asked = {"n": 0}
+    assert lo.offer_into_config(cfg, input_fn=lambda _p: asked.__setitem__("n", 1) or "y") is None
+    assert asked["n"] == 0
+
+
+def test_offer_into_config_silent_when_non_interactive(monkeypatch):
+    monkeypatch.setattr(lo, "_is_interactive", lambda: False)
+    cfg: dict = {}
+    assert lo.offer_into_config(cfg, input_fn=lambda _p: "y") is None
+    assert cfg == {}
