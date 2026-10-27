@@ -2796,6 +2796,41 @@ def _print_migration_preview(report: dict):
         print()
 
 
+def _offer_agent_imports(janus_home: Path) -> None:
+    """First run: detect Claude Code / Codex / Cursor and offer to import their
+    memory, skills and MCP servers — never credentials. Best-effort; never
+    raises into the wizard. Later: ``janus migrate claude-code|codex|cursor``."""
+    try:
+        from janus_cli.agent_import import SOURCES, detect, migrate, plan
+
+        found = []
+        for src in SOURCES:
+            root = detect(src)
+            if not root:
+                continue
+            pl = plan(src, root)
+            if pl.memory_entries or pl.skills or pl.mcp_servers:
+                found.append((src, root, pl))
+        if not found:
+            return
+        print()
+        print_header("Other Assistants Detected")
+        for src, root, pl in found:
+            summary = (f"{len(pl.memory_entries)} memory entries, {len(pl.skills)} skills, "
+                       f"{len(pl.mcp_servers)} MCP servers")
+            if prompt_yes_no(f"Import from {src} at {root}? ({summary})", default=True):
+                res = migrate(pl, janus_home, apply=True)
+                print_success(
+                    f"{src}: +{res['memory_added']} memory, {len(res['skills'])} skills, "
+                    f"{len(res['mcp_added'])} MCP servers")
+                for note in res.get("advisories", []):
+                    print_info(note)
+            else:
+                print_info(f"Skipped. Later: janus migrate {src}")
+    except Exception as exc:
+        logger.debug("agent import offer skipped: %s", exc)
+
+
 def _offer_hermes_migration(janus_home: Path) -> bool:
     """Detect a legacy ~/.hermes install and offer to import it on first-run.
 
@@ -3312,6 +3347,7 @@ def run_setup_wizard(args):
         # a legacy ~/.hermes home first, then OpenClaw.
         hermes_ran = _offer_hermes_migration(janus_home)
         migration_ran = _offer_openclaw_migration(janus_home) or hermes_ran
+        _offer_agent_imports(janus_home)
         if migration_ran:
             config = load_config()
 
