@@ -128,6 +128,31 @@ def test_list_filters_by_status_and_purge_drops_only_old_terminal_rows(db):
     assert [r["content"] for r in db.list_obligations()] == ["live"]
 
 
+def test_list_filters_by_several_statuses_in_the_query_not_after_the_limit(db):
+    for i in range(30):
+        db.settle_obligation_delivered(_create(db, content=f"old{i}", now=T0 - 100 + i), now=T0)
+    owed = _create(db, content="still owed", now=T0)
+    db.settle_obligation_failed(owed, "net", retry_at=T0 + 60, now=T0 + 1)
+    rows = db.list_obligations(status=("pending", "sending", "abandoned"), limit=10)
+    assert [r["content"] for r in rows] == ["still owed"]
+
+
+def test_expedite_moves_only_pending_rows_forward(db):
+    waiting = _create(db, content="waiting")
+    db.settle_obligation_failed(waiting, "net", retry_at=T0 + 600, now=T0)
+    in_flight = _create(db, content="in flight", now=T0 + 5)        # live send, must stay claimed
+    done = _create(db, content="done")
+    db.settle_obligation_delivered(done, now=T0)
+
+    changed = db.expedite_pending_obligations(now=T0 + 10)
+    assert changed == 1
+    assert db.get_obligation(waiting)["next_attempt_at"] == T0 + 10
+    assert db.get_obligation(waiting)["status"] == "pending"
+    assert db.get_obligation(in_flight)["status"] == "sending"
+    assert db.get_obligation(in_flight)["updated_at"] == T0 + 5
+    assert db.get_obligation(done)["status"] == "delivered"
+
+
 def test_claim_is_safe_under_concurrent_callers(db):
     for i in range(20):
         oid = _create(db, content=f"c{i}")

@@ -62,6 +62,34 @@ def test_human_output_when_nothing_is_owed(db, capsys):
     assert "nothing owed" in capsys.readouterr().out.lower()
 
 
+def test_owed_rows_are_listed_even_behind_many_delivered_ones(db, capsys):
+    ledger = DeliveryLedger(db, clock=lambda: T0)
+    for i in range(60):
+        ledger.settle(ledger.record(kind="reply", platform="slack", chat_id="C", content=f"old{i}"),
+                      SendResult(success=True))
+    owed = ledger.record(kind="reply", platform="telegram", chat_id="42", content="newest, owed")
+    ledger.settle(owed, SendResult(success=False, error="net down"))
+
+    gateway.gateway_command(_args(json=True, limit=50))
+    rows = json.loads(capsys.readouterr().out)
+    assert [r["id"] for r in rows] == [owed]
+
+
+def test_replay_does_not_steal_a_send_that_is_in_flight(db, capsys, monkeypatch):
+    owed, _ = _seed(db)
+    live = DeliveryLedger(db).record(kind="reply", platform="telegram", chat_id="43", content="being sent now")
+    sent = []
+
+    async def fake_sender(ob):
+        sent.append(ob["id"])
+        return SendResult(success=True, message_id="m-replay")
+
+    monkeypatch.setattr(gateway, "_standalone_obligation_sender", lambda: fake_sender)
+    gateway.gateway_command(_args(replay=True))
+    assert sent == [owed]
+    assert db.get_obligation(live)["status"] == "sending"     # the gateway still owns it
+
+
 def test_replay_sends_owed_rows_with_the_standalone_sender(db, capsys, monkeypatch):
     owed, _ = _seed(db)
     sent = []

@@ -4544,18 +4544,43 @@ class SessionDB:
         return self._execute_write(_do)
 
     def list_obligations(
-        self, *, status: Optional[str] = None, limit: int = 200,
+        self, *, status: Any = None, limit: int = 200,
     ) -> List[Dict[str, Any]]:
+        """Rows oldest first. ``status`` is one status, or an iterable of them.
+
+        The filter is applied in SQL, before ``LIMIT``, so a backlog of old
+        delivered rows can never hide newer pending ones.
+        """
         sql = "SELECT * FROM delivery_obligations"
         params: list = []
         if status:
-            sql += " WHERE status = ?"
-            params.append(status)
+            statuses = [status] if isinstance(status, str) else [s for s in status if s]
+            if statuses:
+                sql += " WHERE status IN (" + ",".join("?" * len(statuses)) + ")"
+                params.extend(statuses)
         sql += " ORDER BY created_at ASC LIMIT ?"
         params.append(int(limit))
         with self._lock:
             cur = self._conn.execute(sql, params)
             return [self._obligation_row(r) for r in cur.fetchall()]
+
+    def expedite_pending_obligations(self, *, now: Optional[float] = None) -> int:
+        """Make every ``pending`` row due now, skipping its remaining backoff.
+
+        One conditional UPDATE, so rows in ``sending`` (a live send, or one the
+        stale-send predicate in :meth:`claim_due_obligations` will reclaim)
+        and terminal rows are never touched. Returns the number moved.
+        """
+        ts = time.time() if now is None else float(now)
+
+        def _do(conn):
+            cur = conn.execute(
+                "UPDATE delivery_obligations SET next_attempt_at = ?, updated_at = ? "
+                "WHERE status = 'pending' AND next_attempt_at > ?",
+                (ts, ts, ts),
+            )
+            return cur.rowcount
+        return self._execute_write(_do)
 
     def purge_obligations(self, *, older_than: float) -> int:
         """Delete delivered/abandoned rows last updated before ``older_than``."""

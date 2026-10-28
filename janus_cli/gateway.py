@@ -1267,12 +1267,11 @@ def _gateway_obligations(args) -> None:
         ledger = DeliveryLedger(db)
 
         if getattr(args, "replay", False):
-            now = time.time()
-            owed = [r for r in db.list_obligations(limit=limit)
-                    if r["status"] in ("pending", "sending")]
-            # The user asked for it now: skip whatever backoff is left.
-            for row in owed:
-                db.release_obligation(row["id"], retry_at=now, now=now)
+            # The user asked for it now: skip whatever backoff is left on
+            # pending rows. 'sending' rows are left to the atomic claim —
+            # a live gateway send keeps its row; only a stale one (dead
+            # process) is reclaimed, via the same predicate the watcher uses.
+            db.expedite_pending_obligations(now=time.time())
             counts = asyncio.run(ledger.replay_once(send=_standalone_obligation_sender(), limit=limit))
             print(
                 f"Replayed delivery ledger: {counts['delivered']} delivered, "
@@ -1282,9 +1281,9 @@ def _gateway_obligations(args) -> None:
             if counts["failed"]:
                 print("Failed rows stay pending with backoff; run again or check the platform credentials.")
 
-        rows = db.list_obligations(limit=limit)
-        if not show_all:
-            rows = [r for r in rows if r["status"] != "delivered"]
+        # Filter in SQL (before LIMIT) so old delivered rows never hide owed ones.
+        statuses = None if show_all else ("pending", "sending", "abandoned")
+        rows = db.list_obligations(status=statuses, limit=limit)
 
         if want_json:
             print(json.dumps(rows, indent=2, default=str))
