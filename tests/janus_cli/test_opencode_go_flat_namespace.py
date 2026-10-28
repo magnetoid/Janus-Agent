@@ -120,15 +120,29 @@ def _run_switch(raw_input: str, **extra):
     )
     defaults.update(extra)
 
-    def fake_list_provider_models(provider: str):
+    def fake_list_provider_models(provider: str, **_kwargs):
         if provider == "opencode-go":
             return list(_OPENCODE_GO_LIVE)
         # For other providers, return empty so tests don't depend on them.
         return []
 
+    # switch_model() resolves against list_provider_models(), but the final
+    # validate_requested_model() step probes the provider's /v1/models and
+    # then falls back to provider_model_ids(), which merges the live models.dev
+    # registry. Stub both so the catalog under test is exactly the snapshot
+    # above — otherwise a registry rename (e.g. deepseek-v4-flash →
+    # deepseek-v4.1-flash) gets "auto-corrected" and the test tracks the
+    # network instead of the code.
     with patch(
         "janus_cli.model_switch.list_provider_models",
         side_effect=fake_list_provider_models,
+    ), patch(
+        "janus_cli.models.provider_model_ids",
+        side_effect=fake_list_provider_models,
+    ), patch(
+        "janus_cli.models.fetch_api_models", return_value=None,
+    ), patch(
+        "janus_cli.models.probe_api_models", return_value={},
     ):
         return switch_model(raw_input=raw_input, **defaults)
 
