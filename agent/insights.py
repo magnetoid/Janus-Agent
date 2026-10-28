@@ -755,7 +755,14 @@ class InsightsEngine:
         if report.get("empty"):
             days = report.get("days", 30)
             src = f" (source: {report['source_filter']})" if report.get("source_filter") else ""
-            return f"  No sessions found in the last {days} days{src}."
+            lines = [f"  No sessions found in the last {days} days{src}."]
+            # Turns from a session that started before the window (e.g. a resumed
+            # session with --days 1) still land in the ledger — don't hide them.
+            ledger = report.get("ledger") or {}
+            if ledger.get("turns"):
+                lines.append("")
+                lines.extend(self._format_ledger_terminal(ledger, days))
+            return "\n".join(lines)
 
         lines = []
         o = report["overview"]
@@ -923,11 +930,25 @@ class InsightsEngine:
         lines.append("")
         return lines
 
+    @staticmethod
+    def _format_ledger_gateway_line(ledger: Dict[str, Any]) -> str:
+        """One-line ledger summary for messaging output; empty when no turns."""
+        if not ledger.get("turns"):
+            return ""
+        note = (f" ({ledger['unpriced_turns']} unpriced turn(s) estimated)"
+                if ledger.get("unpriced_turns") else "")
+        return (f"**💳 Ledger:** ${ledger['total_usd']:.2f} recorded over "
+                f"{ledger['turns']:,} turns{note}")
+
     def format_gateway(self, report: Dict) -> str:
         """Format the insights report for gateway/messaging (shorter)."""
         if report.get("empty"):
             days = report.get("days", 30)
-            return f"No sessions found in the last {days} days."
+            lines = [f"No sessions found in the last {days} days."]
+            ledger_line = self._format_ledger_gateway_line(report.get("ledger") or {})
+            if ledger_line:
+                lines.append(ledger_line)
+            return "\n".join(lines)
 
         lines = []
         o = report["overview"]
@@ -940,12 +961,9 @@ class InsightsEngine:
         lines.append(f"**Tokens:** {o['total_tokens']:,} (in: {o['total_input_tokens']:,} / out: {o['total_output_tokens']:,})")
         if o["total_hours"] > 0:
             lines.append(f"**Active time:** ~{_format_duration(o['total_hours'] * 3600)} | **Avg session:** ~{_format_duration(o['avg_session_duration'])}")
-        ledger = report.get("ledger") or {}
-        if ledger.get("turns"):
-            note = (f" ({ledger['unpriced_turns']} unpriced turn(s) estimated)"
-                    if ledger.get("unpriced_turns") else "")
-            lines.append(f"**💳 Ledger:** ${ledger['total_usd']:.2f} recorded over "
-                         f"{ledger['turns']:,} turns{note}")
+        ledger_line = self._format_ledger_gateway_line(report.get("ledger") or {})
+        if ledger_line:
+            lines.append(ledger_line)
         lines.append("")
 
         # Models (top 5)

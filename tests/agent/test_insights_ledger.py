@@ -78,3 +78,19 @@ def test_empty_sessions_report_still_has_ledger_key(db):
     report = InsightsEngine(db).generate(days=30)
     assert report["empty"] is True
     assert report["ledger"]["turns"] == 0
+
+
+def test_ledger_spend_is_rendered_even_when_no_session_started_in_window(db):
+    # A resumed session's turns land in the ledger while the session row itself
+    # predates the window (or is missing) — the spend must not disappear behind
+    # the "No sessions found" short-circuit.
+    cl.record_turn("resumed-long-ago", "opus", input_tokens=1000, output_tokens=100, cost_usd=0.40)
+    engine = InsightsEngine(db)
+    report = engine.generate(days=30)
+    assert report["empty"] is True
+    terminal = engine.format_terminal(report)
+    assert "No sessions found" in terminal
+    assert "Spend ledger" in terminal and "$0.4" in terminal
+    gateway = engine.format_gateway(report)
+    assert "No sessions found" in gateway
+    assert "$0.4" in gateway
