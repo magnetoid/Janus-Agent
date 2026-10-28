@@ -5012,6 +5012,7 @@ class AIAgent:
             acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
             parent_agent=self,
+            profile=function_args.get("profile"),
         )
 
     def _invoke_tool(self, function_name: str, function_args: dict, effective_task_id: str,

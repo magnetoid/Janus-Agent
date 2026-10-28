@@ -1072,6 +1072,9 @@ def init_agent(
     agent._session_db = session_db
     agent._parent_session_id = parent_session_id
     agent._last_flushed_db_idx = 0  # tracks DB-write cursor to prevent duplicate writes
+    # Per-child USD ceiling set from a delegation profile's budget_usd;
+    # the loop's cost gate uses the tighter of it and budget.session_cost_usd.
+    agent._session_cost_limit_usd_override = None
     agent._session_db_created = False  # DB row deferred to run_conversation()
     agent._session_init_model_config = {
         "max_iterations": agent.max_iterations,
