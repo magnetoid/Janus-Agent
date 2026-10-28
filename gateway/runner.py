@@ -3038,8 +3038,18 @@ class GatewayRunner:
         # turn so the agent kicks off the new chat.
         asyncio.create_task(self._handoff_watcher())
 
+        # Background delegations (delegate_task(background=true)) announce
+        # their results through a sink so they land in the chat that spawned
+        # them; rows left behind by a previous gateway process are reported
+        # once as lost.
+        try:
+            self._register_background_delegation_sink()
+            self._announce_orphaned_delegations()
+        except Exception as exc:
+            logger.debug("Background delegation wiring skipped: %s", exc)
+
         logger.info("Press Ctrl+C to stop")
-        
+
         return True
 
     async def _handoff_watcher(self, interval: float = 2.0) -> None:
@@ -7943,7 +7953,7 @@ class GatewayRunner:
                 while not _pr.completion_queue.empty():
                     evt = _pr.completion_queue.get_nowait()
                     evt_type = evt.get("type", "completion")
-                    if evt_type in {"watch_match", "watch_disabled"}:
+                    if evt_type in {"watch_match", "watch_disabled"} or evt_type.startswith("delegation_"):
                         _watch_events.append(evt)
                     # else: completion events are handled by the watcher task
                 for evt in _watch_events:
@@ -14368,6 +14378,47 @@ class GatewayRunner:
             user_id=str(evt.get("user_id") or "").strip() or None,
             user_name=str(evt.get("user_name") or "").strip() or None,
         )
+
+    # ------------------------------------------------------------------
+    # Background delegation delivery
+    # ------------------------------------------------------------------
+    def _register_background_delegation_sink(self) -> None:
+        """Route background-delegation events from worker threads onto the loop."""
+        from agent import background_delegation as _bg
+
+        loop = getattr(self, "_gateway_loop", None)
+        if loop is None:
+            return
+
+        def _sink(evt: dict) -> None:
+            def _schedule() -> None:
+                asyncio.ensure_future(self._inject_delegation_notification(evt))
+            try:
+                loop.call_soon_threadsafe(_schedule)
+            except RuntimeError as exc:   # loop closed during shutdown
+                logger.debug("Dropping delegation event after loop shutdown: %s", exc)
+
+        _bg.set_completion_sink(_sink, getattr(self, "_session_db", None))
+
+    def _announce_orphaned_delegations(self, **kwargs) -> None:
+        """Mark delegations owned by dead processes as lost and tell their chats."""
+        from agent import background_delegation as _bg
+
+        manager = _bg.get_manager(getattr(self, "_session_db", None))
+        rows = manager.reconcile_orphans(**kwargs)
+        if rows:
+            logger.info("Announced %d background delegation(s) lost in a previous run", len(rows))
+
+    async def _inject_delegation_notification(self, evt: dict) -> None:
+        """Deliver a background delegation's result into the session that spawned it."""
+        from agent.background_delegation import format_delegation_notification
+
+        try:
+            text = format_delegation_notification(evt)
+        except Exception as exc:
+            logger.error("Could not format delegation notification: %s", exc)
+            return
+        await self._inject_watch_notification(text, evt)
 
     async def _inject_watch_notification(self, synth_text: str, evt: dict) -> None:
         """Inject a watch-pattern notification as a synthetic message event.

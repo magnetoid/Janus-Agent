@@ -12680,7 +12680,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat", "secrets", "security",
         # Self-learning / proactive command families (see learning stack).
-        "aspire", "autonomy", "interest", "learning", "models", "persona",
+        "aspire", "autonomy", "delegations", "interest", "learning", "models", "persona",
         "self-improve", "sleep", "team", "workflow", "corpus",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
@@ -15823,6 +15823,32 @@ Examples:
         return 0
 
     autonomy_parser.set_defaults(func=cmd_autonomy)
+
+    # =========================================================================
+    # delegations command — background delegate_task children
+    # =========================================================================
+    delegations_parser = subparsers.add_parser(
+        "delegations",
+        help="List, watch or stop background subagents (delegate_task background=true)",
+    )
+    delegations_sub = delegations_parser.add_subparsers(dest="delegations_command")
+    _d_list = delegations_sub.add_parser("list", help="Show running background delegations")
+    _d_list.add_argument("--all", action="store_true", help="Include finished ones")
+    _d_list.add_argument("--json", action="store_true", help="Machine-readable output")
+    _d_list.add_argument("--limit", type=int, default=50, help="Max rows (default 50)")
+    _d_attach = delegations_sub.add_parser(
+        "attach", help="Print a child's transcript (id or unique prefix)")
+    _d_attach.add_argument("delegation_id")
+    _d_attach.add_argument("--follow", "-f", action="store_true",
+                           help="Keep printing until the child finishes")
+    _d_stop = delegations_sub.add_parser("stop", help="Interrupt a running background child")
+    _d_stop.add_argument("delegation_id")
+
+    def cmd_delegations(args):
+        from janus_cli.delegations import delegations_command
+        return delegations_command(args)
+
+    delegations_parser.set_defaults(func=cmd_delegations)
 
     # =========================================================================
     # self-improve command — human-in-the-loop review of the agent's proposed

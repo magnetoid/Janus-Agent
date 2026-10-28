@@ -1503,6 +1503,12 @@ def format_process_notification(evt: dict) -> "str | None":
     if evt_type == "watch_disabled":
         return f"[IMPORTANT: {evt.get('message', '')}]"
 
+    if evt_type.startswith("delegation_"):
+        # Background delegate_task children share this queue so the CLI and
+        # TUI deliver their results with the same drain they already run.
+        from agent.background_delegation import format_delegation_notification
+        return format_delegation_notification(evt)
+
     if evt_type == "watch_match":
         _pat = evt.get("pattern", "?")
         _out = evt.get("output", "")

@@ -41,6 +41,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus model` | Interactively choose the default provider and model. |
 | `janus fallback` | Manage fallback providers tried when the primary model errors. |
 | `janus gateway` | Run or manage the messaging gateway service. |
+| `janus delegations` | List, watch, or stop background subagents started with `delegate_task(background=true)`. |
 | `janus proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `janus lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
 | `janus setup` | Interactive setup wizard for all or part of the configuration. |
@@ -234,6 +235,20 @@ Options:
 :::tip WSL users
 Use `janus gateway run` instead of `janus gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s janus 'janus gateway run'`. See [WSL FAQ](/reference/faq#wsl-gateway-keeps-disconnecting-or-janus-gateway-start-fails) for details.
 :::
+
+## `janus delegations`
+
+```bash
+janus delegations <subcommand>
+```
+
+Background subagents started with `delegate_task(background=true)` (requires `delegation.background.enabled: true`). See [Subagent Delegation](../user-guide/features/delegation.md#background-delegation).
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | Running background delegations with goal, status, child session, and result. `--all` includes finished ones, `--json` for scripts. Rows whose process has exited are marked `orphaned`. |
+| `attach <id>` | Print the child's transcript from its session. `--follow` keeps printing until it finishes. Accepts a unique id prefix. |
+| `stop <id>` | Interrupt a running child. Works from any process: the one running the child picks the request up within a few seconds. |
 
 ## `janus lsp`
 
