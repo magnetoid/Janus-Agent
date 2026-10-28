@@ -16,6 +16,7 @@ The parent's context only sees the delegation call and the summary result,
 never the child's intermediate tool calls or reasoning.
 """
 
+import contextvars
 import enum
 import json
 import logging
@@ -1565,7 +1566,12 @@ def _run_single_child(
                 task_id=child_task_id,
             )
 
-        _child_future = _timeout_executor.submit(_run_with_thread_capture)
+        # The executor thread starts with an empty context: copy the caller's
+        # so the child's tools still see JANUS_SESSION_* routing and the
+        # runtime-cwd override (both are ContextVars, not os.environ).
+        _child_future = _timeout_executor.submit(
+            contextvars.copy_context().run, _run_with_thread_capture
+        )
         try:
             result = _child_future.result(timeout=child_timeout)
         except Exception as _timeout_exc:
@@ -2003,6 +2009,9 @@ def _start_background_children(children, parent_agent, bg_cfg: Dict[str, Any]) -
         except (ValueError, AttributeError, TypeError):
             pass
         child._delegate_saved_tool_names = None
+        # Stream the transcript row-by-row so `janus delegations attach --follow`
+        # and a crash both see the iterations that already happened.
+        child._flush_db_each_iteration = True
         try:
             child.tool_progress_callback = None
         except Exception:
@@ -2276,7 +2285,10 @@ def delegate_task(
         with ThreadPoolExecutor(max_workers=max_children) as executor:
             futures = {}
             for i, t, child in children:
+                # Pool threads have no contextvars; carry the caller's session
+                # context (gateway routing, runtime cwd) into each child.
                 future = executor.submit(
+                    contextvars.copy_context().run,
                     _run_single_child,
                     task_index=i,
                     goal=t["goal"],

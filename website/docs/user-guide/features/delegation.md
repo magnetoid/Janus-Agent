@@ -244,7 +244,7 @@ With `background=true` the call returns a handle immediately instead of waiting:
  "delegations": [{"id": "9f2c1a7b4e01", "child_session_id": "…", "goal": "…", "status": "running"}]}
 ```
 
-The child runs on a worker thread with its own session. When it finishes, the parent session receives an `[IMPORTANT: Background delegation 9f2c1a7b4e01 completed …]` message with the result, in the CLI, the TUI, or the chat that started it in the gateway. Until then the parent can carry on with other work, and `list_children` / `steer_child` / `stop_child` work on it like any other subagent.
+The child runs on a worker thread with its own session, and its transcript is written to that session after every tool call, so `janus delegations attach --follow` shows it live and a crash keeps what was done so far. When it finishes, the parent session receives an `[IMPORTANT: Background delegation 9f2c1a7b4e01 completed …]` message with the result, in the CLI, the TUI, or the chat that started it in the gateway. Until then the parent can carry on with other work, and `list_children` / `steer_child` / `stop_child` work on it like any other subagent.
 
 Background children deliberately survive what kills foreground ones: interrupting the parent, `/new`, or a gateway session being evicted. What does stop them is `stop_child`, `janus delegations stop`, the child's own timeout (`child_timeout_seconds`), or the process exiting. A restart cannot resume a half-finished child; such rows are marked `orphaned` and reported once, with the child session kept so the partial transcript is not lost.
 
@@ -260,7 +260,7 @@ delegation:
 From the shell:
 
 ```bash
-janus delegations list [--all] [--json]   # what is running, what finished (marks lost rows orphaned)
+janus delegations list [--all] [--json]   # running rows, plus lost ones until the gateway has reported them
 janus delegations attach <id> [--follow]  # print the child's transcript as it grows
 janus delegations stop <id>               # interrupt it, from any process
 ```

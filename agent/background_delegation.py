@@ -217,13 +217,25 @@ class BackgroundDelegationManager:
         self,
         *,
         pid_alive: Callable[[int], bool] = _pid_alive_default,
+        announce: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Mark rows owned by dead processes orphaned and announce each once."""
+        """Mark rows owned by dead processes orphaned; return the rows changed.
+
+        With ``announce`` (the gateway / an in-process manager) every orphaned
+        row that nobody has been told about yet is emitted once and marked
+        delivered, including rows a quiet caller orphaned earlier. A quiet
+        caller (``janus delegations list``, ``announce=False``) only changes
+        the status, so the one announcement a lost delegation gets is kept
+        for a surface that can actually reach the parent.
+        """
         dead = [p for p in self._db.running_delegation_pids()
                 if p != self._pid and not pid_alive(p)]
         rows = self._db.orphan_delegations(pids=dead, now=self._clock()) if dead else []
-        for row in rows:
-            self._emit(self._event("delegation_orphaned", row))
+        if announce:
+            for row in self._db.list_delegations(status="orphaned", limit=1000):
+                if row.get("delivered_at") is None:
+                    self._emit(self._event("delegation_orphaned", row))
+                    self._db.mark_delegation_delivered(row["id"], now=self._clock())
         return rows
 
     # -- internals -------------------------------------------------------

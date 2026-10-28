@@ -107,3 +107,17 @@ def test_stop_flags_a_running_row_and_refuses_finished_ones(db, capsys):
 
     assert delegations.delegations_command(_args("stop", delegation_id=done)) == 1
     assert "not running" in capsys.readouterr().out.lower()
+
+
+def test_list_shows_lost_rows_without_consuming_their_announcement(db, capsys, monkeypatch):
+    monkeypatch.setattr(delegations, "_pid_alive", lambda pid: False)
+    running, _ = _seed(db)
+    delegations.delegations_command(_args("list", json=True))
+    rows = {r["id"]: r for r in json.loads(capsys.readouterr().out)}
+    # the lost row stays in the default listing until someone has been told
+    assert rows[running]["status"] == "orphaned"
+    assert db.get_delegation(running)["delivered_at"] is None
+
+    delegations.delegations_command(_args("list"))
+    out = capsys.readouterr().out
+    assert "orphaned" in out and "scan the repo" in out

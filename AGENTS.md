@@ -807,7 +807,14 @@ same autonomy freeze / spend caps as foreground spawns.
   the global from a stray thread.
 - The child's transcript streams to its own session row
   (`sessions.parent_session_id`), which is what `janus delegations attach`
-  prints.
+  prints. Background children get `_flush_db_each_iteration = True`, which
+  makes `conversation_loop` call `_flush_messages_to_session_db` after every
+  tool iteration (the default agent only persists at turn start/exit), so
+  `attach --follow` and a crash both see the iterations that already ran.
+- `_run_single_child` (and the foreground batch pool) submit the child's
+  `run_conversation` under `contextvars.copy_context().run`: executor
+  threads start with an empty context, and `JANUS_SESSION_*` routing plus
+  the runtime-cwd override are ContextVars, not `os.environ`.
 - On completion the manager writes the outcome to the row and emits a
   `delegation_complete` event. With no sink it goes on
   `tools.process_registry.completion_queue`, which the CLI and TUI already
@@ -820,9 +827,13 @@ same autonomy freeze / spend caps as foreground spawns.
   `delegations.stop_requested`; the owning manager polls that flag and
   interrupts the child. In-process stops interrupt directly.
 - A restart cannot resume a half-run child. `reconcile_orphans` marks rows
-  whose worker pid is dead as `orphaned` and announces them once
-  (`delegation_orphaned`); the gateway does this at start-up, the CLI on
-  `janus delegations list`.
+  whose worker pid is dead as `orphaned`; with `announce=True` (gateway
+  start-up, in-process managers) it also emits `delegation_orphaned` once
+  for every orphaned row whose `delivered_at` is still empty and marks it
+  delivered. `janus delegations list` reconciles with `announce=False`
+  because that process cannot reach the parent: it only flips the status
+  and keeps showing the row in the default listing until a surface that
+  can announce it has done so.
 - Never put a `delegations` row in a state the manager cannot settle:
   `finish_delegation` is first-writer-wins so a late failure cannot
   overwrite a recorded result.

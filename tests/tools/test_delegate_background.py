@@ -196,3 +196,36 @@ def test_schema_and_both_dispatch_sites_carry_background():
     with patch("tools.delegate_tool.delegate_task", side_effect=lambda **kw: seen.update(kw) or "{}"):
         agent._dispatch_delegate_task({"goal": "g", "background": True})
     assert seen["background"] is True and seen["parent_agent"] is agent
+
+
+def test_foreground_batch_children_see_the_callers_session_context(manager, monkeypatch, release):
+    """Batch children run on pool threads; the caller's contextvars must travel with them."""
+    import os
+    from gateway.session_context import clear_session_vars, get_session_env, set_session_vars
+    monkeypatch.delenv("JANUS_SESSION_CHAT_ID", raising=False)
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"max_concurrent_children": 2})
+    seen = {}
+
+    def _record(task_index, goal, child=None, parent_agent=None, **_):
+        seen[task_index] = get_session_env("JANUS_SESSION_CHAT_ID", "")
+        return {"task_index": task_index, "status": "completed", "summary": "ok",
+                "api_calls": 1, "_child_cost_usd": 0.0, "model": "m"}
+
+    monkeypatch.setattr(delegate_tool, "_run_single_child", _record)
+    release.set()
+    tokens = set_session_vars(platform="telegram", chat_id="42", session_key="agent:main:telegram:dm:42")
+    try:
+        out = json.loads(delegate_tool.delegate_task(tasks=[{"goal": "a"}, {"goal": "b"}],
+                                                     parent_agent=_parent()))
+    finally:
+        clear_session_vars(tokens)
+    assert "results" in out
+    assert seen == {0: "42", 1: "42"}
+    assert "JANUS_SESSION_CHAT_ID" not in os.environ
+
+
+def test_background_children_flush_their_transcript_every_iteration(manager, release, _stubs):
+    delegate_tool.delegate_task(goal="scan", parent_agent=_parent(), background=True)
+    assert _stubs[0]._flush_db_each_iteration is True
+    release.set()
+    assert _wait(lambda: manager.running_count() == 0)

@@ -240,3 +240,26 @@ def test_reconcile_marks_rows_of_dead_workers_orphaned_and_announces_them(db):
     # a second pass has nothing left to announce
     assert mgr.reconcile_orphans(pid_alive=lambda pid: pid == 1000) == []
     assert len(got) == 1
+
+
+def test_reconcile_without_announce_leaves_the_orphan_for_a_later_announcer(db):
+    """`janus delegations list` must not consume the one announcement a lost
+    delegation gets: it orphans the row quietly and the next announcing
+    reconcile (gateway start-up) still delivers it, exactly once."""
+    quiet = _manager(db, sink=lambda evt: None, pid=0)
+    lost = db.create_delegation(goal="lost", child_session_id="c-lost", pid=999_999_999,
+                                route={"session_key": "telegram:dm:1"}, now=T0 - 100)
+
+    rows = quiet.reconcile_orphans(pid_alive=lambda pid: False, announce=False)
+    assert [r["id"] for r in rows] == [lost]
+    row = db.get_delegation(lost)
+    assert row["status"] == "orphaned" and row["delivered_at"] is None
+
+    got = []
+    announcer = _manager(db, sink=got.append, pid=1000)
+    assert announcer.reconcile_orphans(pid_alive=lambda pid: pid == 1000) == []
+    assert [e["delegation_id"] for e in got] == [lost]
+    assert got[0]["type"] == "delegation_orphaned"
+    assert db.get_delegation(lost)["delivered_at"] is not None
+    announcer.reconcile_orphans(pid_alive=lambda pid: pid == 1000)
+    assert len(got) == 1

@@ -14,7 +14,6 @@ from janus_constants import get_janus_home
 
 _LIVE = ("running",)
 
-
 def _pid_alive(pid: int) -> bool:
     try:
         from gateway.status import _pid_exists
@@ -54,21 +53,32 @@ def _resolve(db, ident: str) -> Optional[Dict[str, Any]]:
 
 
 def _reconcile(db) -> None:
-    """Mark rows owned by dead processes orphaned (cheap, idempotent)."""
+    """Mark rows owned by dead processes orphaned (cheap, idempotent).
+
+    Quiet on purpose (``announce=False``): this process cannot reach the
+    parent session, so the row keeps ``delivered_at`` empty and the next
+    gateway start-up (or in-process manager) still announces it once.
+    """
     from agent.background_delegation import BackgroundDelegationManager
 
     mgr = BackgroundDelegationManager(db=db, sink=lambda evt: None, pid=0)
     try:
-        mgr.reconcile_orphans(pid_alive=_pid_alive)
+        mgr.reconcile_orphans(pid_alive=_pid_alive, announce=False)
     except Exception:
         pass
+
+
+def _live_rows(db, limit: int) -> List[Dict[str, Any]]:
+    """Running rows plus lost ones nobody has been told about yet."""
+    rows = db.list_delegations(status=("running", "orphaned"), limit=limit)
+    return [r for r in rows if r["status"] == "running" or r.get("delivered_at") is None]
 
 
 def _cmd_list(db, args) -> int:
     _reconcile(db)
     show_all = bool(getattr(args, "all", False))
     limit = int(getattr(args, "limit", 50) or 50)
-    rows = db.list_delegations(status=None if show_all else _LIVE, limit=limit)
+    rows = db.list_delegations(limit=limit) if show_all else _live_rows(db, limit)
     if getattr(args, "json", False):
         print(json.dumps(rows, indent=2, ensure_ascii=False, default=str))
         return 0

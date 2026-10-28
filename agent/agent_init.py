@@ -1072,6 +1072,9 @@ def init_agent(
     agent._session_db = session_db
     agent._parent_session_id = parent_session_id
     agent._last_flushed_db_idx = 0  # tracks DB-write cursor to prevent duplicate writes
+    # Background delegation children set this so `janus delegations attach
+    # --follow` sees tool iterations as they happen, not just at turn exit.
+    agent._flush_db_each_iteration = False
     agent._session_db_created = False  # DB row deferred to run_conversation()
     agent._session_init_model_config = {
         "max_iterations": agent.max_iterations,
