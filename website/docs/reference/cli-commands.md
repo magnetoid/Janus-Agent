@@ -220,6 +220,7 @@ Subcommands:
 | `restart` | Restart the service. |
 | `status` | Show service status. |
 | `list` | List **all profiles** and whether each profile's gateway is currently running (with PID where available). Handy when you run multiple profiles side-by-side and want a single overview. |
+| `obligations` | Show replies the gateway still **owes** a platform. Every final reply and cron result is journaled to `state.db` before it is sent (the *delivery ledger*); anything not acknowledged — gateway restarted mid-reply, platform stalled — is replayed with backoff by the running gateway. `--replay` sends the undelivered rows now without a gateway, `--all` includes delivered rows, `--json` for scripts. Disable journaling with `gateway.delivery_ledger: false`. |
 | `install` | Install as a systemd (Linux) or launchd (macOS) background service. |
 | `uninstall` | Remove the installed service. |
 | `setup` | Interactive messaging-platform setup. |

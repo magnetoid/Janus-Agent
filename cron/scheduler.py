@@ -31,7 +31,7 @@ except ImportError:
     except ImportError:
         msvcrt = None
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 # Add parent directory to path for imports BEFORE repo-level imports.
 # Without this, standalone invocations (e.g. after `janus update` reloads
@@ -723,6 +723,72 @@ def _send_media_via_adapter(
             logger.warning("Job '%s': failed to send media %s: %s", job.get("id", "?"), media_path, e)
 
 
+# ---------------------------------------------------------------------------
+# Delivery-obligation ledger (gateway/delivery_ledger.py)
+# ---------------------------------------------------------------------------
+# Cron results are journaled per target before delivery so a failed send is
+# retried by the gateway's replay watcher (or `janus gateway obligations
+# --replay`) instead of being lost until the job fires again. The gateway
+# hands its own ledger over via set_delivery_ledger(); standalone runs
+# (`janus cron run`) open one lazily on state.db.
+
+_LEDGER_UNSET = object()
+_ledger_instance: Any = _LEDGER_UNSET
+
+
+def set_delivery_ledger(ledger) -> None:
+    """Share the gateway's DeliveryLedger (or None to disable journaling)."""
+    global _ledger_instance
+    _ledger_instance = ledger
+
+
+def _delivery_ledger():
+    global _ledger_instance
+    if _ledger_instance is _LEDGER_UNSET:
+        try:
+            from janus_state import SessionDB
+            from gateway.delivery_ledger import DeliveryLedger
+            # Resolve the path now rather than via janus_state.DEFAULT_DB_PATH,
+            # which is fixed at import time and can predate a profile switch.
+            _ledger_instance = DeliveryLedger.from_config(
+                SessionDB(db_path=get_janus_home() / "state.db")
+            )
+        except Exception as e:
+            logger.debug("cron: delivery ledger unavailable: %s", e)
+            _ledger_instance = None
+    return _ledger_instance
+
+
+def _ledger_record(job: dict, platform_name: str, chat_id: str, thread_id, content: str):
+    try:
+        ledger = _delivery_ledger()
+        if ledger is None:
+            return None
+        return ledger.record(
+            kind="cron", platform=platform_name, chat_id=chat_id, content=content,
+            thread_id=thread_id, source_ref=job.get("id"),
+        )
+    except Exception as e:
+        logger.debug("cron: delivery ledger record failed: %s", e)
+        return None
+
+
+def _ledger_settle(oid, error: Optional[str] = None) -> None:
+    if not oid:
+        return
+    try:
+        ledger = _delivery_ledger()
+        if ledger is None:
+            return
+        if error:
+            ledger.settle(oid, error=error)
+        else:
+            from types import SimpleNamespace
+            ledger.settle(oid, SimpleNamespace(success=True, message_id=None, error=None))
+    except Exception as e:
+        logger.debug("cron: delivery ledger settle failed: %s", e)
+
+
 def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Optional[str]:
     """
     Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
@@ -819,6 +885,11 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
             delivery_errors.append(msg)
             continue
 
+        # Journal the delivery before attempting it (see _ledger_record).
+        _obligation_id = _ledger_record(
+            job, platform_name, chat_id, thread_id, cleaned_delivery_content.strip(),
+        )
+
         # Prefer the live adapter when the gateway is running — this supports E2EE
         # rooms (e.g. Matrix) where the standalone HTTP path cannot encrypt.
         runtime_adapter = (adapters or {}).get(platform)
@@ -903,15 +974,19 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
                 logger.error("Job '%s': %s", job["id"], msg)
                 delivery_errors.append(msg)
+                _ledger_settle(_obligation_id, error=msg)
                 continue
 
             if result and result.get("error"):
                 msg = f"delivery error: {result['error']}"
                 logger.error("Job '%s': %s", job["id"], msg)
                 delivery_errors.append(msg)
+                _ledger_settle(_obligation_id, error=msg)
                 continue
 
             logger.info("Job '%s': delivered to %s:%s", job["id"], platform_name, chat_id)
+
+        _ledger_settle(_obligation_id)
 
     if delivery_errors:
         return "; ".join(delivery_errors)

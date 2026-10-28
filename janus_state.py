@@ -21,6 +21,7 @@ import re
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from agent.memory_manager import sanitize_context
@@ -301,12 +302,34 @@ CREATE TABLE IF NOT EXISTS compression_locks (
     expires_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS delivery_obligations (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    thread_id TEXT,
+    reply_to TEXT,
+    content TEXT NOT NULL,
+    metadata TEXT,
+    session_id TEXT,
+    source_ref TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    next_attempt_at REAL NOT NULL,
+    delivered_at REAL,
+    message_id TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_source_id ON sessions(source, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_compression_locks_expires ON compression_locks(expires_at);
+CREATE INDEX IF NOT EXISTS idx_delivery_obligations_due ON delivery_obligations(status, next_attempt_at);
 """
 
 # Indexes that reference columns added in later schema versions must be
@@ -4385,3 +4408,162 @@ class SessionDB:
                 (error[:500], session_id),
             )
         self._execute_write(_do)
+
+    # ------------------------------------------------------------------
+    # Delivery obligations — replies the gateway owes a platform
+    # ------------------------------------------------------------------
+    # Storage only. A row is written *before* the send (status 'sending'),
+    # settled to 'delivered' on ack, or requeued as 'pending' with a
+    # next_attempt_at chosen by the caller. Backoff/abandon policy and the
+    # replay loop live in ``gateway.delivery_ledger``.
+
+    @staticmethod
+    def _obligation_row(row) -> Dict[str, Any]:
+        d = dict(row)
+        raw = d.get("metadata")
+        if raw:
+            try:
+                d["metadata"] = json.loads(raw)
+            except (TypeError, ValueError):
+                d["metadata"] = None
+        else:
+            d["metadata"] = None
+        return d
+
+    def create_obligation(
+        self,
+        *,
+        kind: str,
+        platform: str,
+        chat_id: str,
+        content: str,
+        thread_id: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        source_ref: Optional[str] = None,
+        status: str = "sending",
+        now: Optional[float] = None,
+    ) -> str:
+        """Record an outbound message before it is sent. Returns the row id."""
+        oid = uuid.uuid4().hex
+        ts = time.time() if now is None else float(now)
+        meta_json = json.dumps(metadata, default=str) if metadata else None
+
+        def _do(conn):
+            conn.execute(
+                "INSERT INTO delivery_obligations "
+                "(id, kind, platform, chat_id, thread_id, reply_to, content, metadata, "
+                " session_id, source_ref, status, attempts, created_at, updated_at, next_attempt_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                (oid, kind, platform, str(chat_id), thread_id, reply_to, content, meta_json,
+                 session_id, source_ref, status, ts, ts, ts),
+            )
+        self._execute_write(_do)
+        return oid
+
+    def get_obligation(self, oid: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute("SELECT * FROM delivery_obligations WHERE id = ?", (oid,))
+            row = cur.fetchone()
+        return self._obligation_row(row) if row else None
+
+    def settle_obligation_delivered(
+        self, oid: str, *, message_id: Optional[str] = None, now: Optional[float] = None,
+    ) -> None:
+        ts = time.time() if now is None else float(now)
+
+        def _do(conn):
+            conn.execute(
+                "UPDATE delivery_obligations SET status = 'delivered', message_id = ?, "
+                "delivered_at = ?, updated_at = ?, last_error = NULL WHERE id = ?",
+                (message_id, ts, ts, oid),
+            )
+        self._execute_write(_do)
+
+    def settle_obligation_failed(
+        self, oid: str, error: str, *, retry_at: Optional[float], now: Optional[float] = None,
+    ) -> None:
+        """Count a failed attempt. ``retry_at`` None abandons the obligation."""
+        ts = time.time() if now is None else float(now)
+        status = "pending" if retry_at is not None else "abandoned"
+        next_at = float(retry_at) if retry_at is not None else ts
+
+        def _do(conn):
+            conn.execute(
+                "UPDATE delivery_obligations SET status = ?, attempts = attempts + 1, "
+                "last_error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?",
+                (status, (error or "")[:500], next_at, ts, oid),
+            )
+        self._execute_write(_do)
+
+    def release_obligation(self, oid: str, *, retry_at: float, now: Optional[float] = None) -> None:
+        """Put a claimed row back without counting an attempt (no adapter yet, etc.)."""
+        ts = time.time() if now is None else float(now)
+
+        def _do(conn):
+            conn.execute(
+                "UPDATE delivery_obligations SET status = 'pending', next_attempt_at = ?, "
+                "updated_at = ? WHERE id = ?",
+                (float(retry_at), ts, oid),
+            )
+        self._execute_write(_do)
+
+    def claim_due_obligations(
+        self,
+        *,
+        now: Optional[float] = None,
+        limit: int = 50,
+        stale_sending_after: float = 120.0,
+    ) -> List[Dict[str, Any]]:
+        """Atomically flip due rows to 'sending' and return them, oldest first.
+
+        Due means ``pending`` with ``next_attempt_at <= now``, or ``sending``
+        with no update for ``stale_sending_after`` seconds — a send that a
+        previous process started and never settled.
+        """
+        ts = time.time() if now is None else float(now)
+        stale_before = ts - float(stale_sending_after)
+
+        def _do(conn):
+            cur = conn.execute(
+                "SELECT * FROM delivery_obligations WHERE "
+                "(status = 'pending' AND next_attempt_at <= ?) "
+                "OR (status = 'sending' AND updated_at < ?) "
+                "ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?",
+                (ts, stale_before, int(limit)),
+            )
+            rows = [self._obligation_row(r) for r in cur.fetchall()]
+            for r in rows:
+                conn.execute(
+                    "UPDATE delivery_obligations SET status = 'sending', updated_at = ? WHERE id = ?",
+                    (ts, r["id"]),
+                )
+                r["status"] = "sending"
+            return rows
+        return self._execute_write(_do)
+
+    def list_obligations(
+        self, *, status: Optional[str] = None, limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        sql = "SELECT * FROM delivery_obligations"
+        params: list = []
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        sql += " ORDER BY created_at ASC LIMIT ?"
+        params.append(int(limit))
+        with self._lock:
+            cur = self._conn.execute(sql, params)
+            return [self._obligation_row(r) for r in cur.fetchall()]
+
+    def purge_obligations(self, *, older_than: float) -> int:
+        """Delete delivered/abandoned rows last updated before ``older_than``."""
+        def _do(conn):
+            cur = conn.execute(
+                "DELETE FROM delivery_obligations WHERE status IN ('delivered', 'abandoned') "
+                "AND updated_at < ?",
+                (float(older_than),),
+            )
+            return cur.rowcount
+        return self._execute_write(_do)

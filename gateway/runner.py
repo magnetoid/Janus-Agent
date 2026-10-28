@@ -216,6 +216,17 @@ class GatewayRunner:
             # janus_state.get_last_init_error() for slash-command error strings.
             logger.warning("SQLite session store not available: %s", e)
 
+        # Delivery-obligation ledger: every final reply (and cron result) is
+        # journaled to state.db before it is sent and replayed by
+        # _delivery_replay_watcher if the send never completed. None when
+        # state.db is unavailable or gateway.delivery_ledger is false.
+        self._delivery_ledger = None
+        try:
+            from gateway.delivery_ledger import DeliveryLedger
+            self._delivery_ledger = DeliveryLedger.from_config(self._session_db)
+        except Exception as e:
+            logger.warning("Delivery ledger not available: %s", e)
+
         # Opportunistic state.db maintenance: prune ended sessions older
         # than sessions.retention_days + optional VACUUM. Tracks last-run
         # in state_meta so it only actually executes once per
@@ -2775,10 +2786,11 @@ class GatewayRunner:
             adapter.set_restart_handler(self._request_gateway_restart)
             adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
             adapter.set_session_store(self.session_store)
+            adapter.set_delivery_ledger(getattr(self, "_delivery_ledger", None))
             adapter.set_busy_session_handler(self._handle_active_session_busy_message)
             adapter.set_topic_recovery_fn(self._recover_telegram_topic_thread_id)
             adapter._busy_text_mode = self._busy_text_mode
-            
+
             # Try to connect
             logger.info("Connecting to %s...", platform.value)
             self._update_platform_runtime_status(
@@ -3038,9 +3050,40 @@ class GatewayRunner:
         # turn so the agent kicks off the new chat.
         asyncio.create_task(self._handoff_watcher())
 
+        # Start background delivery replay watcher — re-sends replies and
+        # cron results that were journaled in the delivery ledger but never
+        # acked (gateway restart mid-reply, platform stall).
+        asyncio.create_task(self._delivery_replay_watcher())
+
         logger.info("Press Ctrl+C to stop")
         
         return True
+
+    async def _delivery_replay_watcher(self, interval: float = 15.0) -> None:
+        """Background task that drains the delivery-obligation ledger.
+
+        Each tick asks ``DeliveryLedger.replay_once`` to send whatever is
+        due through the currently connected adapters: replies whose live
+        send failed (requeued with backoff), and ``sending`` rows a previous
+        gateway process left behind when it died mid-send. Rows whose
+        platform is not connected yet are left for a later tick, so a
+        platform that reconnects via ``_platform_reconnect_watcher`` gets
+        its backlog without extra wiring.
+        """
+        ledger = getattr(self, "_delivery_ledger", None)
+        if ledger is None:
+            return
+        # Initial delay so the gateway is fully connected to its platforms
+        # before we try to replay through them.
+        await asyncio.sleep(5)
+        while self._running:
+            try:
+                await ledger.replay_once(self.adapters)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("Delivery replay watcher tick error: %s", exc, exc_info=True)
+            await asyncio.sleep(interval)
 
     async def _handoff_watcher(self, interval: float = 2.0) -> None:
         """Background task that processes pending CLI→gateway session handoffs.
@@ -4528,6 +4571,7 @@ class GatewayRunner:
                     adapter.set_restart_handler(self._request_gateway_restart)
                     adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
                     adapter.set_session_store(self.session_store)
+                    adapter.set_delivery_ledger(getattr(self, "_delivery_ledger", None))
                     adapter.set_busy_session_handler(self._handle_active_session_busy_message)
                     adapter.set_topic_recovery_fn(self._recover_telegram_topic_thread_id)
                     adapter._busy_text_mode = self._busy_text_mode
@@ -18424,6 +18468,13 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     
     # Start background cron ticker so scheduled jobs fire automatically.
     # Pass the event loop so cron delivery can use live adapters (E2EE support).
+    # Share the runner's delivery ledger so cron results are journaled into
+    # the same state.db connection the replay watcher drains.
+    try:
+        from cron import scheduler as _cron_scheduler
+        _cron_scheduler.set_delivery_ledger(getattr(runner, "_delivery_ledger", None))
+    except Exception as e:
+        logger.debug("cron: could not attach delivery ledger: %s", e)
     cron_stop = threading.Event()
     cron_thread = threading.Thread(
         target=_start_cron_ticker,

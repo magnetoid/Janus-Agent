@@ -511,6 +511,20 @@ Scheduled auto-resume for N restart-interrupted session(s)
 
 No configuration is required. If you don't want the heads-up, set `gateway_restart_notification: false` on the platform.
 
+### Replies survive restarts (delivery ledger)
+
+Auto-resume covers turns that were cut off *before* the agent finished. The delivery ledger covers the other gap: the agent finished, but the reply never reached you because the gateway restarted between "turn done" and "message acked", or the platform API stalled past the in-process retries.
+
+Every final reply and every cron result is journaled to `state.db` **before** it is sent. On success the row is marked delivered; on failure it is kept with a backoff (30 s, 1 min, 2 min, 5 min, 10 min, then every 30 min, up to 8 attempts). The running gateway replays what is owed every few seconds — including sends a previous gateway process started and never finished — through whichever platforms are connected, so a platform that reconnects later still gets its backlog. Replayed messages carry `replayed: true` in their metadata. A reply older than 24 hours is abandoned instead of delivered late.
+
+```bash
+janus gateway obligations            # what is still owed, with attempts and last error
+janus gateway obligations --replay   # send it now, without a running gateway
+janus gateway obligations --all --json
+```
+
+Journaling is on by default; set `gateway.delivery_ledger: false` in `config.yaml` to send without it. Streaming (draft) replies are not journaled — the stream itself confirms delivery.
+
 ### Mobile-friendly progress defaults
 
 Telegram is usually a mobile inbox, so the defaults are tuned for that surface:

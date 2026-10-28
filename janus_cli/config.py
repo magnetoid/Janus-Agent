@@ -2648,6 +2648,12 @@ DEFAULT_CONFIG = {
         # multi-tool agent turn. Bridged to JANUS_MEDIA_TRUST_RECENT_SECONDS.
         # Only consulted when ``strict`` is true.
         "trust_recent_files_seconds": 600,
+        # Delivery-obligation ledger: journal every final reply and cron
+        # result to state.db before sending it, and replay whatever was not
+        # acknowledged (gateway restart mid-reply, platform stall) with
+        # backoff. Inspect with `janus gateway obligations`. On by default —
+        # it only adds durability; set false to send without journaling.
+        "delivery_ledger": True,
     },
 
     # Real-time token streaming to messaging platforms (Telegram, Discord,

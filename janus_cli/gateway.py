@@ -1204,6 +1204,124 @@ def _print_other_profiles_gateway_status() -> None:
         pass
 
 
+def _standalone_obligation_sender():
+    """Coroutine that delivers one ledger row without a running gateway.
+
+    Uses the same per-platform HTTP senders as ``janus cron`` fallback
+    delivery. Returns a ``SendResult``-shaped object so
+    ``DeliveryLedger.replay_once`` can settle the row.
+    """
+    from gateway.config import Platform, load_gateway_config
+    from gateway.platforms.base import SendResult
+    from tools.send_message_tool import _send_to_platform
+
+    config = load_gateway_config()
+
+    async def _send(ob):
+        try:
+            platform = Platform(str(ob["platform"]).lower())
+        except (ValueError, KeyError):
+            return SendResult(success=False, error=f"unknown platform '{ob['platform']}'")
+        pconfig = config.platforms.get(platform)
+        if not pconfig or not pconfig.enabled:
+            return SendResult(success=False, error=f"platform '{ob['platform']}' not configured/enabled")
+        result = await _send_to_platform(
+            platform, pconfig, ob["chat_id"], ob["content"], thread_id=ob.get("thread_id"),
+        )
+        if result and result.get("error"):
+            return SendResult(success=False, error=str(result["error"]))
+        return SendResult(success=True, message_id=(result or {}).get("message_id"))
+
+    return _send
+
+
+def _gateway_obligations(args) -> None:
+    """``janus gateway obligations [--replay] [--all] [--json] [--limit N]``.
+
+    Lists replies the gateway journaled in the delivery ledger but has not
+    delivered (``pending`` waiting for a retry, ``sending`` left behind by a
+    dead process, ``abandoned`` after the retry budget). ``--replay`` sends
+    the undelivered rows now through the standalone platform senders; a
+    running gateway does this on its own every few seconds.
+    """
+    import json
+    import time
+
+    from gateway.delivery_ledger import DeliveryLedger, MAX_ATTEMPTS
+    from janus_state import SessionDB
+
+    want_json = bool(getattr(args, "json", False))
+    show_all = bool(getattr(args, "all", False))
+    limit = int(getattr(args, "limit", 50) or 50)
+
+    db_path = get_janus_home() / "state.db"
+    if not db_path.exists():
+        if want_json:
+            print("[]")
+        else:
+            print("No state.db yet — nothing owed.")
+        return
+
+    db = SessionDB(db_path=db_path)
+    try:
+        ledger = DeliveryLedger(db)
+
+        if getattr(args, "replay", False):
+            now = time.time()
+            owed = [r for r in db.list_obligations(limit=limit)
+                    if r["status"] in ("pending", "sending")]
+            # The user asked for it now: skip whatever backoff is left.
+            for row in owed:
+                db.release_obligation(row["id"], retry_at=now, now=now)
+            counts = asyncio.run(ledger.replay_once(send=_standalone_obligation_sender(), limit=limit))
+            print(
+                f"Replayed delivery ledger: {counts['delivered']} delivered, "
+                f"{counts['failed']} failed, {counts['skipped']} skipped, "
+                f"{counts['abandoned']} abandoned."
+            )
+            if counts["failed"]:
+                print("Failed rows stay pending with backoff; run again or check the platform credentials.")
+
+        rows = db.list_obligations(limit=limit)
+        if not show_all:
+            rows = [r for r in rows if r["status"] != "delivered"]
+
+        if want_json:
+            print(json.dumps(rows, indent=2, default=str))
+            return
+
+        if not rows:
+            print("Delivery ledger: nothing owed — every journaled reply was delivered.")
+            return
+
+        now = time.time()
+        print(f"Delivery ledger — {len(rows)} obligation(s){'' if show_all else ' not delivered'}:")
+        for r in rows:
+            target = f"{r['platform']}:{r['chat_id']}"
+            if r.get("thread_id"):
+                target += f"#{r['thread_id']}"
+            age_s = max(0.0, now - float(r.get("created_at") or now))
+            age = f"{age_s / 60:.0f}m" if age_s < 3600 else f"{age_s / 3600:.1f}h"
+            line = (
+                f"  {r['status']:<9} {r['kind']:<6} {target:<32} "
+                f"attempts {r['attempts']}/{MAX_ATTEMPTS}  age {age}"
+            )
+            if r.get("source_ref"):
+                line += f"  ({r['source_ref']})"
+            print(line)
+            if r.get("last_error"):
+                print(f"            last error: {r['last_error'][:160]}")
+            preview = " ".join((r.get("content") or "").split())
+            if len(preview) > 100:
+                preview = preview[:97] + "..."
+            print(f"            \"{preview}\"")
+        if not getattr(args, "replay", False) and any(r["status"] in ("pending", "sending") for r in rows):
+            print("\nA running gateway replays these automatically; "
+                  "`janus gateway obligations --replay` sends them now.")
+    finally:
+        db.close()
+
+
 def _gateway_list() -> None:
     """List all profiles and their gateway running status.
 
@@ -6777,6 +6895,9 @@ def _gateway_command_inner(args):
 
     elif subcmd == "list":
         _gateway_list()
+
+    elif subcmd == "obligations":
+        _gateway_obligations(args)
 
     elif subcmd == "migrate-legacy":
         # Stop, disable, and remove legacy Janus gateway unit files from

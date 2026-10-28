@@ -1797,6 +1797,9 @@ class BasePlatformAdapter(ABC):
         self.config = config
         self.platform = platform
         self._message_handler: Optional[MessageHandler] = None
+        # Delivery-obligation ledger (gateway.delivery_ledger.DeliveryLedger),
+        # injected by the runner. None = replies are not journaled.
+        self._delivery_ledger: Any = None
         # Let this adapter ask the gateway for a graceful restart (set by the
         # runner beside the message handler). None for an adapter running
         # without a gateway, e.g. the standalone API server.
@@ -2212,6 +2215,15 @@ class BasePlatformAdapter(ABC):
         """Set an optional handler for messages arriving during active sessions."""
         self._busy_session_handler = handler
     
+    def set_delivery_ledger(self, ledger: Any) -> None:
+        """Attach the gateway's delivery-obligation ledger (or None).
+
+        When set, the final reply of every turn is journaled to state.db
+        before it is sent and settled afterwards, so a restart or provider
+        stall between the two cannot silently lose it.
+        """
+        self._delivery_ledger = ledger
+
     def set_session_store(self, session_store: Any) -> None:
         """
         Set the session store for checking active sessions.
@@ -4240,12 +4252,35 @@ class BasePlatformAdapter(ABC):
                         _thread_metadata["notify"] = True
                     else:
                         _thread_metadata = {"notify": True}
-                    result = await self._send_with_retry(
-                        chat_id=event.source.chat_id,
-                        content=text_content,
-                        reply_to=_reply_anchor,
-                        metadata=_thread_metadata,
-                    )
+                    # Journal the reply before sending it. If the process
+                    # dies or the platform stalls past the in-process
+                    # retries, the ledger's replay watcher delivers it.
+                    _ledger = getattr(self, "_delivery_ledger", None)
+                    _obligation_id = None
+                    if _ledger is not None:
+                        _obligation_id = _ledger.record(
+                            kind="reply",
+                            platform=self.platform,
+                            chat_id=event.source.chat_id,
+                            content=text_content,
+                            thread_id=getattr(event.source, "thread_id", None),
+                            reply_to=_reply_anchor,
+                            metadata=_thread_metadata,
+                            session_id=session_key,
+                        )
+                    try:
+                        result = await self._send_with_retry(
+                            chat_id=event.source.chat_id,
+                            content=text_content,
+                            reply_to=_reply_anchor,
+                            metadata=_thread_metadata,
+                        )
+                    except BaseException as _send_exc:
+                        if _ledger is not None:
+                            _ledger.settle(_obligation_id, error=_send_exc)
+                        raise
+                    if _ledger is not None:
+                        _ledger.settle(_obligation_id, result)
                     _record_delivery(result)
 
                     # Schedule auto-deletion of system-notice replies.
