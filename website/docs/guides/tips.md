@@ -152,7 +152,7 @@ Instead of running terminal commands one at a time, ask the agent to write a scr
 Use `/model` to switch models mid-session. Use a frontier model (Claude Sonnet/Opus, GPT-4o) for complex reasoning and architecture decisions. Switch to a faster model for simple tasks like formatting, renaming, or boilerplate generation.
 
 :::tip
-Run `/usage` periodically to see your token consumption. Run `/insights` for a broader view of usage patterns over the last 30 days.
+Run `/usage` periodically to see your token consumption. Run `/insights` for a broader view of usage patterns over the last 30 days. Its **Spend ledger** section shows what was actually recorded per API turn — the same rows the `budget.daily_usd` / `budget.monthly_usd` caps enforce — split by model and platform, and flags turns on models without pricing (counted at the conservative `budget.unpriced_usd_per_1k_tokens` rate rather than hidden as $0).
 :::
 
 ## Messaging Tips
