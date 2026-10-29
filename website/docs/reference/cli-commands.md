@@ -78,7 +78,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus tools` | Configure enabled tools per platform. |
 | `janus computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
 | `janus sessions` | Browse, export, prune, rename, and delete sessions. |
-| `janus insights` | Show token/cost/activity analytics. |
+| `janus insights` | Show token/cost/activity analytics, including the recorded per-turn spend ledger (the figure the `budget.*` caps enforce) with unpriced turns called out. |
 | `janus claw` | OpenClaw migration helpers. |
 | `janus dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
 | `janus profile` | Manage profiles — multiple isolated Janus instances. |

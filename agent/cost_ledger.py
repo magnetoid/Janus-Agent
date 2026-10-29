@@ -278,3 +278,114 @@ def cache_efficiency(last_n: int = 200) -> Dict[str, Any]:
         "hit_rate": (read / total) if total else None,
         "sessions_with_model_switch": switched,
     }
+
+
+# --- usage summary (what `janus insights` shows as "Spend ledger") ----------
+
+def _empty_summary(days: int) -> Dict[str, Any]:
+    return {
+        "days": int(days), "turns": 0, "sessions": 0,
+        "total_usd": 0.0, "priced_usd": 0.0, "estimated_usd": 0.0, "unpriced_turns": 0,
+        "by_model": [], "by_source": [], "by_day": [],
+    }
+
+
+def usage_summary(
+    days: int = 30, *,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    now_ts: Optional[float] = None,
+    session_sources: Optional[Dict[str, str]] = None,
+    source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Aggregate the ledger over the trailing ``days`` for human review.
+
+    This is the *recorded* spend — the same rows the rolling caps enforce — as
+    opposed to the sessions-table estimate ``agent/insights.py`` derives from
+    token counts. The two can legitimately differ (unpriced models, status
+    "included" turns, mid-session model switches), which is why both are shown.
+
+    ``session_sources`` maps session_id → platform (``sessions.source``); rows
+    whose session is unknown land under ``"unknown"``. ``source`` filters to one
+    platform. Rows without a parseable ``ts`` are excluded, matching
+    :func:`spend_since`. Pure, best-effort, never raises.
+    """
+    try:
+        import time
+        from datetime import datetime
+        rows = load_ledger() if rows is None else rows
+        now_ts = time.time() if now_ts is None else now_ts
+        cutoff = now_ts - float(days) * 86400.0
+        sources = session_sources or {}
+
+        out = _empty_summary(days)
+        sessions: set = set()
+        by_model: Dict[str, Dict[str, Any]] = {}
+        by_source: Dict[str, Dict[str, Any]] = {}
+        source_sessions: Dict[str, set] = {}
+        by_day: Dict[str, Dict[str, Any]] = {}
+
+        for r in rows:
+            rt = _parse_ts(r.get("ts"))
+            if rt is None or rt < cutoff:
+                continue
+            sid = str(r.get("session_id", "") or "")
+            src = sources.get(sid, "unknown")
+            if source and src != source:
+                continue
+            cost = float(r.get("cost_usd", 0.0) or 0.0)
+            estimated = bool(r.get("estimated"))
+            in_tok = int(r.get("input_tokens", 0) or 0)
+            out_tok = int(r.get("output_tokens", 0) or 0)
+            cached = int(r.get("cache_read_tokens", 0) or 0)
+            model = str(r.get("model", "") or "") or "(unknown)"
+            day = datetime.fromisoformat(str(r.get("ts"))).date().isoformat()
+
+            out["turns"] += 1
+            out["total_usd"] += cost
+            if estimated:
+                out["estimated_usd"] += cost
+                out["unpriced_turns"] += 1
+            else:
+                out["priced_usd"] += cost
+            sessions.add(sid)
+
+            m = by_model.setdefault(model, {
+                "model": model, "turns": 0, "input_tokens": 0, "output_tokens": 0,
+                "cache_read_tokens": 0, "cost_usd": 0.0, "estimated_usd": 0.0,
+                "unpriced_turns": 0,
+            })
+            m["turns"] += 1
+            m["input_tokens"] += in_tok
+            m["output_tokens"] += out_tok
+            m["cache_read_tokens"] += cached
+            m["cost_usd"] += cost
+            if estimated:
+                m["estimated_usd"] += cost
+                m["unpriced_turns"] += 1
+
+            p = by_source.setdefault(src, {"source": src, "turns": 0, "sessions": 0, "cost_usd": 0.0})
+            p["turns"] += 1
+            p["cost_usd"] += cost
+            source_sessions.setdefault(src, set()).add(sid)
+
+            d = by_day.setdefault(day, {"date": day, "turns": 0, "cost_usd": 0.0})
+            d["turns"] += 1
+            d["cost_usd"] += cost
+
+        for src, p in by_source.items():
+            p["sessions"] = len(source_sessions.get(src, ()))
+        for bucket in (by_model, by_source, by_day):
+            for entry in bucket.values():
+                for k in ("cost_usd", "estimated_usd"):
+                    if k in entry:
+                        entry[k] = round(entry[k], 6)
+        for k in ("total_usd", "priced_usd", "estimated_usd"):
+            out[k] = round(out[k], 6)
+        out["sessions"] = len(sessions)
+        out["by_model"] = sorted(by_model.values(), key=lambda e: e["cost_usd"], reverse=True)
+        out["by_source"] = sorted(by_source.values(), key=lambda e: e["cost_usd"], reverse=True)
+        out["by_day"] = sorted(by_day.values(), key=lambda e: e["date"])
+        return out
+    except Exception as exc:
+        logger.debug("cost ledger usage_summary failed: %s", exc)
+        return _empty_summary(days)

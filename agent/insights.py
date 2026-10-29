@@ -126,12 +126,14 @@ class InsightsEngine:
         tool_usage = self._get_tool_usage(cutoff, source)
         skill_usage = self._get_skill_usage(cutoff, source)
         message_stats = self._get_message_stats(cutoff, source)
+        ledger = self._get_ledger_summary(days, source)
 
         if not sessions:
             return {
                 "days": days,
                 "source_filter": source,
                 "empty": True,
+                "ledger": ledger,
                 "overview": {},
                 "models": [],
                 "platforms": [],
@@ -170,11 +172,36 @@ class InsightsEngine:
             "skills": skills,
             "activity": activity,
             "top_sessions": top_sessions,
+            "ledger": ledger,
         }
 
     # =========================================================================
     # Data gathering (SQL queries)
     # =========================================================================
+
+    _GET_SESSION_SOURCES_ALL = "SELECT id, source FROM sessions"
+    _GET_SESSION_SOURCES_WITH_SOURCE = "SELECT id, source FROM sessions WHERE source = ?"
+
+    def _get_ledger_summary(self, days: int, source: str | None = None) -> Dict[str, Any]:
+        """The per-turn spend ledger (agent/cost_ledger) over the same window.
+
+        Unlike the token-derived estimates below, this is the spend that was
+        actually *recorded* per API turn — the figure the rolling budget caps
+        enforce — and it is the only place that knows which turns were unpriced.
+        Mapping is over ALL sessions (not just the window) so a turn recorded
+        today in a session started before the cutoff still lands on its platform.
+        """
+        from agent import cost_ledger
+
+        try:
+            if source:
+                cursor = self._conn.execute(self._GET_SESSION_SOURCES_WITH_SOURCE, (source,))
+            else:
+                cursor = self._conn.execute(self._GET_SESSION_SOURCES_ALL)
+            sources = {row[0]: row[1] for row in cursor.fetchall()}
+        except Exception:
+            sources = {}
+        return cost_ledger.usage_summary(days=days, session_sources=sources, source=source)
 
     # Columns we actually need (skip system_prompt, model_config blobs)
     _SESSION_COLS = ("id, source, model, started_at, ended_at, "
@@ -728,7 +755,14 @@ class InsightsEngine:
         if report.get("empty"):
             days = report.get("days", 30)
             src = f" (source: {report['source_filter']})" if report.get("source_filter") else ""
-            return f"  No sessions found in the last {days} days{src}."
+            lines = [f"  No sessions found in the last {days} days{src}."]
+            # Turns from a session that started before the window (e.g. a resumed
+            # session with --days 1) still land in the ledger — don't hide them.
+            ledger = report.get("ledger") or {}
+            if ledger.get("turns"):
+                lines.append("")
+                lines.extend(self._format_ledger_terminal(ledger, days))
+            return "\n".join(lines)
 
         lines = []
         o = report["overview"]
@@ -767,6 +801,9 @@ class InsightsEngine:
             lines.append(f"  Active time:       ~{_format_duration(o['total_hours'] * 3600):<11}  Avg session:     ~{_format_duration(o['avg_session_duration'])}")
         lines.append(f"  Avg msgs/session:  {o['avg_messages_per_session']:.1f}")
         lines.append("")
+
+        # Spend ledger — recorded per-turn cost (what the budget caps enforce)
+        lines.extend(self._format_ledger_terminal(report.get("ledger") or {}, days))
 
         # Model breakdown
         if report["models"]:
@@ -863,11 +900,55 @@ class InsightsEngine:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_ledger_terminal(ledger: Dict[str, Any], days: int) -> List[str]:
+        lines = ["  💳 Spend ledger (recorded per turn)", "  " + "─" * 56]
+        if not ledger or not ledger.get("turns"):
+            lines.append(f"  No ledger rows in the last {days} days — the ledger records")
+            lines.append("  every API turn once a session makes one.")
+            lines.append("")
+            return lines
+        lines.append(
+            f"  Recorded spend:    ${ledger['total_usd']:<11.2f}  Turns: {ledger['turns']:,}"
+            f"  Sessions: {ledger['sessions']:,}"
+        )
+        if ledger.get("unpriced_turns"):
+            lines.append(
+                f"  ⚠ {ledger['unpriced_turns']} unpriced turn(s) — model had no pricing; "
+                f"counted at a conservative ${ledger['estimated_usd']:.2f}"
+            )
+            lines.append("    (rate: budget.unpriced_usd_per_1k_tokens)")
+        lines.append(f"  {'Model':<30} {'Turns':>6} {'Tokens':>12} {'Cost':>10}")
+        for m in ledger["by_model"][:8]:
+            tokens = m["input_tokens"] + m["output_tokens"]
+            flag = " *" if m.get("unpriced_turns") else ""
+            lines.append(f"  {m['model'][:28]:<30} {m['turns']:>6,} {tokens:>12,} ${m['cost_usd']:>9.2f}{flag}")
+        if len(ledger["by_source"]) > 1:
+            lines.append(f"  {'Platform':<30} {'Turns':>6} {'Sessions':>12} {'Cost':>10}")
+            for p in ledger["by_source"]:
+                lines.append(f"  {p['source'][:28]:<30} {p['turns']:>6,} {p['sessions']:>12,} ${p['cost_usd']:>9.2f}")
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _format_ledger_gateway_line(ledger: Dict[str, Any]) -> str:
+        """One-line ledger summary for messaging output; empty when no turns."""
+        if not ledger.get("turns"):
+            return ""
+        note = (f" ({ledger['unpriced_turns']} unpriced turn(s) estimated)"
+                if ledger.get("unpriced_turns") else "")
+        return (f"**💳 Ledger:** ${ledger['total_usd']:.2f} recorded over "
+                f"{ledger['turns']:,} turns{note}")
+
     def format_gateway(self, report: Dict) -> str:
         """Format the insights report for gateway/messaging (shorter)."""
         if report.get("empty"):
             days = report.get("days", 30)
-            return f"No sessions found in the last {days} days."
+            lines = [f"No sessions found in the last {days} days."]
+            ledger_line = self._format_ledger_gateway_line(report.get("ledger") or {})
+            if ledger_line:
+                lines.append(ledger_line)
+            return "\n".join(lines)
 
         lines = []
         o = report["overview"]
@@ -880,6 +961,9 @@ class InsightsEngine:
         lines.append(f"**Tokens:** {o['total_tokens']:,} (in: {o['total_input_tokens']:,} / out: {o['total_output_tokens']:,})")
         if o["total_hours"] > 0:
             lines.append(f"**Active time:** ~{_format_duration(o['total_hours'] * 3600)} | **Avg session:** ~{_format_duration(o['avg_session_duration'])}")
+        ledger_line = self._format_ledger_gateway_line(report.get("ledger") or {})
+        if ledger_line:
+            lines.append(ledger_line)
         lines.append("")
 
         # Models (top 5)
