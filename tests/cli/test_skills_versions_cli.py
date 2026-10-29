@@ -1,12 +1,15 @@
 """`janus skills history|diff|undo|archive|restore` and the `/skills` slash form.
 
-Drives the real argparse entry point (``janus_cli.main.main``) and the slash
-dispatcher against the hermetic JANUS_HOME; asserts behaviour on disk rather
-than exact output text.
+Drives the version verbs through their real argparse definitions and the
+slash dispatcher against the hermetic JANUS_HOME, asserting behaviour on disk
+rather than exact output text. Only the wiring tests go through the full
+``janus_cli.main.main`` entry point: it rebuilds the whole CLI parser on every
+call, which is too slow to repeat under a loaded CI box.
 """
 
 from __future__ import annotations
 
+import argparse
 import io
 import sys
 from pathlib import Path
@@ -35,6 +38,7 @@ def _edit_with_history(name: str, old: str, new: str) -> Path:
 
 
 def _janus(monkeypatch, *argv: str) -> int:
+    """Full `janus` entry point — used only for the wiring tests."""
     from janus_cli.main import main
     monkeypatch.setattr(sys, "argv", ["janus", *argv])
     try:
@@ -42,6 +46,14 @@ def _janus(monkeypatch, *argv: str) -> int:
     except SystemExit as e:
         return int(e.code or 0)
     return 0
+
+
+def _skills(*argv: str) -> int:
+    """`janus skills <verb> ...` through the verbs' own argparse definitions."""
+    from janus_cli.skill_versions_cli import register_subparsers, run_from_args
+    parser = argparse.ArgumentParser(prog="janus skills")
+    register_subparsers(parser.add_subparsers(dest="skills_action"))
+    return run_from_args(parser.parse_args(list(argv)))
 
 
 def _slash(cmd: str) -> str:
@@ -52,10 +64,10 @@ def _slash(cmd: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# argparse path
+# `janus` entry-point wiring
 # ---------------------------------------------------------------------------
 
-def test_cli_history_lists_every_recorded_version(monkeypatch, capsys):
+def test_janus_skills_history_is_wired_into_main(monkeypatch, capsys):
     _edit_with_history("hist", "v1", "v2")
     assert _janus(monkeypatch, "skills", "history", "hist") == 0
     out = capsys.readouterr().out
@@ -63,18 +75,9 @@ def test_cli_history_lists_every_recorded_version(monkeypatch, capsys):
         assert row["id"] in out
 
 
-def test_cli_diff_then_undo_restores_previous_content(monkeypatch, capsys):
-    d = _edit_with_history("cycle", "ORIGINAL", "AGENT EDIT")
-    assert _janus(monkeypatch, "skills", "diff", "cycle") == 0
-    out = capsys.readouterr().out
-    assert "-ORIGINAL" in out and "+AGENT EDIT" in out
-
-    assert _janus(monkeypatch, "skills", "undo", "cycle") == 0
-    assert "ORIGINAL" in (d / "SKILL.md").read_text(encoding="utf-8")
-    assert sv.list_versions("cycle")[0]["source"] == "user"
-
-
-def test_cli_undo_by_history_position(monkeypatch):
+def test_janus_skills_undo_version_arg_does_not_hit_global_version_flag(monkeypatch):
+    # The positional must not be stored as args.version: main() treats that
+    # as `janus --version` and prints the banner instead of undoing.
     d = _edit_with_history("pos", "FIRST", "SECOND")
     sv.record_version("pos", d, source="skill_manage")
     (d / "SKILL.md").write_text("---\nname: pos\ndescription: d\n---\n\nTHIRD\n", encoding="utf-8")
@@ -82,15 +85,30 @@ def test_cli_undo_by_history_position(monkeypatch):
     assert "FIRST" in (d / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_cli_undo_refuses_pinned_skill_and_exits_nonzero(monkeypatch):
+# ---------------------------------------------------------------------------
+# argparse path
+# ---------------------------------------------------------------------------
+
+def test_cli_diff_then_undo_restores_previous_content(capsys):
+    d = _edit_with_history("cycle", "ORIGINAL", "AGENT EDIT")
+    assert _skills("diff", "cycle") == 0
+    out = capsys.readouterr().out
+    assert "-ORIGINAL" in out and "+AGENT EDIT" in out
+
+    assert _skills("undo", "cycle") == 0
+    assert "ORIGINAL" in (d / "SKILL.md").read_text(encoding="utf-8")
+    assert sv.list_versions("cycle")[0]["source"] == "user"
+
+
+def test_cli_undo_refuses_pinned_skill_and_exits_nonzero():
     from tools import skill_usage
     d = _edit_with_history("guarded", "OLD", "NEW")
     skill_usage.set_pinned("guarded", True)
-    assert _janus(monkeypatch, "skills", "undo", "guarded") != 0
+    assert _skills("undo", "guarded") != 0
     assert "NEW" in (d / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_cli_archive_then_restore_round_trips(monkeypatch):
+def test_cli_archive_then_restore_round_trips():
     from tools import skill_usage as u
     d = _skill("shelved", "content")
     data = u.load_usage()
@@ -99,14 +117,14 @@ def test_cli_archive_then_restore_round_trips(monkeypatch):
     u.save_usage(data)
     before = (d / "SKILL.md").read_bytes()
 
-    assert _janus(monkeypatch, "skills", "archive", "shelved") == 0
+    assert _skills("archive", "shelved") == 0
     assert not d.exists()
-    assert _janus(monkeypatch, "skills", "restore", "shelved") == 0
+    assert _skills("restore", "shelved") == 0
     assert (d / "SKILL.md").read_bytes() == before
 
 
-def test_cli_unknown_skill_history_is_not_an_error(monkeypatch, capsys):
-    assert _janus(monkeypatch, "skills", "history", "never-existed") == 0
+def test_cli_unknown_skill_history_is_not_an_error(capsys):
+    assert _skills("history", "never-existed") == 0
     assert "No recorded versions" in capsys.readouterr().out
 
 
