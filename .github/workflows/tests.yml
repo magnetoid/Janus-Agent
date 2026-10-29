@@ -123,9 +123,9 @@ jobs:
       - name: Full suite
         run: scripts/run_tests.sh
 
-  # The Ink/React TUI. HARD gate on type-check + vitest: both were red on main
-  # for weeks without anyone noticing because nothing ran them. eslint is not
-  # gated yet (32 pre-existing errors) — add it once `npm run lint` is clean.
+  # The Ink/React TUI. HARD gate on type-check, eslint (errors only; warnings
+  # stay visible) and vitest: all three were red on main for weeks without
+  # anyone noticing because nothing ran them.
   ui-tui:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -144,5 +144,7 @@ jobs:
         run: npm run build --workspace ui-tui/packages/janus-ink
       - name: Type-check
         run: npm run type-check --workspace ui-tui
+      - name: Lint
+        run: npm run lint --workspace ui-tui
       - name: Tests
         run: npm test --workspace ui-tui
