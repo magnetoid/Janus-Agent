@@ -2065,6 +2065,12 @@ DEFAULT_CONFIG = {
         # Flip to true only if you trust delegated work to run dangerous cmds
         # without human review (cron pipelines, batch automation, etc.).
         "subagent_auto_approve": False,
+        # Named subagent profiles, selected with delegate_task(profile="<name>").
+        # Each may set provider/model/base_url/api_key/api_mode, toolsets,
+        # max_iterations, budget_usd (per-child spend cap) and role. Explicit
+        # delegate_task arguments beat the profile. Empty = feature unused.
+        # Manage with `janus delegation profiles list|add|remove`.
+        "profiles": {},
     },
 
     # Consensus / smart model routing. Route each task to the right-cost model:

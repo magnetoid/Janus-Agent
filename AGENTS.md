@@ -785,6 +785,20 @@ Synchronicity rule: delegate_task is **not** durable. For long-running
 work that must outlive the current turn, use `cronjob` or
 `terminal(background=True, notify_on_complete=True)` instead.
 
+Profiles (`delegation.profiles.<name>`, selected with
+`delegate_task(profile=...)` or per task in `tasks`): each may set
+`provider` / `model` / `base_url` / `api_key` / `api_mode`, `toolsets`,
+`max_iterations`, `budget_usd` and `role`. Precedence is explicit call
+argument > profile > global `delegation.*`. A profile that names any of
+`model` / `provider` / `base_url` replaces the global credential set whole
+(so a global `base_url` never shadows a profile's `provider`) and skips
+Track D routing; a caps-only profile keeps the global model. All profile
+names are resolved before any child is built. `budget_usd` is stored on
+the child as `_session_cost_limit_usd_override`; the loop's turn-boundary
+cost gate uses the tighter of it and `budget.session_cost_usd`. CLI:
+`janus_cli/delegation_profiles.py` (`janus delegation profiles
+list|add|remove`; `add` with no name is a guided picker).
+
 ---
 
 ## Curator (skill lifecycle)

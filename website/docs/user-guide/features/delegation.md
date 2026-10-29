@@ -142,6 +142,48 @@ delegation:
 
 If omitted, subagents use the same model as the parent.
 
+## Profiles
+
+A profile is a named bundle of subagent settings, so the agent can pick "the cheap researcher" or "the careful coder" per task instead of using one global override:
+
+```yaml
+delegation:
+  profiles:
+    research:
+      provider: openrouter
+      model: google/gemini-3-flash-preview
+      toolsets: [web]
+      max_iterations: 20
+      budget_usd: 0.25        # each child using this profile stops once it has spent this
+    coder:
+      model: anthropic/claude-sonnet-5-5
+      toolsets: [terminal, file]
+      role: orchestrator
+```
+
+```python
+delegate_task(goal="Survey vector DB options", profile="research")
+delegate_task(tasks=[
+    {"goal": "Fix the failing test", "profile": "coder"},
+    {"goal": "Find the upstream issue", "profile": "research"},
+])
+```
+
+- Explicit `toolsets` / `role` in the call beat the profile's; the profile beats the global `delegation.*` settings.
+- A profile that names a `model`, `provider` or `base_url` replaces the global delegation model entirely. A profile with only caps (for example just `max_iterations`) keeps the global model.
+- `budget_usd` is a real cap: the child halts at its next turn boundary once its own spend reaches it (the global `budget.session_cost_usd` still applies if it is tighter).
+- An unknown profile name is rejected before any child starts.
+
+Manage profiles from the shell:
+
+```bash
+janus delegation profiles list [--json]
+janus delegation profiles add                      # guided picker
+janus delegation profiles add research --provider openrouter \
+    --model google/gemini-3-flash-preview --toolsets web --budget-usd 0.25
+janus delegation profiles remove research
+```
+
 ## Toolset Selection Tips
 
 The `toolsets` parameter controls what tools the subagent has access to. Choose based on the task:
