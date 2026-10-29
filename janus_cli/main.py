@@ -9407,6 +9407,18 @@ def _install_python_dependencies_with_optional_fallback(
     _verify_core_dependencies_installed(install_cmd_prefix, env=env, group=group)
 
 
+def _dependency_marker_environment() -> "dict[str, str] | None":
+    """Marker-environment overrides for core-dependency filtering.
+
+    ``None`` means "evaluate against this interpreter", which is what every
+    real run wants. This is the seam for simulating another platform: since
+    ``packaging`` 26.3 the default marker environment is computed once per
+    process and cached, so patching ``sys.platform`` no longer changes how
+    markers evaluate.
+    """
+    return None
+
+
 def _verify_core_dependencies_installed(
     install_cmd_prefix: list[str],
     *,
@@ -9471,12 +9483,13 @@ def _verify_core_dependencies_installed(
     # (e.g. ``ptyprocess ; sys_platform != 'win32'`` is correctly skipped on
     # Windows). Without markers we'd false-positive every cross-platform exclusion.
     applicable: list[str] = []
+    marker_env = _dependency_marker_environment()
     for name, marker in deps:
         if marker is None:
             applicable.append(name)
             continue
         try:
-            if marker.evaluate():  # type: ignore[union-attr]
+            if marker.evaluate(marker_env):  # type: ignore[union-attr]
                 applicable.append(name)
         except Exception:
             applicable.append(name)
