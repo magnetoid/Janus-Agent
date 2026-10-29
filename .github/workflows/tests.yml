@@ -72,7 +72,8 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Visibility, not a gate (see header). The step summary carries the count.
+    # Visibility, not a gate (see header): green while ty runs cleanly, with
+    # the count in the step summary; red only if ty itself crashes.
     continue-on-error: true
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -100,8 +101,12 @@ jobs:
             grep -oE '(error|warning)\[[a-z-]+\]' ty.txt | sort | uniq -c | sort -rn | head -15 \
               | awk '{print "| `" $2 "` | " $1 " |"}'
           } >> "$GITHUB_STEP_SUMMARY"
-          if grep -q 'panic' ty.txt; then echo "::error::ty panicked; the count is incomplete"; fi
-          exit $status
+          echo "::notice::ty check: ${total} diagnostics (informational, see the job summary)"
+          # ty exits 1 when it finds diagnostics: expected until the count is
+          # zero, so it must not turn the check red. Fail only when ty itself
+          # broke (exit >= 2, or a panic that leaves the count incomplete).
+          if grep -q 'panic' ty.txt; then echo "::error::ty panicked; the count is incomplete"; exit 1; fi
+          if [ "$status" -ge 2 ]; then cat ty.txt | tail -20; exit "$status"; fi
 
   tests-changed:
     runs-on: ubuntu-latest
