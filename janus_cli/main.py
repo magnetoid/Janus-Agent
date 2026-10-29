@@ -15065,6 +15065,16 @@ Examples:
         "--dry-run", action="store_true", help="Show what would be dropped without changing anything")
     _reconcile_parser.add_argument(
         "--target", choices=["memory", "user"], default="memory")
+    _lint_parser = memory_sub.add_parser(
+        "lint", help="Report contradicted, duplicate, stale or doubtful-origin memory entries (read-only)")
+    _lint_parser.add_argument("--target", choices=["memory", "user", "all"], default="all")
+    _lint_parser.add_argument("--offline", action="store_true",
+                              help="Skip the contradiction check (no model call)")
+    _lint_parser.add_argument("--stale-days", dest="stale_days", type=int, default=180,
+                              help="Flag entries older than this (needs memory.provenance; 0 = off)")
+    _lint_parser.add_argument("--json", action="store_true")
+    _lint_parser.add_argument("--strict", action="store_true",
+                              help="Exit 1 when there are findings")
     _recall_parser = memory_sub.add_parser(
         "recall", help="Surface the memory most relevant to a query (incl. journal history)")
     _recall_parser.add_argument("query", nargs="+")
@@ -15175,6 +15185,9 @@ Examples:
                 f"  ✓ Added {added['user']} user + {added['memory']} memory "
                 f"fact(s); skipped {summary['skipped_duplicates']} duplicate(s).\n"
             )
+        elif sub == "lint":
+            from janus_cli.memory_lint_cli import run as _memory_lint_run
+            return _memory_lint_run(args)
         elif sub == "reconcile":
             from tools.memory_tool import MemoryStore
             from agent.memory_gardener import reconcile

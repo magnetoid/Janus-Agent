@@ -211,6 +211,37 @@ memory:
   user_char_limit: 1375     # ~500 tokens
 ```
 
+## Provenance and Lint
+
+Turn on provenance to record where each memory entry came from:
+
+```yaml
+memory:
+  provenance: true   # default false
+```
+
+Every add, replace and remove then writes a row to `memories/provenance.db` in your Janus home. Each row records:
+
+- **Who wrote it:** the agent, the session-end miner, or reconcile.
+- **Session:** which session the write happened in.
+- **When:** the time of the write.
+- **Superseded:** for a replace, which entry it replaced.
+- **Untrusted context:** whether fenced untrusted external content, such as a web page or webhook payload, was in context at the time.
+
+`MEMORY.md` and `USER.md` stay plain text, and the prompt never sees this data.
+
+`janus memory lint` reads memory and reports problems without changing anything:
+
+| Finding | Meaning |
+|---|---|
+| contradicted / superseded | Another entry supersedes or contradicts it. This is the same check `janus memory reconcile` uses, and costs one auxiliary model call per target. `--offline` skips it. |
+| duplicate | Same text as another entry, ignoring case and spacing. |
+| unknown origin | No provenance recorded. It was written before provenance was on, or edited outside Janus. |
+| untrusted origin | Written while untrusted external content was in context, so worth a second look. |
+| stale | Older than `--stale-days` (default 180). |
+
+The last three need `memory.provenance: true`. Fix contradictions with `janus memory reconcile`, and edit or remove the rest with the memory tool. `--json` gives machine-readable output, and `--strict` exits non-zero when there are findings, which is useful in a cron job.
+
 ## External Memory Providers
 
 For deeper, persistent memory that goes beyond MEMORY.md and USER.md, Janus ships with 8 external memory provider plugins — including Honcho, OpenViking, Mem0, Hindsight, Holographic, RetainDB, ByteRover, and Supermemory.

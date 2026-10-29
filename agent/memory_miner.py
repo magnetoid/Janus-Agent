@@ -205,54 +205,66 @@ def mine_session_memory(
             "user": [_normalize(e) for e in getattr(memory_store, "user_entries", [])],
             "memory": [_normalize(e) for e in getattr(memory_store, "memory_entries", [])],
         }
-        from agent.feature_flags import flag_enabled
-        reconcile_on = flag_enabled("memory", "write_time_reconcile", default=False)
-
-        for target in ("user", "memory"):
-            # `live` holds RAW entry text (passed to reconcile_candidate and
-            # indexed for removal); existing[target] holds NORMALIZED text (for
-            # _is_duplicate). They are intentionally different representations.
-            live = list(getattr(memory_store, f"{target}_entries", []))
-            for content in facts.get(target, [])[:max_facts_per_target]:
-                content = content.strip()
-                if not content:
-                    continue
-                if _is_duplicate(content, existing[target]):
-                    result["skipped_duplicates"] += 1
-                    continue
-
-                if reconcile_on and live:
-                    from agent.memory_gardener import reconcile_candidate
-                    decision = reconcile_candidate(content, live, llm_caller=llm_caller,
-                                                   provider=provider, model=model)
-                    action = decision["action"]
-                    idx = decision.get("target_index")
-                    if action == "NOOP":
-                        result["skipped_duplicates"] += 1
-                        continue
-                    if action in ("UPDATE", "DELETE") and idx is not None and 0 <= idx < len(live):
-                        old = live[idx]
-                        try:
-                            memory_store.remove(target, old)
-                        except Exception as exc:
-                            logger.debug("reconcile remove failed: %s", exc)
-                        live.pop(idx)
-                        result.setdefault("reconciled", {"updated": 0, "deleted": 0})
-                        if action == "DELETE":
-                            result["reconciled"]["deleted"] += 1
-                            existing[target] = [e for e in existing[target] if e != _normalize(old)]
-                            continue
-                        result["reconciled"]["updated"] += 1
-                        existing[target] = [e for e in existing[target] if e != _normalize(old)]
-
-                add_result = memory_store.add(target, content)
-                if isinstance(add_result, dict) and add_result.get("success"):
-                    result["added"][target] += 1
-                    existing[target].append(_normalize(content))
-                    live.append(content)
-                else:
-                    result["skipped_duplicates"] += 1
+        # Provenance (memory.provenance): mined facts are tagged as such, and as
+        # untrusted when the transcript carried fenced external content.
+        from agent.memory_provenance import provenance_context, transcript_has_untrusted
+        with provenance_context("miner", untrusted=transcript_has_untrusted(messages)):
+            _mine_write_facts(facts, memory_store, existing, result, llm_caller=llm_caller,
+                              provider=provider, model=model,
+                              max_facts_per_target=max_facts_per_target)
     except Exception as exc:  # mining must never break a session
         logger.debug("session memory mining failed: %s", exc)
         result["error"] = str(exc)
     return result
+
+
+def _mine_write_facts(facts, memory_store, existing, result, *, llm_caller, provider, model,
+                      max_facts_per_target):
+    """Write mined facts to the store (split out so provenance can wrap it)."""
+    from agent.feature_flags import flag_enabled
+    reconcile_on = flag_enabled("memory", "write_time_reconcile", default=False)
+
+    for target in ("user", "memory"):
+        # `live` holds RAW entry text (passed to reconcile_candidate and
+        # indexed for removal); existing[target] holds NORMALIZED text (for
+        # _is_duplicate). They are intentionally different representations.
+        live = list(getattr(memory_store, f"{target}_entries", []))
+        for content in facts.get(target, [])[:max_facts_per_target]:
+            content = content.strip()
+            if not content:
+                continue
+            if _is_duplicate(content, existing[target]):
+                result["skipped_duplicates"] += 1
+                continue
+
+            if reconcile_on and live:
+                from agent.memory_gardener import reconcile_candidate
+                decision = reconcile_candidate(content, live, llm_caller=llm_caller,
+                                               provider=provider, model=model)
+                action = decision["action"]
+                idx = decision.get("target_index")
+                if action == "NOOP":
+                    result["skipped_duplicates"] += 1
+                    continue
+                if action in ("UPDATE", "DELETE") and idx is not None and 0 <= idx < len(live):
+                    old = live[idx]
+                    try:
+                        memory_store.remove(target, old)
+                    except Exception as exc:
+                        logger.debug("reconcile remove failed: %s", exc)
+                    live.pop(idx)
+                    result.setdefault("reconciled", {"updated": 0, "deleted": 0})
+                    if action == "DELETE":
+                        result["reconciled"]["deleted"] += 1
+                        existing[target] = [e for e in existing[target] if e != _normalize(old)]
+                        continue
+                    result["reconciled"]["updated"] += 1
+                    existing[target] = [e for e in existing[target] if e != _normalize(old)]
+
+            add_result = memory_store.add(target, content)
+            if isinstance(add_result, dict) and add_result.get("success"):
+                result["added"][target] += 1
+                existing[target].append(_normalize(content))
+                live.append(content)
+            else:
+                result["skipped_duplicates"] += 1

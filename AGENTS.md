@@ -900,6 +900,14 @@ end by `agent/auto_mine.py` and consolidated offline by `agent/sleep.py`.
 - **Mining** — `agent/memory_miner.py` (durable facts) and `agent/skill_miner.py`
   (draft skills, **quarantined** under `skills/.drafts/` for review). Both carry
   the dialectic red-team admission gate.
+- **Provenance + lint** — `agent/memory_provenance.py` (`memory.provenance`,
+  default off): `MemoryStore.add/replace/remove` call `record()`; callers set
+  `provenance_context(source, session_id=, untrusted=)` (the agent's memory
+  tool intercepts use `turn_has_untrusted(messages)`; the miner tags
+  `miner`, untrusted if the transcript held `<untrusted-content>`). Sidecar
+  `memories/provenance.db`; never in the prompt; never raises.
+  `agent/memory_lint.py` + `janus memory lint` are read-only (contradiction via
+  `memory_gardener.find_stale`, duplicates, unknown/untrusted origin, stale).
 - **Consolidation** — `agent/sleep.py` `run_sleep_cycle`: graduate → reconcile
   (`memory_gardener.py`) → prune by salience → synthesize cross-session lessons →
   **ACE playbook curation** (below). `maybe_run_sleep` is the schedule gate
