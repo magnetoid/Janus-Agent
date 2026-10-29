@@ -2483,6 +2483,9 @@ def cmd_postinstall(args):
 
 def cmd_model(args):
     """Select default model — starts with provider selection, then model picker."""
+    if getattr(args, "local", False):
+        from janus_cli.local_models import run_local
+        sys.exit(run_local(args))
     _require_tty("model")
     if getattr(args, "refresh", False):
         try:
@@ -13060,6 +13063,24 @@ def main():
         "model",
         help="Select default model and provider",
         description="Interactively select your inference provider and default model",
+    )
+    model_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Set up a local model in one step: detect hardware, pick a model that fits, "
+             "pull it with Ollama (or register llama.cpp) and make it the default.",
+    )
+    model_parser.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="With --local: show what would happen without changing anything",
+    )
+    model_parser.add_argument(
+        "--install", action="store_true",
+        help="With --local: install Ollama with Homebrew (macOS) when no local runtime is found",
+    )
+    model_parser.add_argument(
+        "--local-model", dest="local_model", default=None,
+        help="With --local: use this Ollama tag / GGUF repo instead of the automatic pick",
     )
     model_parser.add_argument(
         "--refresh",
