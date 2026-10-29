@@ -2215,6 +2215,20 @@ DEFAULT_CONFIG = {
         },
     },
 
+    # `janus backup` defaults (CLI flags override). Encryption is off unless
+    # set: encrypt = "age" or "gpg" with a recipient (age public key or
+    # recipients file / gpg key id); identity = age key file used by
+    # `janus import`. keep = number of janus-backup-* archives to retain in
+    # the output directory (0 = keep all). exclude_secrets leaves .env and
+    # auth.json out of the archive.
+    "backup": {
+        "encrypt": "",
+        "recipient": "",
+        "identity": "",
+        "keep": 0,
+        "exclude_secrets": False,
+    },
+
     # Honcho AI-native memory -- reads ~/.honcho/config.json as single source of truth.
     # This section is only needed for janus-specific overrides; everything else
     # (apiKey, workspace, peerName, sessions, enabled) comes from the global config.

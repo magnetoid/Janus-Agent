@@ -14325,6 +14325,22 @@ Examples:
     backup_parser.add_argument(
         "-l", "--label", help="Label for the snapshot (only used with --quick)"
     )
+    backup_parser.add_argument(
+        "--encrypt", choices=["age", "gpg"],
+        help="Encrypt the archive with age or gpg (default: backup.encrypt in config)",
+    )
+    backup_parser.add_argument(
+        "--recipient",
+        help="age public key / recipients file, or gpg key id (default: backup.recipient)",
+    )
+    backup_parser.add_argument(
+        "--exclude-secrets", dest="exclude_secrets", action="store_true",
+        help="Leave .env and auth.json out of the archive",
+    )
+    backup_parser.add_argument(
+        "--keep", type=int,
+        help="Keep only the newest N janus-backup-* archives in the output directory",
+    )
     backup_parser.set_defaults(func=cmd_backup)
 
     # =========================================================================
@@ -14357,6 +14373,10 @@ Examples:
         "-f",
         action="store_true",
         help="Overwrite existing files without confirmation",
+    )
+    import_parser.add_argument(
+        "--identity", "-i",
+        help="age identity (private key) file for a .zip.age backup (default: backup.identity)",
     )
     import_parser.set_defaults(func=cmd_import)
 

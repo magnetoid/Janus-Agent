@@ -787,6 +787,21 @@ work that must outlive the current turn, use `cronjob` or
 
 ---
 
+## Backups (`janus backup` / `janus import`)
+
+`janus_cli/backup.py`. Full backups zip the Janus home (SQLite files via
+`sqlite3.backup()`, sidecars skipped). Optional, all defaulting from the
+top-level `backup:` config section (read with `read_raw_config()` so an empty
+home is not given a config.yaml): `--encrypt age|gpg` + `--recipient` builds
+the plaintext zip in a temp dir and writes only the encrypted file to the
+destination; `--exclude-secrets` drops `.env` / `auth.json`; `--keep N`
+prunes only `janus-backup-*` archives, after `testzip()` verification.
+`janus import` decrypts `.zip.age` (needs `--identity`) / `.zip.gpg` to a
+temp file and then runs the normal import. The tools are shelled out to;
+never pip-installed.
+
+---
+
 ## Curator (skill lifecycle)
 
 Background skill-maintenance system that tracks usage on agent-created

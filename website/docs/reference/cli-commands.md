@@ -742,6 +742,14 @@ Create a zip archive of your Janus configuration, skills, sessions, and data. Th
 | `-o`, `--output <path>` | Output path for the zip file (default: `~/janus-backup-<timestamp>.zip`). |
 | `-q`, `--quick` | Quick snapshot: only critical state files (config.yaml, state.db, .env, auth, cron jobs). Much faster than a full backup. |
 | `-l`, `--label <name>` | Label for the snapshot (only used with `--quick`). |
+| `--encrypt age\|gpg` | Encrypt the archive; only the `.zip.age` / `.zip.gpg` file is written to the destination. Needs the `age` or `gpg` binary on PATH. |
+| `--recipient <key>` | age public key (or recipients file) or gpg key id to encrypt to. |
+| `--exclude-secrets` | Leave `.env` and `auth.json` out of the archive. |
+| `--keep <N>` | After a verified backup, delete the oldest `janus-backup-*` archives in the output directory beyond N. Other files are never touched. |
+
+Defaults for these come from the `backup:` section of `config.yaml` (`encrypt`, `recipient`, `identity`, `keep`, `exclude_secrets`); flags override them. Every archive is re-read and CRC-checked before anything is encrypted or pruned. Restore an encrypted backup with `janus import <file>.zip.age --identity <key file>` (gpg backups decrypt with your keyring).
+
+To back up on a schedule, point a no-agent cron job at a small script that runs `janus backup -o <dir> --encrypt age --recipient <key> --keep 7`; see [Cron](/user-guide/features/cron).
 
 The backup uses SQLite's `backup()` API for safe copying, so it works correctly even when Janus is running (WAL-mode safe).
 
@@ -758,6 +766,8 @@ janus backup                           # Full backup to ~/janus-backup-*.zip
 janus backup -o /tmp/janus.zip        # Full backup to specific path
 janus backup --quick                   # Quick state-only snapshot
 janus backup --quick --label "pre-upgrade"  # Quick snapshot with label
+janus backup -o ~/backups --encrypt age --recipient age1... --keep 7
+janus import ~/backups/janus-backup-2026-10-29-030000.zip.age --identity ~/.config/age/key.txt
 ```
 
 ## `janus checkpoints`
