@@ -64,6 +64,99 @@ _EXCLUDED_NAMES = {
 # zipfile.open() drops Unix mode bits on extract; restore tightens these to 0600.
 _SECRET_FILE_NAMES = {".env", "auth.json", "state.db"}
 
+# Dropped by ``--exclude-secrets`` (state.db stays: it is the history, not a key).
+_CREDENTIAL_FILE_NAMES = {".env", "auth.json"}
+
+_ENCRYPTORS = ("age", "gpg")
+_BACKUP_NAME_PREFIX = "janus-backup-"
+_BACKUP_SUFFIXES = (".zip", ".zip.age", ".zip.gpg")
+
+
+def _backup_config() -> Dict[str, Any]:
+    """The top-level ``backup:`` section of config.yaml (encryption/retention defaults)."""
+    try:
+        # read_raw_config has no side effects; load_config would materialise
+        # a default config.yaml in an otherwise empty home.
+        from janus_cli.config import read_raw_config
+        section = (read_raw_config() or {}).get("backup")
+        return section if isinstance(section, dict) else {}
+    except Exception:
+        return {}
+
+
+def _setting(args, name: str, cfg: Dict[str, Any], default: Any = None) -> Any:
+    value = getattr(args, name, None)
+    if value not in (None, ""):
+        return value
+    value = cfg.get(name)
+    return default if value in (None, "") else value
+
+
+def _require_tool(tool: str) -> str:
+    path = shutil.which(tool)
+    if not path:
+        hint = "https://github.com/FiloSottile/age" if tool == "age" else "your package manager"
+        print(f"Error: `{tool}` is not installed or not on PATH (install it from {hint}).")
+        sys.exit(1)
+    return path
+
+
+def _run_crypto(argv: List[str], what: str) -> None:
+    import subprocess
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or [""]
+        print(f"Error: {what} failed ({argv[0]}): {detail[0]}")
+        sys.exit(1)
+
+
+def _encrypt_file(tool: str, recipient: str, src: Path, dst: Path) -> None:
+    exe = _require_tool(tool)
+    if tool == "age":
+        flag = "-R" if Path(recipient).expanduser().is_file() else "-r"
+        argv = [exe, flag, recipient, "-o", str(dst), str(src)]
+    else:
+        argv = [exe, "--batch", "--yes", "--encrypt", "--recipient", recipient,
+                "--output", str(dst), str(src)]
+    _run_crypto(argv, "encryption")
+
+
+def _decrypt_file(tool: str, src: Path, dst: Path, identity: Optional[str]) -> None:
+    exe = _require_tool(tool)
+    if tool == "age":
+        if not identity:
+            print("Error: this backup is age-encrypted; pass --identity <key file> "
+                  "(or set backup.identity in config.yaml).")
+            sys.exit(1)
+        argv = [exe, "-d", "-i", str(Path(identity).expanduser()), "-o", str(dst), str(src)]
+    else:
+        argv = [exe, "--batch", "--yes", "--decrypt", "--output", str(dst), str(src)]
+    _run_crypto(argv, "decryption")
+
+
+def _prune_backups(dest_dir: Path, keep: int, protect: Path) -> List[Path]:
+    """Delete the oldest ``janus-backup-*`` archives in ``dest_dir`` beyond ``keep``.
+
+    Only files named like our backups are considered; ``protect`` (the archive
+    just written) is never removed.
+    """
+    if keep < 1:
+        return []
+    ours = [
+        p for p in dest_dir.iterdir()
+        if p.is_file() and p.name.startswith(_BACKUP_NAME_PREFIX)
+        and p.name.endswith(_BACKUP_SUFFIXES)
+    ]
+    ours.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    removed = []
+    for p in [q for q in ours if q != protect][max(0, keep - 1):]:
+        try:
+            p.unlink()
+            removed.append(p)
+        except OSError as exc:
+            logger.warning("could not prune old backup %s: %s", p, exc)
+    return removed
+
 
 def _should_exclude(rel_path: Path) -> bool:
     """Return True if *rel_path* (relative to janus root) should be skipped."""
@@ -149,6 +242,23 @@ def run_backup(args) -> None:
         print(f"Error: Janus home directory not found at {janus_root}")
         sys.exit(1)
 
+    bcfg = _backup_config()
+    encrypt = str(_setting(args, "encrypt", bcfg, "") or "").strip().lower() or None
+    recipient = str(_setting(args, "recipient", bcfg, "") or "").strip() or None
+    exclude_secrets = bool(getattr(args, "exclude_secrets", False) or bcfg.get("exclude_secrets"))
+    try:
+        keep = int(_setting(args, "keep", bcfg, 0) or 0)
+    except (TypeError, ValueError):
+        keep = 0
+    if encrypt:
+        if encrypt not in _ENCRYPTORS:
+            print(f"Error: --encrypt must be one of {', '.join(_ENCRYPTORS)}, got {encrypt!r}")
+            sys.exit(1)
+        if not recipient:
+            print("Error: --encrypt needs a recipient (--recipient, or backup.recipient in config.yaml).")
+            sys.exit(1)
+        _require_tool(encrypt)   # fail before scanning/writing anything
+
     # Determine output path
     if args.output:
         out_path = Path(args.output).expanduser().resolve()
@@ -191,6 +301,8 @@ def run_backup(args) -> None:
 
             if _should_skip_backup_file(fpath, rel, out_path):
                 continue
+            if exclude_secrets and fname in _CREDENTIAL_FILE_NAMES:
+                continue
 
             files_to_add.append((fpath, rel))
 
@@ -206,7 +318,12 @@ def run_backup(args) -> None:
     errors = []
     t0 = time.monotonic()
 
-    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    # With --encrypt the plaintext zip is built outside the destination and
+    # only the encrypted file ever lands there.
+    work_dir = Path(tempfile.mkdtemp(prefix="janus-backup-")) if encrypt else None
+    zip_path = (work_dir / out_path.name) if work_dir else out_path
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for i, (abs_path, rel_path) in enumerate(files_to_add, 1):
             try:
                 # Safe copy for SQLite databases (handles WAL mode)
@@ -232,6 +349,20 @@ def run_backup(args) -> None:
             if i % 500 == 0:
                 print(f"  {i}/{file_count} files ...")
 
+    with zipfile.ZipFile(zip_path, "r") as check:
+        bad = check.testzip()
+    if bad is not None:
+        print(f"Error: backup verification failed at {bad}; keeping older backups untouched.")
+        sys.exit(1)
+
+    if encrypt and work_dir is not None:
+        final_path = out_path.with_name(out_path.name + f".{encrypt}")
+        try:
+            _encrypt_file(encrypt, str(recipient), zip_path, final_path)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        out_path = final_path
+
     elapsed = time.monotonic() - t0
     zip_size = out_path.stat().st_size
 
@@ -255,7 +386,15 @@ def run_backup(args) -> None:
         if len(errors) > 10:
             print(f"  ... and {len(errors) - 10} more")
 
-    print(f"\nRestore with: janus import {out_path.name}")
+    if keep:
+        pruned = _prune_backups(out_path.parent, keep, out_path)
+        if pruned:
+            print(f"\n  Pruned {len(pruned)} older backup(s) (keeping {keep}).")
+    if exclude_secrets:
+        print("\n  Secrets (.env, auth.json) were left out; re-enter API keys after restoring.")
+
+    hint = " --identity <key file>" if encrypt == "age" else ""
+    print(f"\nRestore with: janus import {out_path.name}{hint}")
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +459,18 @@ def run_import(args) -> None:
     if not zip_path.is_file():
         print(f"Error: File not found: {zip_path}")
         sys.exit(1)
+
+    tool = zip_path.suffix.lstrip(".").lower()
+    if tool in _ENCRYPTORS:
+        identity = _setting(args, "identity", _backup_config(), None)
+        work_dir = Path(tempfile.mkdtemp(prefix="janus-import-"))
+        try:
+            plain = work_dir / zip_path.stem
+            _decrypt_file(tool, zip_path, plain, identity)
+            args.zipfile = str(plain)
+            return run_import(args)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     if not zipfile.is_zipfile(zip_path):
         print(f"Error: Not a valid zip file: {zip_path}")
