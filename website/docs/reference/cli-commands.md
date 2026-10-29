@@ -170,6 +170,17 @@ Use this when you want to:
 - configure a custom/self-hosted endpoint
 - save the new default into config
 
+### Local model in one step
+
+```bash
+janus model --local              # detect hardware, pick a model that fits, set it up
+janus model --local --dry-run    # show the plan, change nothing
+janus model --local --install    # macOS: install Ollama with Homebrew first if needed
+janus model --local --local-model qwen3:4b   # choose the model yourself
+```
+
+`--local` checks RAM, Apple Silicon unified memory or NVIDIA VRAM, and picks the largest model from a small built-in list (Qwen3 1.7B–32B) that fits. With Ollama installed it runs `ollama pull` and makes that model the default via Ollama's local endpoint (`http://localhost:11434/v1`); Ollama must be running (`ollama serve` or the app). With only llama.cpp's `llama-server` it registers `http://localhost:8080/v1` and prints the `llama-server -hf …` command that downloads and serves the model. No API key is needed, and the endpoint is saved to `custom_providers` so it appears in `janus model` later.
+
 :::warning janus model vs /model — know the difference
 **`janus model`** (run from your terminal, outside any Janus session) is the **full provider setup wizard**. It can add new providers, run OAuth flows, prompt for API keys, and configure endpoints.
 

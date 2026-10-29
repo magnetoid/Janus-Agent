@@ -787,6 +787,21 @@ work that must outlive the current turn, use `cronjob` or
 
 ---
 
+## Local models (`janus model --local`)
+
+`janus_cli/local_models.py`: `detect_hardware()` → `usable_memory_gb()`
+(Apple Silicon 70% of RAM, NVIDIA 90% of VRAM, else 50% of RAM) →
+`pick_model()` from the small `CATALOG` (largest first). Ollama present →
+`ollama pull` then `_save()` writes `model.provider: custom`, `base_url`
+`http://localhost:11434/v1`, `default`, and a `custom_providers` entry;
+llama.cpp only → same with `:8080/v1` plus the printed `llama-server -hf`
+command. Never installs anything without `--install` (Homebrew on macOS
+only); `--dry-run` writes nothing. Probes (`_which`, `_run`,
+`_ollama_reachable`, `detect_hardware`) are module functions so tests patch
+them.
+
+---
+
 ## Curator (skill lifecycle)
 
 Background skill-maintenance system that tracks usage on agent-created

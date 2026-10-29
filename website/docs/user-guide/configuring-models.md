@@ -161,6 +161,10 @@ Three things to check:
 
 On OpenRouter (or any aggregator), bare model names resolve *within* the aggregator first. So `claude-sonnet-4` on OpenRouter becomes `anthropic/claude-sonnet-4.6`, staying on your OpenRouter auth. But if you typed `claude-sonnet-4` on a native Anthropic auth, it would stay as `claude-sonnet-4-6`. If you see an unexpected provider switch, check that your current provider is what you expect — the picker always shows the current main at the top of the dialog.
 
+## Running a model locally
+
+To run without any API key, `janus model --local` sets up a local model in one step. It sizes the model to your machine, pulls it with Ollama (or registers llama.cpp), and makes it the default. Add `--dry-run` to preview, or `--install` on macOS to install Ollama with Homebrew first. See [`janus model`](/reference/cli-commands#janus-model) for details.
+
 ## Alternative methods
 
 ### CLI slash command
