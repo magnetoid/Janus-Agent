@@ -901,6 +901,16 @@ Config section (`curator:` in `config.yaml`):
 
 Full user-facing docs: `website/docs/user-guide/features/curator.md`.
 
+
+Per-skill history (`agent/skill_versions.py`, `skills.versions.enabled`,
+default off): `skill_manage` calls `record_version()` before
+edit/patch/delete/write_file/remove_file, and `self_improve` before an
+in-place promotion. Copies go to `skills/.versions/<name>/<id>/` (excluded
+from discovery via `EXCLUDED_SKILL_DIRS`); beyond `max_versions` they move
+to `.archive/`, never deleted. `restore_version()` records the current
+state first and refuses pinned skills without `force`. CLI:
+`janus skills history|diff|undo` (`janus_cli/skills_versions_cli.py`).
+`record_version` never raises — history must not block a mutation.
 ---
 
 ## Evals (`janus evals`)

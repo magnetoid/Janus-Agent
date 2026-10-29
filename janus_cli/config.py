@@ -2150,6 +2150,12 @@ DEFAULT_CONFIG = {
         # ends. Opt-in (off): spends tokens + writes draft skills to
         # skills/.drafts/ for review. Run on demand with `janus skills mine`.
         "session_mining": False,
+        # Per-skill version history: copy a skill before skill_manage or
+        # self-improve changes it, so `janus skills history|diff|undo` can
+        # show and revert changes. Keeps the newest max_versions copies under
+        # skills/.versions/<name>/ and moves older ones to .archive (never
+        # deleted). Off by default.
+        "versions": {"enabled": False, "max_versions": 10},
         "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
         # Substitute ${JANUS_SKILL_DIR} and ${JANUS_SESSION_ID} in SKILL.md
         # content with the absolute skill directory and the active session id

@@ -868,6 +868,18 @@ def skill_manage(
 
     Returns JSON string with results.
     """
+    # Version history (skills.versions.enabled): copy the existing skill
+    # before any mutation so `janus skills undo` can put it back. No-op when
+    # disabled; never blocks the action.
+    if action in {"edit", "patch", "delete", "write_file", "remove_file"}:
+        try:
+            existing = _find_skill(name)
+            if existing:
+                from agent.skill_versions import record_version
+                record_version(Path(existing["path"]), reason=action, actor="skill_manage")
+        except Exception:
+            logger.debug("skill history hook failed for %s", name, exc_info=True)
+
     if action == "create":
         if not content:
             return tool_error("content is required for 'create'. Provide the full SKILL.md text (frontmatter + body).", success=False)

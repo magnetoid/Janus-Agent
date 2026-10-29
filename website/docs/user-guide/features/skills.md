@@ -401,6 +401,27 @@ The agent can create, update, and delete its own skills via the `skill_manage` t
 The `patch` action is preferred for updates — it's more token-efficient than `edit` because only the changed text appears in the tool call.
 :::
 
+### Version history and undo
+
+Janus edits its own skills, so you can turn on a history that keeps a copy of a skill every time the agent changes it:
+
+```yaml
+skills:
+  versions:
+    enabled: true
+    max_versions: 10   # newest copies kept per skill; older ones move to an archive, never deleted
+```
+
+A copy is taken before every `skill_manage` edit, patch, file write, file removal or delete, and before a self-improvement proposal replaces a live skill. Unchanged content is not recorded twice.
+
+```bash
+janus skills history deploy          # versions, newest first, with who changed it and why
+janus skills diff deploy [id]        # what changed since that version (default: newest)
+janus skills undo deploy [id]        # put it back; the current state is kept as a new version
+```
+
+`undo` also brings back a skill the agent deleted. A pinned skill is only restored with `--force`. Copies live under `skills/.versions/` in your Janus home and are never loaded as skills. Archiving and restoring whole skills stays with `janus curator archive|restore`.
+
 ## Skills Hub
 
 Browse, search, install, and manage skills from online registries, `skills.sh`, direct well-known skill endpoints, and official optional skills.
