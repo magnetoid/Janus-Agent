@@ -359,6 +359,29 @@ curl http://localhost:8642/v1/toolsets \
 
 `/v1/skills` returns the same metadata the skills hub uses internally. `/v1/toolsets` returns toolsets resolved for the `api_server` platform with the concrete `tools` list each one expands to. Both are advertised under `endpoints.*` in `/v1/capabilities`.
 
+## A2A (Agent2Agent)
+
+Other agents can call Janus over the [A2A protocol](https://a2a-protocol.org) when you turn it on:
+
+```bash
+API_SERVER_A2A=true
+```
+
+- **`GET /.well-known/agent-card.json`** (also `/.well-known/agent.json`) returns the public agent card. It gives the name, description, the `/a2a` endpoint URL, the skills, and the auth scheme, which is your `API_SERVER_KEY` as a bearer token. The card contains no secrets.
+- **`POST /a2a`** is the JSON-RPC 2.0 endpoint and needs the bearer key. It supports:
+  - **`message/send`** (or `SendMessage`). Runs one agent turn on the text parts of the message and returns a `Task`: `completed` with the reply as an artifact, or `failed` with the error.
+  - **`tasks/get`** (or `GetTask`). Returns one of the most recent 256 tasks.
+  - **`tasks/cancel`** (or `CancelTask`). Always refused, because tasks finish within `message/send`.
+- **Sessions.** The A2A `contextId` is the Janus session id, so messages with the same `contextId` continue one conversation. Omit it to start a new one; the response tells you the id it used.
+- **Not supported yet.** Streaming (`message/stream`) and push notifications. The card advertises both as unsupported.
+
+```bash
+curl -s http://localhost:8642/a2a -H "Authorization: Bearer $API_SERVER_KEY" -H 'Content-Type: application/json' -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "message/send",
+  "params": {"message": {"role": "user", "messageId": "m1",
+                         "parts": [{"kind": "text", "text": "Summarise the README"}]}}}'
+```
+
 ## Long-term memory scoping (`X-Janus-Session-Key`)
 
 Multi-user frontends like Open WebUI need a stable per-channel identifier for long-term memory (Honcho, etc.) that is **independent** of the transcript-scoped `X-Janus-Session-Id` (which rotates on `/new`). Pass `X-Janus-Session-Key` on `/v1/chat/completions`, `/v1/responses`, or `/v1/runs` and Janus threads it through to `AIAgent(gateway_session_key=...)`, where the Honcho memory provider uses it to derive a stable scope.
@@ -406,6 +429,7 @@ The API server gives full access to janus-agent's toolset, **including terminal 
 | `API_SERVER_KEY` | _(required)_ | Bearer token for auth |
 | `API_SERVER_CORS_ORIGINS` | _(none)_ | Comma-separated allowed browser origins |
 | `API_SERVER_MODEL_NAME` | _(profile name)_ | Model name on `/v1/models`. Defaults to profile name, or `janus-agent` for default profile. |
+| `API_SERVER_A2A` | `false` | Expose the [A2A](#a2a-agent2agent) agent card and `POST /a2a` endpoint |
 
 ### config.yaml
 
