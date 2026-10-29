@@ -276,3 +276,37 @@ def test_host_in_both_environment_and_dotenv_is_reported_once(quiet_home):
 def test_localhost_and_remote_hosts_in_environment_are_fine(quiet_home):
     env = {"API_SERVER_HOST": "127.0.0.1", "EMAIL_SMTP_HOST": "smtp.example.com", "HOSTNAME": "0.0.0.0"}
     assert sp.collect(_CLEAN, _CLEAN, quiet_home, env) == []
+
+
+@pytest.mark.parametrize("name,platform,key", [
+    ("FEISHU_WEBHOOK_HOST", "feishu", "webhook_host"),
+    ("BLUEBUBBLES_WEBHOOK_HOST", "bluebubbles", "webhook_host"),
+    ("API_SERVER_HOST", "api_server", "host"),
+])
+def test_config_host_that_overrides_the_env_var_suppresses_the_finding(quiet_home, name, platform, key):
+    cfg = {**_CLEAN, "platforms": {platform: {"extra": {key: "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {name: "0.0.0.0"})
+               if f.check_id == "network.exposed_bind"]
+    assert exposed == []
+
+
+@pytest.mark.parametrize("name,platform,key,seed", [
+    ("API_SERVER_HOST", "api_server", "host", {"API_SERVER_ENABLED": "true"}),
+    ("API_SERVER_HOST", "api_server", "host", {"API_SERVER_KEY": "k"}),
+    ("BLUEBUBBLES_WEBHOOK_HOST", "bluebubbles", "webhook_host",
+     {"BLUEBUBBLES_SERVER_URL": "http://bb", "BLUEBUBBLES_PASSWORD": "pw"}),
+])
+def test_env_seeded_platform_keeps_the_env_host_finding(quiet_home, name, platform, key, seed):
+    # gateway/config.py copies the env host over config extra in these cases.
+    cfg = {**_CLEAN, "platforms": {platform: {"extra": {key: "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {name: "0.0.0.0", **seed})
+               if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1
+
+
+def test_env_wins_hosts_are_reported_despite_config(quiet_home):
+    # LINE reads LINE_HOST before its config extra.
+    cfg = {**_CLEAN, "platforms": {"line": {"extra": {"host": "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {"LINE_HOST": "0.0.0.0"})
+               if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1

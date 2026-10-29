@@ -42,6 +42,15 @@ _EXPOSED = {"0.0.0.0", "::", "[::]"}
 # *_WEBHOOK_HOST, …). Client-side hosts (EMAIL_IMAP_HOST) share the suffix but
 # never hold an all-interfaces address, so the value test keeps them out.
 _ENV_BIND = re.compile(r"^[A-Z][A-Z0-9_]*_HOST$")
+# Env hosts that a platform's config.yaml ``extra`` key overrides, mirroring
+# each adapter's precedence: name → (platform, extra key, env vars that, when
+# all set, make gateway/config.py seed ``extra`` from the env instead).
+_ENV_BIND_CONFIG_OVERRIDES: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
+    "FEISHU_WEBHOOK_HOST": ("feishu", "webhook_host", ()),
+    "BLUEBUBBLES_WEBHOOK_HOST": ("bluebubbles", "webhook_host",
+                                 ("BLUEBUBBLES_SERVER_URL", "BLUEBUBBLES_PASSWORD")),
+    "API_SERVER_HOST": ("api_server", "host", ()),  # env seeding: see below
+}
 # Files under the home that hold secrets or tokens; dirs are scanned one level.
 _SECRET_FILES = (".env", "config.yaml", "auth.json", ".anthropic_oauth.json",
                  "webhook_subscriptions.json")
@@ -143,6 +152,27 @@ def _dotenv_values(janus_home: Path) -> Dict[str, str]:
 
 def _dotenv_has_truthy(janus_home: Path, name: str) -> bool:
     return _truthy(_dotenv_values(janus_home).get(name, ""))
+
+
+def _config_overrides_env_host(name: str, raw: Mapping[str, Any], values: Mapping[str, str]) -> bool:
+    """True when config.yaml sets the host the adapter prefers over env var *name*."""
+    spec = _ENV_BIND_CONFIG_OVERRIDES.get(name)
+    if spec is None:
+        return False
+    platform, key, env_seed = spec
+    if name == "API_SERVER_HOST":
+        # gateway/config.py writes API_SERVER_HOST into extra.host whenever the
+        # env enables the server (API_SERVER_ENABLED or API_SERVER_KEY).
+        if _truthy(values.get("API_SERVER_ENABLED", "")) or values.get("API_SERVER_KEY"):
+            return False
+    elif env_seed and all(values.get(v) for v in env_seed):
+        return False
+    plats = raw.get("platforms") or _get(raw, "gateway", "platforms") or {}
+    pc = plats.get(platform) if isinstance(plats, Mapping) else None
+    if not isinstance(pc, Mapping):
+        return False
+    extra = pc.get("extra")
+    return bool((extra.get(key) if isinstance(extra, Mapping) else None) or pc.get(key))
 
 
 def _secret_files(janus_home: Path) -> Iterator[Path]:
@@ -325,11 +355,12 @@ def collect(
         sources = {**{k: ".env" for k in dotenv}, **{k: "environment" for k in env}}
         values = {**dotenv, **dict(env)}
         for name in sorted(sources):
-            if _ENV_BIND.match(name) and str(values.get(name, "")).strip() in _EXPOSED:
+            if (_ENV_BIND.match(name) and str(values.get(name, "")).strip() in _EXPOSED
+                    and not _config_overrides_env_host(name, raw, values)):
                 res.append(PostureFinding(
                     "network.exposed_bind", "HIGH", f"{name} binds to all interfaces",
                     f"{name}={values[name]} (from {sources[name]}) exposes a Janus service "
-                    "beyond localhost unless config.yaml sets that service's host.",
+                    "beyond localhost.",
                     current=values[name], safe_value="127.0.0.1", fixable=False,
                     fix_note=f"set {name}=127.0.0.1 in {sources[name]} "
                              "(use a VPN/SSH tunnel for remote access)"))
