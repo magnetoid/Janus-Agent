@@ -781,9 +781,62 @@ Key config knobs (under `delegation:` in `config.yaml`):
 `orchestrator_enabled`, `subagent_auto_approve`, `inherit_mcp_toolsets`,
 `max_iterations`.
 
-Synchronicity rule: delegate_task is **not** durable. For long-running
-work that must outlive the current turn, use `cronjob` or
-`terminal(background=True, notify_on_complete=True)` instead.
+Synchronicity rule: by default delegate_task blocks the parent turn and
+is **not** durable. For work that must outlive the turn use
+`delegate_task(background=true)` (below), `cronjob`, or
+`terminal(background=True, notify_on_complete=True)`.
+
+### Background delegation (`background=true`)
+
+Off by default (`delegation.background.enabled: false`); bounded by
+`delegation.background.max_running` (default 3) per process, and by the
+same autonomy freeze / spend caps as foreground spawns.
+
+- `tools/delegate_tool.py::_start_background_children` builds the
+  children exactly as the foreground path does, then hands them to
+  `agent/background_delegation.py::BackgroundDelegationManager`, which
+  records a row in `SessionDB.delegations` **before** starting a daemon
+  thread (with the parent's `contextvars` copied so gateway routing still
+  resolves in the child's tools) and returns the handle at once:
+  `{"background": true, "delegations": [{id, child_session_id, goal, status}]}`.
+- Background children are removed from `parent._active_children` on
+  purpose: a parent interrupt, `/new` or gateway cache eviction must not
+  kill them. `stop_child` / `janus delegations stop` does. They also skip
+  the `_last_resolved_tool_names` restore in `_run_single_child` (set
+  `_delegate_saved_tool_names = None`) so a finishing child never clobbers
+  the global from a stray thread.
+- The child's transcript streams to its own session row
+  (`sessions.parent_session_id`), which is what `janus delegations attach`
+  prints. Background children get `_flush_db_each_iteration = True`, which
+  makes `conversation_loop` call `_flush_messages_to_session_db` after every
+  tool iteration (the default agent only persists at turn start/exit), so
+  `attach --follow` and a crash both see the iterations that already ran.
+- `_run_single_child` (and the foreground batch pool) submit the child's
+  `run_conversation` under `contextvars.copy_context().run`: executor
+  threads start with an empty context, and `JANUS_SESSION_*` routing plus
+  the runtime-cwd override are ContextVars, not `os.environ`.
+- On completion the manager writes the outcome to the row and emits a
+  `delegation_complete` event. With no sink it goes on
+  `tools.process_registry.completion_queue`, which the CLI and TUI already
+  drain into the live session (`format_process_notification` renders
+  `delegation_*` types). The gateway registers a sink at start-up
+  (`GatewayRunner._register_background_delegation_sink`) and injects an
+  internal `MessageEvent` routed by the stored route / session key, via the
+  same `_inject_watch_notification` path background processes use.
+- `janus delegations stop <id>` from another process sets
+  `delegations.stop_requested`; the owning manager polls that flag and
+  interrupts the child. In-process stops interrupt directly.
+- A restart cannot resume a half-run child. `reconcile_orphans` marks rows
+  whose worker pid is dead as `orphaned`; with `announce=True` (gateway
+  start-up, in-process managers) it also emits `delegation_orphaned` once
+  for every orphaned row whose `delivered_at` is still empty and marks it
+  delivered. `janus delegations list` reconciles with `announce=False`
+  because that process cannot reach the parent: it only flips the status
+  and keeps showing the row in the default listing until a surface that
+  can announce it has done so.
+- Never put a `delegations` row in a state the manager cannot settle:
+  `finish_delegation` is first-writer-wins so a late failure cannot
+  overwrite a recorded result.
 
 ---
 

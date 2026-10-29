@@ -323,6 +323,31 @@ CREATE TABLE IF NOT EXISTS delivery_obligations (
     message_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS delegations (
+    id TEXT PRIMARY KEY,
+    parent_session_id TEXT,
+    child_session_id TEXT,
+    subagent_id TEXT,
+    goal TEXT NOT NULL,
+    role TEXT,
+    model TEXT,
+    route TEXT,
+    pid INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    stop_requested INTEGER NOT NULL DEFAULT 0,
+    summary TEXT,
+    error TEXT,
+    api_calls INTEGER,
+    cost_usd REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    finished_at REAL,
+    delivered_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_delegations_status ON delegations(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_delegations_parent ON delegations(parent_session_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_source_id ON sessions(source, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
@@ -4592,3 +4617,180 @@ class SessionDB:
             )
             return cur.rowcount
         return self._execute_write(_do)
+    # ──────────────────────────────────────────────────────────────────────
+    # Background delegations
+    # ──────────────────────────────────────────────────────────────────────
+    # One row per ``delegate_task(background=true)`` child. The child's
+    # transcript lives in its own session (``sessions.parent_session_id``);
+    # this row is the durable handle: lifecycle, outcome, routing for
+    # delivering the result back to the parent, and the worker pid so a
+    # restart can tell which rows were left behind. Storage only — the
+    # worker thread, notifications and orphan policy are in
+    # ``agent.background_delegation``.
+
+    _DELEGATION_TERMINAL = ("completed", "failed", "timeout", "interrupted",
+                            "stopped", "orphaned")
+
+    @staticmethod
+    def _delegation_row(row) -> Dict[str, Any]:
+        d = dict(row)
+        raw = d.get("route")
+        if isinstance(raw, str) and raw:
+            try:
+                d["route"] = json.loads(raw)
+            except (ValueError, TypeError):
+                d["route"] = {}
+        else:
+            d["route"] = {}
+        d["stop_requested"] = bool(d.get("stop_requested"))
+        return d
+
+    def create_delegation(
+        self,
+        *,
+        goal: str,
+        parent_session_id: Optional[str] = None,
+        child_session_id: Optional[str] = None,
+        subagent_id: Optional[str] = None,
+        role: Optional[str] = None,
+        model: Optional[str] = None,
+        route: Optional[Dict[str, Any]] = None,
+        pid: Optional[int] = None,
+        now: Optional[float] = None,
+    ) -> str:
+        """Record a background child that has just been started. Returns its id."""
+        did = uuid.uuid4().hex[:12]
+        ts = time.time() if now is None else now
+        route_json = json.dumps(route, ensure_ascii=False) if route else None
+
+        def _do(conn):
+            conn.execute(
+                "INSERT INTO delegations (id, parent_session_id, child_session_id, "
+                "subagent_id, goal, role, model, route, pid, status, stop_requested, "
+                "created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 0, ?, ?)",
+                (did, parent_session_id, child_session_id, subagent_id, goal, role,
+                 model, route_json, pid, ts, ts),
+            )
+        self._execute_write(_do)
+        return did
+
+    def get_delegation(self, delegation_id: str) -> Optional[Dict[str, Any]]:
+        row = self._conn.execute(
+            "SELECT * FROM delegations WHERE id = ?", (delegation_id,)
+        ).fetchone()
+        return self._delegation_row(row) if row else None
+
+    def finish_delegation(
+        self,
+        delegation_id: str,
+        *,
+        status: str,
+        summary: Optional[str] = None,
+        error: Optional[str] = None,
+        api_calls: Optional[int] = None,
+        cost_usd: Optional[float] = None,
+        now: Optional[float] = None,
+    ) -> bool:
+        """Record the child's outcome. The first terminal status wins."""
+        ts = time.time() if now is None else now
+
+        def _do(conn):
+            cur = conn.execute(
+                "UPDATE delegations SET status = ?, summary = ?, error = ?, "
+                "api_calls = ?, cost_usd = ?, finished_at = ?, updated_at = ? "
+                "WHERE id = ? AND finished_at IS NULL",
+                (status, summary, error, api_calls, cost_usd, ts, ts, delegation_id),
+            )
+            return cur.rowcount > 0
+        return bool(self._execute_write(_do))
+
+    def mark_delegation_delivered(self, delegation_id: str, *, now: Optional[float] = None) -> bool:
+        """Note that the result reached the parent. True only on the first call."""
+        ts = time.time() if now is None else now
+
+        def _do(conn):
+            cur = conn.execute(
+                "UPDATE delegations SET delivered_at = ?, updated_at = ? "
+                "WHERE id = ? AND delivered_at IS NULL",
+                (ts, ts, delegation_id),
+            )
+            return cur.rowcount > 0
+        return bool(self._execute_write(_do))
+
+    def request_delegation_stop(self, delegation_id: str, *, now: Optional[float] = None) -> bool:
+        """Ask the owning process to interrupt a running child. False if not running."""
+        ts = time.time() if now is None else now
+
+        def _do(conn):
+            cur = conn.execute(
+                "UPDATE delegations SET stop_requested = 1, updated_at = ? "
+                "WHERE id = ? AND status = 'running'",
+                (ts, delegation_id),
+            )
+            return cur.rowcount > 0
+        return bool(self._execute_write(_do))
+
+    def list_delegations(
+        self,
+        *,
+        status: Optional[Any] = None,
+        parent_session_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Newest first. ``status`` may be one value or an iterable of values."""
+        clauses: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            statuses = [status] if isinstance(status, str) else list(status)
+            if not statuses:
+                return []
+            clauses.append(f"status IN ({','.join('?' * len(statuses))})")
+            params.extend(statuses)
+        if parent_session_id is not None:
+            clauses.append("parent_session_id = ?")
+            params.append(parent_session_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(limit))
+        rows = self._conn.execute(
+            f"SELECT * FROM delegations {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [self._delegation_row(r) for r in rows]
+
+    def running_delegation_pids(self) -> List[int]:
+        """Distinct worker pids that still own a running delegation."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT pid FROM delegations WHERE status = 'running' AND pid IS NOT NULL"
+        ).fetchall()
+        return [int(r[0]) for r in rows]
+
+    def orphan_delegations(
+        self,
+        *,
+        pids: Any,
+        error: str = "worker process exited",
+        now: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Mark running rows owned by ``pids`` as orphaned; return the rows changed."""
+        pid_list = [int(p) for p in pids]
+        if not pid_list:
+            return []
+        ts = time.time() if now is None else now
+        marks = ",".join("?" * len(pid_list))
+
+        def _do(conn):
+            ids = [r[0] for r in conn.execute(
+                f"SELECT id FROM delegations WHERE status = 'running' AND pid IN ({marks})",
+                pid_list,
+            ).fetchall()]
+            if ids:
+                id_marks = ",".join("?" * len(ids))
+                conn.execute(
+                    f"UPDATE delegations SET status = 'orphaned', error = ?, "
+                    f"finished_at = ?, updated_at = ? WHERE id IN ({id_marks})",
+                    [error, ts, ts, *ids],
+                )
+            return ids
+        ids = self._execute_write(_do)
+        return [self.get_delegation(i) for i in ids]

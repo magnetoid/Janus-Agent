@@ -16,6 +16,7 @@ The parent's context only sees the delegation call and the summary result,
 never the child's intermediate tool calls or reasoning.
 """
 
+import contextvars
 import enum
 import json
 import logging
@@ -1565,7 +1566,12 @@ def _run_single_child(
                 task_id=child_task_id,
             )
 
-        _child_future = _timeout_executor.submit(_run_with_thread_capture)
+        # The executor thread starts with an empty context: copy the caller's
+        # so the child's tools still see JANUS_SESSION_* routing and the
+        # runtime-cwd override (both are ContextVars, not os.environ).
+        _child_future = _timeout_executor.submit(
+            contextvars.copy_context().run, _run_with_thread_capture
+        )
         try:
             result = _child_future.result(timeout=child_timeout)
         except Exception as _timeout_exc:
@@ -1971,6 +1977,83 @@ def _recover_tasks_from_json_string(
     return parsed, None
 
 
+def _start_background_children(children, parent_agent, bg_cfg: Dict[str, Any]) -> str:
+    """Hand already-built children to the background manager; return handles.
+
+    Background children are detached from ``parent._active_children`` (a
+    parent interrupt, ``/new`` or cache eviction must not kill them), lose
+    the parent's spinner/progress callback (the parent turn is over by the
+    time they print), and skip the ``_last_resolved_tool_names`` restore
+    that ``_run_single_child`` would otherwise perform from a stray thread
+    at an arbitrary later moment.
+    """
+    from agent import background_delegation as _bg
+
+    try:
+        max_running = int(bg_cfg.get("max_running") or _bg.DEFAULT_MAX_RUNNING)
+    except (TypeError, ValueError):
+        max_running = _bg.DEFAULT_MAX_RUNNING
+    manager = _bg.get_manager(getattr(parent_agent, "_session_db", None), max_running=max_running)
+    route = _bg.capture_route()
+
+    handles: List[Dict[str, Any]] = []
+    error: Optional[str] = None
+    for i, t, child in children:
+        lock = getattr(parent_agent, "_active_children_lock", None)
+        try:
+            if lock:
+                with lock:
+                    parent_agent._active_children.remove(child)
+            else:
+                parent_agent._active_children.remove(child)
+        except (ValueError, AttributeError, TypeError):
+            pass
+        child._delegate_saved_tool_names = None
+        # Stream the transcript row-by-row so `janus delegations attach --follow`
+        # and a crash both see the iterations that already happened.
+        child._flush_db_each_iteration = True
+        try:
+            child.tool_progress_callback = None
+        except Exception:
+            pass
+
+        goal = t["goal"]
+
+        def _run(_i=i, _goal=goal, _child=child):
+            return _run_single_child(_i, _goal, _child, parent_agent)
+
+        try:
+            handle = manager.start(
+                child=child, goal=goal, parent_agent=parent_agent, run_child=_run,
+                role=getattr(child, "_delegate_role", None),
+                model=getattr(child, "model", None),
+                route=route,
+            )
+        except _bg.BackgroundLimitError as exc:
+            error = f"Background delegation refused — {exc}."
+            try:
+                child.close()
+            except Exception:
+                pass
+            continue
+        handles.append(handle)
+
+    if not handles:
+        return tool_error(error or "Background delegation could not start.")
+    out: Dict[str, Any] = {
+        "background": True,
+        "delegations": handles,
+        "hint": (
+            "Each child runs on its own; you will receive an [IMPORTANT: Background "
+            "delegation …] message with the result when it finishes. Continue with "
+            "other work, or use list_children / stop_child / steer_child meanwhile."
+        ),
+    }
+    if error:
+        out["warning"] = error
+    return json.dumps(out, ensure_ascii=False)
+
+
 def delegate_task(
     goal: Optional[str] = None,
     context: Optional[str] = None,
@@ -1981,9 +2064,14 @@ def delegate_task(
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
     parent_agent=None,
+    background: bool = False,
 ) -> str:
     """
     Spawn one or more child agents to handle delegated tasks.
+
+    With ``background=True`` the children are started on worker threads
+    and this call returns their handles at once; each result is delivered
+    into the parent session later (see ``agent.background_delegation``).
 
     Supports two modes:
       - Single: provide goal (+ optional context, toolsets, role)
@@ -2046,6 +2134,14 @@ def delegate_task(
 
     # Load config
     cfg = _load_config()
+    background = bool(background)
+    bg_cfg = cfg.get("background") if isinstance(cfg.get("background"), dict) else {}
+    if background and not bg_cfg.get("enabled", False):
+        return tool_error(
+            "Background delegation is disabled. Set delegation.background.enabled: true "
+            "in config.yaml to let delegate_task(background=true) return a handle and "
+            "deliver the result later; or call it without background to wait."
+        )
     default_max_iter = cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS)
     # Model-supplied max_iterations is ignored — the config value is authoritative
     # so users get predictable budgets. The kwarg is retained for internal callers
@@ -2173,6 +2269,9 @@ def delegate_task(
         # Authoritative restore: reset global to parent's tool names after all children built
         _model_tools._last_resolved_tool_names = _parent_tool_names
 
+    if background:
+        return _start_background_children(children, parent_agent, bg_cfg)
+
     if n_tasks == 1:
         # Single task -- run directly (no thread pool overhead)
         _i, _t, child = children[0]
@@ -2186,7 +2285,10 @@ def delegate_task(
         with ThreadPoolExecutor(max_workers=max_children) as executor:
             futures = {}
             for i, t, child in children:
+                # Pool threads have no contextvars; carry the caller's session
+                # context (gateway routing, runtime cwd) into each child.
                 future = executor.submit(
+                    contextvars.copy_context().run,
                     _run_single_child,
                     task_index=i,
                     goal=t["goal"],
@@ -2952,6 +3054,17 @@ DELEGATE_TASK_SCHEMA = {
                 "items": {"type": "string"},
                 "description": "Arguments for acp_command (default: ['--acp', '--stdio']). Only used when acp_command is set.",
             },
+            "background": {
+                "type": "boolean",
+                "description": (
+                    "Run the child(ren) in the background and return a handle immediately "
+                    "instead of waiting. The result arrives later as an "
+                    "'[IMPORTANT: Background delegation …]' message in this session; "
+                    "the child's transcript is in its own session (`janus delegations attach`). "
+                    "Use for work that outlives this turn. Requires "
+                    "delegation.background.enabled in config; default false (wait for the result)."
+                ),
+            },
         },
         "required": [],
     },
@@ -3017,6 +3130,7 @@ registry.register(
         acp_args=args.get("acp_args"),
         role=args.get("role"),
         parent_agent=kw.get("parent_agent"),
+        background=bool(args.get("background", False)),
     ),
     check_fn=check_delegate_requirements,
     emoji="🔀",

@@ -2065,6 +2065,17 @@ DEFAULT_CONFIG = {
         # Flip to true only if you trust delegated work to run dangerous cmds
         # without human review (cron pipelines, batch automation, etc.).
         "subagent_auto_approve": False,
+        # Durable background delegation: delegate_task(background=true) returns
+        # a handle immediately, the child runs on a worker thread with its own
+        # session (visible via `janus delegations list|attach|stop`), and the
+        # result is delivered into the parent session when it finishes. Off by
+        # default: a background child keeps spending after the parent turn
+        # ends, so turn it on deliberately. Spend caps (budget.*) still gate
+        # every spawn; max_running bounds children per process.
+        "background": {
+            "enabled": False,
+            "max_running": 3,
+        },
     },
 
     # Consensus / smart model routing. Route each task to the right-cost model:

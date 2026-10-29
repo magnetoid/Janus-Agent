@@ -4270,7 +4270,13 @@ def run_conversation(
                 
                 # Save session log incrementally (so progress is visible even if interrupted)
                 agent._session_messages = messages
-                
+                if getattr(agent, "_flush_db_each_iteration", False):
+                    # Background delegation children stream their transcript
+                    # to the session DB after every tool iteration so another
+                    # process can follow it live. _last_flushed_db_idx keeps
+                    # the exit-path flush from writing these rows twice.
+                    agent._flush_messages_to_session_db(messages, conversation_history)
+
                 # Continue loop for next response
                 continue
             
