@@ -49,6 +49,8 @@ janus tools
 janus tools
 ```
 
+`clarify` asks one question (optionally with up to 4 choices), or several independent ones in a single call with `questions: [{question, choices?}, …]` (up to 4), which are asked one after another and answered as a list. On Telegram and Slack, choices are buttons; elsewhere they are a numbered list you answer by number or text.
+
 Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `moa`, `skills`, `tts`, `todo`, `memory`, `session_search`, `cronjob`, `code_execution`, `delegation`, `clarify`, `homeassistant`, `messaging`, `spotify`, `discord`, `discord_admin`, `debugging`, and `safe`.
 
 See [Toolsets Reference](/reference/toolsets-reference) for the full set, including platform presets such as `janus-cli`, `janus-telegram`, and dynamic MCP toolsets like `mcp-<server>`.
