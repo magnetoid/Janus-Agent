@@ -56,6 +56,7 @@ gateway:
 
   approve:
     no_pending:            "No hay ningún comando pendiente que aprobar."
+    not_requester:         "⛔ Solo la persona cuyo mensaje originó este comando puede aprobarlo."
     once_singular:         "✅ Comando aprobado. El agente se está reanudando..."
     once_plural:           "✅ Comandos aprobados ({count} comandos). El agente se está reanudando..."
     session_singular:      "✅ Comando aprobado (patrón aprobado para esta sesión). El agente se está reanudando..."
@@ -105,6 +106,7 @@ gateway:
   deny:
     stale:                 "❌ Comando denegado (la aprobación había caducado)."
     no_pending:            "No hay ningún comando pendiente que denegar."
+    not_requester:         "⛔ Solo la persona cuyo mensaje originó este comando puede denegarlo."
     denied_singular:       "❌ Comando denegado."
     denied_plural:         "❌ Comandos denegados ({count} comandos)."
 
