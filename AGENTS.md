@@ -1155,6 +1155,22 @@ Leaks as literal `?[K` text under `prompt_toolkit`'s `patch_stdout`. Use space-p
 ### DO NOT hardcode cross-tool references in schema descriptions
 Tool schema descriptions must not mention tools from other toolsets by name (e.g., `browser_navigate` saying "prefer web_search"). Those tools may be unavailable (missing API keys, disabled toolset), causing the model to hallucinate calls to non-existent tools. If a cross-reference is needed, add it dynamically in `get_tool_definitions()` in `model_tools.py` — see the `browser_navigate` / `execute_code` post-processing blocks for the pattern.
 
+### Gateway approvals are scoped to the request and the requester
+
+`tools/approval.py::_await_gateway_decision` stamps every pending approval
+with `request_id`, `command_hash` and `requester` (`JANUS_SESSION_USER_ID`).
+`resolve_gateway_approval(session_key, choice, resolve_all, *, approver,
+request_id)` only resolves entries the approver may answer: a `request_id`
+pins one prompt (stale ids resolve nothing), and under
+`approvals.gateway_approver: requester` (default) a known approver must
+match a known requester. Adapters must call `can_resolve_gateway_approval`
+**before** consuming a click (popping state, editing the message) and pass
+`approver` + `request_id` to resolve; the runner forwards `request_id` to
+`send_exec_approval` in `metadata["approval_request_id"]`. Pass no
+`approver` only when the platform cannot map the clicker to the same id
+space as `SessionSource.user_id` (QQ today). Default `approvals.mode` is
+`smart`; cron/headless keep their deny defaults.
+
 ### The gateway has TWO message guards — both must bypass approval/control commands
 When an agent is running, messages pass through two sequential guards:
 (1) **base adapter** (`gateway/platforms/base.py`) queues messages in

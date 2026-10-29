@@ -30,7 +30,8 @@ The approval system supports three modes, configured via `approvals.mode` in `~/
 
 ```yaml
 approvals:
-  mode: manual                    # manual | smart | off
+  mode: smart                     # smart (default) | manual | off
+  gateway_approver: requester     # requester (default) | any — who may answer a chat approval
   timeout: 60                     # seconds to wait for user response (default: 60)
   cron_mode: deny                 # deny | approve — what cron jobs do when they hit a dangerous command
   mcp_reload_confirm: true        # /reload-mcp asks before invalidating the MCP tool cache
@@ -41,7 +42,8 @@ The full set of keys:
 
 | Key | Default | What it controls |
 |---|---|---|
-| `mode` | `manual` | Approval policy for dangerous shell commands — see the table below. |
+| `mode` | `smart` | Approval policy for dangerous shell commands in interactive sessions — see the table below. Cron and headless runs use `cron_mode` / `headless_mode` instead. |
+| `gateway_approver` | `requester` | Who may answer an approval prompt in a messaging chat. `requester`: only the user whose message triggered the command. `any`: any authorized user in that chat (the pre-2026-10 behaviour). |
 | `timeout` | `60` | Seconds Janus waits for an approval reply before timing out. |
 | `cron_mode` | `deny` | How [cron jobs](./features/cron.md) behave headlessly when they trigger a dangerous-command prompt. `deny` blocks the command (the agent must find another path); `approve` auto-approves everything in cron context. |
 | `mcp_reload_confirm` | `true` | When true, `/reload-mcp` asks before rebuilding the MCP tool set. Rebuilding invalidates the provider prompt cache (tool schemas live in the system prompt), so the next message re-sends full input tokens. Users who click **Always Approve** flip this key to `false`. |
@@ -49,13 +51,25 @@ The full set of keys:
 
 | Mode | Behavior |
 |------|----------|
-| **manual** (default) | Always prompt the user for approval on dangerous commands |
-| **smart** | Use an auxiliary LLM to assess risk. Low-risk commands (e.g., `python -c "print('hello')"`) are auto-approved. Genuinely dangerous commands are auto-denied. Uncertain cases escalate to a manual prompt. |
+| **smart** (default) | Use an auxiliary LLM to assess risk. Low-risk commands (e.g., `python -c "print('hello')"`) are auto-approved. Genuinely dangerous commands are auto-denied. Uncertain cases escalate to a manual prompt. |
+| **manual** | Always prompt the user for approval on dangerous commands. |
 | **off** | Disable all approval checks — equivalent to running with `--yolo`. All commands execute without prompts. |
 
 :::warning
 Setting `approvals.mode: off` disables all safety prompts. Use only in trusted environments (CI/CD, containers, etc.).
 :::
+
+### Who can answer an approval in a chat
+
+Each approval prompt in a messaging chat is tied to the request that raised it:
+
+- **Its own buttons only.** A button answers exactly the prompt it was attached to. An old prompt's button cannot approve a newer, different command, and a resolved prompt cannot be answered twice.
+- **The requester only.** With `gateway_approver: requester` (the default), only the person whose message triggered the command can approve or deny it, by button or with `/approve` / `/deny`. Others in a group chat get a refusal and the prompt stays open.
+- **Back to the old behaviour.** Set `gateway_approver: any` to let any authorized user answer. `janus security audit` flags this setting and `--fix` resets it.
+
+Telegram and Slack buttons, Matrix reactions and the `/approve` / `/deny` commands enforce both rules. Adapters that cannot identify who clicked fall back to the authorized-user check alone.
+
+Upgrading changes the default `mode` from `manual` to `smart`. A config file that sets `mode: manual` explicitly keeps it.
 
 ### YOLO Mode
 

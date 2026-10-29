@@ -2720,6 +2720,9 @@ class SlackAdapter(BasePlatformAdapter):
             msg_ts = result.get("ts", "")
             if msg_ts:
                 self._approval_resolved[msg_ts] = False
+                if not hasattr(self, "_approval_request_ids"):
+                    self._approval_request_ids = {}
+                self._approval_request_ids[msg_ts] = (metadata or {}).get("approval_request_id")
 
             return SendResult(success=True, message_id=msg_ts, raw_response=result)
         except Exception as e:
@@ -3010,9 +3013,25 @@ class SlackAdapter(BasePlatformAdapter):
         }
         choice = choice_map.get(action_id, "deny")
 
+        # Scoped approvals: only the requester may answer, and only this prompt.
+        request_ids = getattr(self, "_approval_request_ids", {})
+        request_id = request_ids.get(msg_ts)
+        from tools.approval import gateway_approval_refusal
+        refusal = gateway_approval_refusal(session_key, approver=user_id or None,
+                                           request_id=request_id)
+        if refusal == "stale":
+            self._approval_resolved.pop(msg_ts, None)
+            request_ids.pop(msg_ts, None)
+            logger.info("[Slack] approval click on a resolved prompt by %s ignored", user_id)
+            return
+        if refusal == "not_requester":
+            logger.info("[Slack] approval click by %s refused (not the requester)", user_id)
+            return
+
         # Prevent double-clicks — atomic pop; first caller gets False, others get True (default)
         if self._approval_resolved.pop(msg_ts, True):
             return
+        request_ids.pop(msg_ts, None)
 
         # Update the message to show the decision and remove buttons
         label_map = {
@@ -3060,7 +3079,8 @@ class SlackAdapter(BasePlatformAdapter):
         try:
             from tools.approval import resolve_gateway_approval
 
-            count = resolve_gateway_approval(session_key, choice)
+            count = resolve_gateway_approval(session_key, choice,
+                                             approver=user_id or None, request_id=request_id)
             logger.info(
                 "Slack button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                 count,

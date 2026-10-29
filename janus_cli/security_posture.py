@@ -168,6 +168,17 @@ def collect(
                 key="approvals.mode", current=mode, safe_value="manual", fixable=True,
                 fix_note="sets approvals.mode: manual")
 
+    def c_gateway_approver_any():
+        v = _get(config, "approvals", "gateway_approver", default="requester")
+        if str(v).strip().lower() in {"any", "anyone", "all"}:
+            return PostureFinding(
+                "approvals.gateway_approver_any", "MEDIUM",
+                "Anyone in a chat can approve another user's command",
+                "approvals.gateway_approver is 'any': in a group chat, any authorized member "
+                "can approve a dangerous command someone else's message triggered.",
+                key="approvals.gateway_approver", current=v, safe_value="requester",
+                fixable=True, fix_note="sets approvals.gateway_approver: requester")
+
     def c_unattended_approve():
         res = []
         for k in ("cron_mode", "headless_mode"):
@@ -341,7 +352,7 @@ def collect(
                     key=dotted, current=v, fixable=False, fix_note=f"set {dotted}: false"))
         return res
 
-    for fn in (c_guard_agent_created, c_approvals_off, c_unattended_approve, c_yolo,
+    for fn in (c_guard_agent_created, c_approvals_off, c_gateway_approver_any, c_unattended_approve, c_yolo,
                c_auto_promote_without_governor, c_self_improve_no_human, c_inline_shell,
                c_sandbox_off_unattended, c_no_caps_unattended, c_frozen, c_exposed_bind,
                c_allowlist_empty, c_file_perms, c_broad_allowlist, c_dangerously_prefixed):

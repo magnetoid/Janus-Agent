@@ -366,6 +366,13 @@ class TestBlockingApprovalE2E:
         os.environ.pop("JANUS_GATEWAY_SESSION", None)
         os.environ.pop("JANUS_EXEC_ASK", None)
         os.environ.pop("JANUS_SESSION_KEY", None)
+        # These tests exercise the manual prompt flow; pin it so the
+        # interactive default (smart) does not short-circuit the prompt.
+        self._mode_patch = patch("tools.approval._get_approval_mode", return_value="manual")
+        self._mode_patch.start()
+
+    def teardown_method(self):
+        self._mode_patch.stop()
 
     def test_blocking_approval_approve_once(self):
         """check_all_command_guards blocks until resolve_gateway_approval is called."""

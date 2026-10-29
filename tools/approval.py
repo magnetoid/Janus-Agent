@@ -635,26 +635,93 @@ def unregister_gateway_notify(session_key: str) -> None:
         entry.event.set()
 
 
+def _gateway_approver_policy() -> str:
+    """``approvals.gateway_approver``: "requester" (default) or "any".
+
+    With "requester" only the user whose message triggered a dangerous
+    command may approve or deny it — another member of a group chat cannot.
+    """
+    value = str((_get_approval_config() or {}).get("gateway_approver", "requester") or "requester")
+    return "any" if value.strip().lower() in {"any", "anyone", "all"} else "requester"
+
+
+def _entry_answerable(entry: "_ApprovalEntry", approver: Optional[str],
+                      request_id: Optional[str], policy: str) -> bool:
+    data = entry.data if isinstance(entry.data, dict) else {}
+    if request_id is not None and data.get("request_id") != request_id:
+        return False
+    if policy == "requester" and approver:
+        requester = data.get("requester")
+        if requester and str(requester) != str(approver):
+            return False
+    return True
+
+
+def gateway_approval_refusal(session_key: str, approver: Optional[str] = None,
+                             request_id: Optional[str] = None) -> Optional[str]:
+    """Why *approver* may not answer now, or None when nothing stands in the way.
+
+    * ``"stale"`` — the button's *request_id* is no longer pending.
+    * ``"not_requester"`` — something is pending but only its requester may
+      answer it (``approvals.gateway_approver: requester``).
+
+    With nothing pending at all this returns None so the caller's usual
+    "nothing to resolve" path still runs. Adapters call this before consuming
+    a click so a refused click leaves the prompt and its buttons in place.
+    """
+    policy = _gateway_approver_policy()
+    with _lock:
+        queue = list(_gateway_queues.get(session_key, []))
+    if not queue:
+        return None
+    if request_id is not None:
+        queue = [e for e in queue
+                 if isinstance(e.data, dict) and e.data.get("request_id") == request_id]
+        if not queue:
+            return "stale"
+    if any(_entry_answerable(e, approver, None, policy) for e in queue):
+        return None
+    return "not_requester"
+
+
+def can_resolve_gateway_approval(session_key: str, approver: Optional[str] = None,
+                                 request_id: Optional[str] = None) -> bool:
+    """True unless :func:`gateway_approval_refusal` gives a reason to refuse."""
+    return gateway_approval_refusal(session_key, approver, request_id) is None
+
+
 def resolve_gateway_approval(session_key: str, choice: str,
-                             resolve_all: bool = False) -> int:
+                             resolve_all: bool = False, *,
+                             approver: Optional[str] = None,
+                             request_id: Optional[str] = None) -> int:
     """Called by the gateway's /approve or /deny handler to unblock
     waiting agent thread(s).
 
-    When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    When *resolve_all* is True every pending approval in the session that
+    *approver* may answer is resolved at once (``/approve all``).  Otherwise
+    only the oldest such one is resolved (FIFO).
 
-    Returns the number of approvals resolved (0 means nothing was pending).
+    *request_id* (from the button the user clicked) pins the resolution to
+    that exact prompt; a stale or foreign id resolves nothing.  *approver* is
+    the platform user id of whoever answered; under the default
+    ``approvals.gateway_approver: requester`` it must match the user who
+    triggered the command (unknown requester or approver is not blocked, for
+    adapters that cannot tell).
+
+    Returns the number of approvals resolved (0 means nothing was pending or
+    nothing this approver may answer).
     """
+    policy = _gateway_approver_policy()
     with _lock:
         queue = _gateway_queues.get(session_key)
         if not queue:
             return 0
-        if resolve_all:
-            targets = list(queue)
-            queue.clear()
-        else:
-            targets = [queue.pop(0)]
+        eligible = [e for e in queue if _entry_answerable(e, approver, request_id, policy)]
+        if not eligible:
+            return 0
+        targets = eligible if resolve_all else eligible[:1]
+        for entry in targets:
+            queue.remove(entry)
         if not queue:
             _gateway_queues.pop(session_key, None)
 
@@ -933,8 +1000,13 @@ def _get_approval_config() -> dict:
 
 
 def _get_approval_mode() -> str:
-    """Read the approval mode from config. Returns 'manual', 'smart', or 'off'."""
-    mode = _get_approval_config().get("mode", "manual")
+    """Read the approval mode from config. Returns 'manual', 'smart', or 'off'.
+
+    Interactive sessions default to 'smart' (an auxiliary model clears clearly
+    benign flagged commands and escalates the rest to the user). Unattended
+    runs never use this: cron and headless have their own deny-by-default modes.
+    """
+    mode = _get_approval_config().get("mode", "smart")
     return _normalize_approval_mode(mode)
 
 
@@ -1197,6 +1269,21 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
     description = approval_data.get("description", "")
     primary_key = approval_data.get("pattern_key", "")
     all_keys = approval_data.get("pattern_keys", [primary_key])
+
+    # Scope the request: an id the answering button must carry, a hash of the
+    # command it covers, and who asked (the only one who may answer under
+    # approvals.gateway_approver: requester).
+    import hashlib
+    import uuid
+    approval_data.setdefault("request_id", uuid.uuid4().hex[:12])
+    approval_data.setdefault(
+        "command_hash", hashlib.sha256(str(command).encode("utf-8", "replace")).hexdigest()[:16])
+    if not approval_data.get("requester"):
+        try:
+            from gateway.session_context import get_session_env
+            approval_data["requester"] = get_session_env("JANUS_SESSION_USER_ID", "") or None
+        except Exception:
+            approval_data["requester"] = None
 
     entry = _ApprovalEntry(approval_data)
     with _lock:

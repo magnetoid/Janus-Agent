@@ -2712,6 +2712,9 @@ class TelegramAdapter(BasePlatformAdapter):
 
             # Store session_key keyed by approval_id for the callback handler
             self._approval_state[approval_id] = session_key
+            if not hasattr(self, "_approval_request_ids"):
+                self._approval_request_ids = {}
+            self._approval_request_ids[approval_id] = (metadata or {}).get("approval_request_id")
 
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
@@ -3286,10 +3289,26 @@ class TelegramAdapter(BasePlatformAdapter):
                     await query.answer(text="⛔ You are not authorized to approve commands.")
                     return
 
-                session_key = self._approval_state.pop(approval_id, None)
+                session_key = self._approval_state.get(approval_id)
                 if not session_key:
                     await query.answer(text="This approval has already been resolved.")
                     return
+                request_ids = getattr(self, "_approval_request_ids", {})
+                request_id = request_ids.get(approval_id)
+                from tools.approval import gateway_approval_refusal
+                refusal = gateway_approval_refusal(session_key, approver=caller_id or None,
+                                                   request_id=request_id)
+                if refusal == "stale":
+                    self._approval_state.pop(approval_id, None)
+                    request_ids.pop(approval_id, None)
+                    await query.answer(text="This approval has already been resolved.")
+                    return
+                if refusal == "not_requester":
+                    await query.answer(
+                        text="⛔ Only the person whose message triggered this command can answer it.")
+                    return
+                self._approval_state.pop(approval_id, None)
+                request_ids.pop(approval_id, None)
 
                 # Map choice to human-readable label
                 label_map = {
@@ -3316,7 +3335,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 # Resolve the approval — unblocks the agent thread
                 try:
                     from tools.approval import resolve_gateway_approval
-                    count = resolve_gateway_approval(session_key, choice)
+                    count = resolve_gateway_approval(session_key, choice,
+                                                     approver=caller_id or None,
+                                                     request_id=request_id)
                     logger.info(
                         "Telegram button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                         count, session_key, choice, user_display,

@@ -1448,8 +1448,13 @@ class TestApprovalTimeoutIsNotConsent:
         os.environ.pop("JANUS_CRON_SESSION", None)
         os.environ["JANUS_GATEWAY_SESSION"] = "1"
         os.environ["JANUS_SESSION_KEY"] = self.SESSION_KEY
+        # Pin the manual prompt flow these tests exercise (default is smart).
+        from unittest.mock import patch as _patch
+        self._mode_patch = _patch("tools.approval._get_approval_mode", return_value="manual")
+        self._mode_patch.start()
 
     def teardown_method(self):
+        self._mode_patch.stop()
         from tools import approval as mod
         mod._gateway_queues.clear()
         mod._gateway_notify_cbs.clear()
