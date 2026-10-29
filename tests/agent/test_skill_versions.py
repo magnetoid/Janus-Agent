@@ -148,6 +148,70 @@ def test_undo_of_create_moves_skill_into_history_not_deleted():
     assert _tree(kept) == created                           # moved, not deleted
 
 
+def test_failed_restore_puts_current_state_back(monkeypatch):
+    d = _write_skill("fragile", "OLD")
+    vid = sv.record_version("fragile", d, source="user")
+    (d / "SKILL.md").write_text("---\nname: fragile\ndescription: d\n---\n\nCURRENT\n",
+                                encoding="utf-8")
+    current = _tree(d)
+    history = [r["id"] for r in sv.list_versions("fragile")]
+    real_copy = sv._copy_tree
+
+    def copy_then_fail(src, dest):
+        real_copy(src, dest)          # the destination now exists, partially
+        raise OSError("disk full")
+
+    monkeypatch.setattr(sv, "_copy_tree", copy_then_fail)
+    with pytest.raises(sv.SkillVersionError, match="put back"):
+        sv.undo("fragile", vid)
+    assert _tree(d) == current
+    assert [r["id"] for r in sv.list_versions("fragile")] == history
+    assert set(_live_version_dirs("fragile")) == set(history)   # no orphaned dirs
+
+
+def test_unrecoverable_restore_keeps_previous_state_in_history(monkeypatch):
+    d = _write_skill("stuck", "OLD")
+    vid = sv.record_version("stuck", d, source="user")
+    (d / "SKILL.md").write_text("---\nname: stuck\ndescription: d\n---\n\nCURRENT\n",
+                                encoding="utf-8")
+    current = _tree(d)
+
+    def copy_fail(src, dest):
+        raise OSError("disk full")
+
+    real_move = sv.shutil.move
+    calls = {"n": 0}
+
+    def move_fails_on_recovery(src, dst):
+        calls["n"] += 1
+        if calls["n"] > 1:            # first move = snapshot aside, second = recovery
+            raise OSError("cannot move back")
+        return real_move(src, dst)
+
+    monkeypatch.setattr(sv, "_copy_tree", copy_fail)
+    monkeypatch.setattr(sv.shutil, "move", move_fails_on_recovery)
+    with pytest.raises(sv.SkillVersionError, match="kept in history") as exc:
+        sv.undo("stuck", vid)
+    kept = sv.list_versions("stuck")[0]
+    assert kept["id"] in str(exc.value)
+    assert _tree(_store("stuck") / kept["id"]) == current      # still reachable
+
+
+def test_undo_of_archive_reactivates_lifecycle_state():
+    from tools import skill_usage as u
+    d = _write_skill("revived")
+    data = u.load_usage()
+    data["revived"] = u._empty_record()
+    data["revived"]["created_by"] = "agent"
+    u.save_usage(data)
+
+    sv.archive("revived")
+    assert u.get_record("revived")["state"] == u.STATE_ARCHIVED
+    sv.undo("revived")
+    assert (d / "SKILL.md").exists()
+    assert u.get_record("revived")["state"] == u.STATE_ACTIVE
+
+
 def test_diff_reports_changes_against_current():
     d = _write_skill("eps", "old line")
     sv.record_version("eps", d, source="user")

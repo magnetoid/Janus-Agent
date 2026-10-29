@@ -636,20 +636,70 @@ def undo(name: str, ref: Optional[str] = None) -> Dict[str, Any]:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     _copy_tree(vdir, target)
             except Exception as e:
-                # Put the moved-aside state back; the version dir is ours.
-                moved = store / new_id
-                if moved.exists() and not snap_from.exists() and any(moved.iterdir()):
-                    with contextlib.suppress(OSError):
-                        if target.exists():
-                            shutil.rmtree(target)
-                        shutil.move(str(moved), str(snap_from))
-                index["versions"] = [v for v in index["versions"] if v["id"] != new_id]
+                if _recover_failed_restore(store, index, new_id, target, snap_from):
+                    index["versions"] = [v for v in index["versions"] if v["id"] != new_id]
+                    _save_index(store, index)
+                    raise SkillVersionError(f"restore failed (state put back): {e}") from e
+                # Recovery failed: keep the entry so the moved-aside state stays
+                # reachable through history rather than silently orphaned.
                 _save_index(store, index)
-                raise SkillVersionError(f"restore failed (state put back): {e}") from e
+                raise SkillVersionError(
+                    f"restore failed and the previous state could not be put back "
+                    f"({e}); it is kept in history as version {new_id}"
+                ) from e
         # Archive overflow only after the restore source is no longer needed.
         _archive_overflow(store, index, get_keep())
         _save_index(store, index)
+    if not entry.get("absent"):
+        _reactivate_lifecycle(name)
     return {"restored": entry, "recorded": new_id, "path": str(target)}
+
+
+def _recover_failed_restore(
+    store: Path,
+    index: Dict[str, Any],
+    new_id: str,
+    target: Path,
+    snap_from: Path,
+) -> bool:
+    """Undo a half-finished restore. Returns True when the live state is back.
+
+    Whatever sits at *target* now is a partial copy out of history: undo either
+    moved the live skill away from *target* or verified *target* was free, so
+    clearing it loses nothing. The moved-aside state is then put back.
+    """
+    new_entry = next((v for v in index["versions"] if v["id"] == new_id), {})
+    moved = store / new_id
+    try:
+        if target.is_symlink():
+            target.unlink()
+        elif target.exists():
+            shutil.rmtree(target)
+        if new_entry.get("absent"):
+            moved.rmdir()  # the empty marker dir we created; nothing to restore
+        else:
+            shutil.move(str(moved), str(snap_from))
+        return True
+    except OSError as err:
+        logger.warning("skill_versions: could not recover failed restore of %s: %s",
+                       snap_from, err)
+        return False
+
+
+def _reactivate_lifecycle(name: str) -> None:
+    """Mirror ``skill_usage.restore_skill`` after undo puts a skill back.
+
+    Undoing an archive brings the skill back on disk. A lingering ``archived``
+    lifecycle state would make the curator skip it forever, and a lingering
+    suppression entry would stop the re-seeder managing a built-in.
+    """
+    try:
+        from tools import skill_usage
+        if skill_usage.get_record(name).get("state") == skill_usage.STATE_ARCHIVED:
+            skill_usage.set_state(name, skill_usage.STATE_ACTIVE)
+            skill_usage.remove_suppressed_name(name)
+    except Exception:
+        logger.debug("skill_versions: lifecycle reconcile failed for %s", name, exc_info=True)
 
 
 def archive(name: str) -> str:
