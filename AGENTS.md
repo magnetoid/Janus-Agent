@@ -900,6 +900,14 @@ end by `agent/auto_mine.py` and consolidated offline by `agent/sleep.py`.
 - **Mining** — `agent/memory_miner.py` (durable facts) and `agent/skill_miner.py`
   (draft skills, **quarantined** under `skills/.drafts/` for review). Both carry
   the dialectic red-team admission gate.
+- **Flush before compaction** — `agent/memory_flush.py`, called from
+  `conversation_compression` just before `context_compressor.compress()`
+  when `memory.flush_before_compaction` is on (default off). Runs
+  `mine_session_memory` on messages not flushed yet (fingerprints kept on
+  the agent as `_memory_flush_seen`; prior `[CONTEXT COMPACTION]` summaries
+  skipped) into a fresh disk-loaded `MemoryStore`, so the live prompt
+  snapshot is untouched. Returns errors instead of raising; skipped when
+  frozen or memory is off.
 - **Consolidation** — `agent/sleep.py` `run_sleep_cycle`: graduate → reconcile
   (`memory_gardener.py`) → prune by salience → synthesize cross-session lessons →
   **ACE playbook curation** (below). `maybe_run_sleep` is the schedule gate

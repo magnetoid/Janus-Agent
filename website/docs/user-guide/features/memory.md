@@ -211,6 +211,20 @@ memory:
   user_char_limit: 1375     # ~500 tokens
 ```
 
+## Flush Before Compaction
+
+Long sessions get compacted: older turns are summarised so the conversation fits the context window, and details in them are gone from the agent's view. With the flush on, Janus first mines the part of the conversation it has not flushed yet for durable facts and saves them to `MEMORY.md` / `USER.md` (and the daily journal), so compaction no longer means forgetting.
+
+```yaml
+memory:
+  flush_before_compaction: true   # default false; one auxiliary model call per compaction
+```
+
+- It uses the same miner as `memory.session_mining` and the same duplicate check, injection scan and character limits as the memory tool.
+- Each message is mined at most once, so repeated compactions do not resend old turns or save a fact twice.
+- It writes files only. The memory block in the current session's prompt does not change mid-session, so prompt caching is unaffected; the new facts appear from the next session.
+- A failure, for example the auxiliary model being down, is logged and compaction goes ahead as normal. It is skipped while autonomy is frozen.
+
 ## External Memory Providers
 
 For deeper, persistent memory that goes beyond MEMORY.md and USER.md, Janus ships with 8 external memory provider plugins — including Honcho, OpenViking, Mem0, Hindsight, Holographic, RetainDB, ByteRover, and Supermemory.
