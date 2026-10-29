@@ -20,8 +20,10 @@ describe('virtual height estimates', () => {
   it('uses compound user prompt width when estimating user message wrapping', () => {
     const msg: Msg = { role: 'user', text: 'x'.repeat(21) }
 
-    expect(estimatedMsgHeight(msg, 26, { compact: false, details: false, userPrompt: '❯' })).toBe(3)
-    expect(estimatedMsgHeight(msg, 26, { compact: false, details: false, userPrompt: 'Ψ >' })).toBe(4)
+    // 27 cols minus the 4-col transcript reserve: '❯ ' leaves exactly 21 cells
+    // (one row), the wider 'Ψ > ' leaves 19 (clamped to 20), so it wraps.
+    expect(estimatedMsgHeight(msg, 27, { compact: false, details: false, userPrompt: '❯' })).toBe(3)
+    expect(estimatedMsgHeight(msg, 27, { compact: false, details: false, userPrompt: 'Ψ >' })).toBe(4)
   })
 
   it('adds one row for a group-boundary lead gap', () => {

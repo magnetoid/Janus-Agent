@@ -19,6 +19,10 @@ const onWindows = process.platform === 'win32'
 // Without resolveOnExit, the await on `'close'` hangs until SIGTERM at
 // timeout — exactly the production wl-copy bug. With resolveOnExit, the
 // promise settles on `'exit'` regardless of the inherited pipes.
+//
+// Scripts run as `/bin/sh <script>` rather than exec'ing the freshly written
+// file: macOS scans every new executable (XProtect) before it runs, which can
+// stall the first exec for seconds under load and turn these into timeouts.
 
 let scriptDir: string
 let daemonScript: string
@@ -72,7 +76,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
   // *why* every clipboard-tool spawn in osc.ts wires it on.
   it.skip("(documented hang) without resolveOnExit, await never resolves when daemon inherits stdio", async () => {
     const pidFile = join(scriptDir, 'sleeper-skip.pid')
-    const result = await execFileNoThrow(daemonScript, [pidFile], { timeout: 300 })
+    const result = await execFileNoThrow('/bin/sh', [daemonScript, pidFile], { timeout: 300 })
     trackSleeperPid(pidFile)
 
     expect(result.code).toBe(124)
@@ -82,7 +86,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
     const pidFile = join(scriptDir, 'sleeper-exit.pid')
     const start = Date.now()
 
-    const result = await execFileNoThrow(daemonScript, [pidFile], {
+    const result = await execFileNoThrow('/bin/sh', [daemonScript, pidFile], {
       timeout: 2000,
       resolveOnExit: true
     })
@@ -91,10 +95,11 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
     const elapsed = Date.now() - start
 
     // The shell exits in a few ms. resolveOnExit lets us return on exit
-    // (code 0) instead of waiting for the orphaned sleeper to release
-    // stdio. Should be well under 200ms even on slow CI.
+    // (code 0, not the timeout's 124) instead of waiting for the orphaned
+    // sleeper, which holds stdio for 3s. Bound by the sleeper's lifetime, not
+    // a tight wall-clock number, so a loaded machine cannot fail it.
     expect(result.code).toBe(0)
-    expect(elapsed).toBeLessThan(500)
+    expect(elapsed).toBeLessThan(1500)
   })
 
   it("still surfaces the right code when resolveOnExit'd child exits non-zero", async () => {
@@ -103,7 +108,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
     writeFileSync(failScript, `#!/bin/sh\nsleep 3 &\necho $! > "${pidFile}"\nexit 7\n`)
     chmodSync(failScript, 0o755)
 
-    const result = await execFileNoThrow(failScript, [], {
+    const result = await execFileNoThrow('/bin/sh', [failScript], {
       timeout: 2000,
       resolveOnExit: true
     })
@@ -117,7 +122,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
     writeFileSync(slowScript, '#!/bin/sh\nsleep 30\n')
     chmodSync(slowScript, 0o755)
 
-    const result = await execFileNoThrow(slowScript, [], {
+    const result = await execFileNoThrow('/bin/sh', [slowScript], {
       timeout: 200,
       resolveOnExit: true
     })
@@ -132,7 +137,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
     const pidFile = join(scriptDir, 'sleeper-race.pid')
     // Race: child happens to exit right around the timeout. The settled
     // guard ensures only the first resolution wins.
-    const result = await execFileNoThrow(daemonScript, [pidFile], {
+    const result = await execFileNoThrow('/bin/sh', [daemonScript, pidFile], {
       timeout: 50, // very tight
       resolveOnExit: true
     })
