@@ -466,6 +466,15 @@ def compress_context(
         except Exception:
             _precompress_insight = ""
 
+    # Memory flush (memory.flush_before_compaction, default off): mine durable
+    # facts from the not-yet-flushed conversation into MEMORY.md/USER.md before
+    # the compressor discards it. Files only; never blocks compaction.
+    try:
+        from agent.memory_flush import flush_before_compaction
+        flush_before_compaction(agent, messages)
+    except Exception as _flush_err:
+        logger.debug("memory flush before compaction failed: %s", _flush_err)
+
     try:
         compressed = agent.context_compressor.compress(messages, current_tokens=approx_tokens, focus_topic=focus_topic, force=force)
     except TypeError:

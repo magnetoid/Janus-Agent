@@ -1754,6 +1754,12 @@ DEFAULT_CONFIG = {
         # spends tokens and writes memory automatically. Run on demand any
         # time with `janus memory mine`. See agent/memory_miner.py.
         "session_mining": False,
+        # Memory flush before compaction: just before context compression
+        # discards older turns, mine durable facts from the part of the
+        # conversation not flushed yet into MEMORY.md/USER.md (same miner as
+        # session_mining; also mirrored to the daily journal). Opt-in because
+        # it spends one auxiliary call per compaction. Never blocks compaction.
+        "flush_before_compaction": False,
         # Write-time reconciliation: classify each mined fact ADD/UPDATE/DELETE/
         # NOOP against existing memory (Mem0-style) instead of append-only, so
         # stale facts are superseded at write time. Opt-in.
