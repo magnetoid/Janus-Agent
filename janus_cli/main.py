@@ -13435,6 +13435,24 @@ def main():
     # gateway list
     gateway_subparsers.add_parser("list", help="List all profiles and their gateway status")
 
+    # gateway obligations
+    gateway_obligations = gateway_subparsers.add_parser(
+        "obligations",
+        help="Show replies the gateway still owes to platforms (delivery ledger)",
+        description=(
+            "The gateway journals every final reply and cron result to state.db "
+            "before sending it and replays what was not acknowledged after a "
+            "restart or platform stall. This lists what is still owed."
+        ),
+    )
+    gateway_obligations.add_argument(
+        "--replay", action="store_true",
+        help="Send the undelivered rows now (a running gateway does this automatically)",
+    )
+    gateway_obligations.add_argument("--all", action="store_true", help="Include delivered rows")
+    gateway_obligations.add_argument("--json", action="store_true", help="Machine-readable output")
+    gateway_obligations.add_argument("--limit", type=int, default=50, help="Rows to show (default 50)")
+
     # gateway setup
     gateway_subparsers.add_parser("setup", help="Configure messaging platforms")
 

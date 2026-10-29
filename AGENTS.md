@@ -1115,6 +1115,10 @@ automatically scope to the active profile.
    This is intentional — it lets `janus -p coder profile list` see all profiles regardless
    of which one is active.
 
+### Delivery-obligation ledger (Gateway)
+
+`gateway/delivery_ledger.py` makes outbound replies durable. The **adapter** (not the runner) sends the final reply of a turn, in `BasePlatformAdapter._process_message_background` → `_send_with_retry`; that call site records an obligation row in `state.db` (`delivery_obligations`, status `sending`) *before* the send and settles it afterwards — `delivered`, or `pending` with a backoff from `BACKOFF_SCHEDULE_S` (30 s → 30 min, `MAX_ATTEMPTS` = 8, then `abandoned`). `cron/scheduler._deliver_result` does the same per target. `GatewayRunner._delivery_replay_watcher` calls `DeliveryLedger.replay_once(self.adapters)` every 15 s: it claims due rows atomically (plus `sending` rows a dead process left behind for longer than `STALE_SENDING_S`), sends them through the connected adapter with `metadata["replayed"] = True`, and leaves rows alone whose platform is not connected yet. Delivery is therefore at-least-once; a reply older than `MAX_AGE_S` (24 h) is abandoned rather than replayed. The runner injects the ledger with `adapter.set_delivery_ledger(...)` next to `set_message_handler` (both the start-up and reconnect wiring blocks) and shares it with the cron thread via `cron.scheduler.set_delivery_ledger`. Storage primitives are on `SessionDB` (`create_obligation`, `claim_due_obligations`, `settle_obligation_*`, `release_obligation`); policy stays in the ledger module. Streaming replies are not journaled — the stream consumer confirms delivery itself. `janus gateway obligations [--replay]` inspects the ledger; `gateway.delivery_ledger: false` turns journaling off. The ledger must never break a live send: every public method swallows its own storage errors.
+
 ## Known Pitfalls
 
 ### A context-sensitive config default MUST be a sentinel, never a literal
