@@ -195,3 +195,15 @@ def test_no_posture_preserves_legacy_exit_semantics(home, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out["total_components_scanned"] == 0 and out["posture"] == []
     assert code == 0
+
+
+def test_gateway_approver_any_is_reported_and_fixable(tmp_path, monkeypatch):
+    monkeypatch.delenv("JANUS_YOLO_MODE", raising=False)
+    monkeypatch.setattr("agent.autonomy_guard.frozen", lambda config=None: False)
+    monkeypatch.setattr("janus_cli.kanban_db.kanban_db_path", lambda board=None: tmp_path / "nope.db", raising=False)
+    cfg = {"approvals": {"mode": "smart", "gateway_approver": "any"}, "terminal": {"backend": "local"}}
+    _write_cfg(tmp_path, cfg, mode=0o600)
+    findings = {f.check_id: f for f in sp.collect(cfg, cfg, tmp_path, {})}
+    assert set(findings) == {"approvals.gateway_approver_any"}
+    f = findings["approvals.gateway_approver_any"]
+    assert f.fixable and f.safe_value == "requester"

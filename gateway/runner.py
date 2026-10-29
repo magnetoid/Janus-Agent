@@ -13347,8 +13347,12 @@ class GatewayRunner:
         else:
             choice = "once"
 
-        count = resolve_gateway_approval(session_key, choice, resolve_all=resolve_all)
+        approver = str(getattr(source, "user_id", "") or "") or None
+        count = resolve_gateway_approval(session_key, choice, resolve_all=resolve_all,
+                                         approver=approver)
         if not count:
+            if has_blocking_approval(session_key):
+                return t("gateway.approve.not_requester")
             return t("gateway.approve.no_pending")
 
         # Resume typing indicator — agent is about to continue processing.
@@ -13384,8 +13388,12 @@ class GatewayRunner:
         args = event.get_command_args().strip().lower()
         resolve_all = "all" in args
 
-        count = resolve_gateway_approval(session_key, "deny", resolve_all=resolve_all)
+        approver = str(getattr(source, "user_id", "") or "") or None
+        count = resolve_gateway_approval(session_key, "deny", resolve_all=resolve_all,
+                                         approver=approver)
         if not count:
+            if has_blocking_approval(session_key):
+                return t("gateway.deny.not_requester")
             return t("gateway.deny.no_pending")
 
         # Resume typing indicator — agent continues (with BLOCKED result).
@@ -16802,7 +16810,10 @@ class GatewayRunner:
                                 command=cmd,
                                 session_key=_approval_session_key,
                                 description=desc,
-                                metadata=_status_thread_metadata,
+                                # The request id lets a button resolve exactly
+                                # this prompt (tools.approval scoping).
+                                metadata={**(_status_thread_metadata or {}),
+                                          "approval_request_id": approval_data.get("request_id")},
                             ),
                             _loop_for_step,
                             logger=logger,

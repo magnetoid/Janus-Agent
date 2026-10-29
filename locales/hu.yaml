@@ -56,6 +56,7 @@ gateway:
 
   approve:
     no_pending:            "Nincs jóváhagyásra váró parancs."
+    not_requester:         "⛔ Csak az hagyhatja jóvá ezt a parancsot, akinek az üzenete elindította."
     once_singular:         "✅ Parancs jóváhagyva. Az ügynök folytatja..."
     once_plural:           "✅ Parancsok jóváhagyva ({count} parancs). Az ügynök folytatja..."
     session_singular:      "✅ Parancs jóváhagyva (minta jóváhagyva ehhez a munkamenethez). Az ügynök folytatja..."
@@ -105,6 +106,7 @@ gateway:
   deny:
     stale:                 "❌ Parancs elutasítva (a jóváhagyás elavult)."
     no_pending:            "Nincs elutasítható függőben lévő parancs."
+    not_requester:         "⛔ Csak az utasíthatja el ezt a parancsot, akinek az üzenete elindította."
     denied_singular:       "❌ Parancs elutasítva."
     denied_plural:         "❌ Parancsok elutasítva ({count} parancs)."
 

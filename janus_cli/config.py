@@ -2369,7 +2369,15 @@ DEFAULT_CONFIG = {
     #   deny    — block the command and let the agent find another way (default, safe)
     #   approve — auto-approve all dangerous commands in cron jobs
     "approvals": {
-        "mode": "manual",
+        # Interactive sessions: "smart" (default) lets an auxiliary model
+        # approve clearly benign flagged commands and asks you about the rest;
+        # "manual" always asks; "off" never asks (unsafe). Cron and headless
+        # runs use cron_mode / headless_mode below (deny by default).
+        "mode": "smart",
+        # Who may answer a gateway approval prompt: "requester" (default) —
+        # only the user whose message triggered the command; "any" — any
+        # authorized user in the chat (the old behaviour).
+        "gateway_approver": "requester",
         "timeout": 60,
         "cron_mode": "deny",
         # How to handle dangerous commands and execute_code when running

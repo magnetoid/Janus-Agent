@@ -56,6 +56,7 @@ gateway:
 
   approve:
     no_pending:            "승인 대기 중인 명령이 없습니다."
+    not_requester:         "⛔ 이 명령을 유발한 메시지를 보낸 사람만 승인할 수 있습니다."
     once_singular:         "✅ 명령이 승인되었습니다. 에이전트가 재개됩니다..."
     once_plural:           "✅ 명령이 승인되었습니다 ({count}개). 에이전트가 재개됩니다..."
     session_singular:      "✅ 명령이 승인되었습니다 (이 세션 동안 패턴 승인됨). 에이전트가 재개됩니다..."
@@ -105,6 +106,7 @@ gateway:
   deny:
     stale:                 "❌ 명령이 거부되었습니다 (승인이 만료됨)."
     no_pending:            "거부 대기 중인 명령이 없습니다."
+    not_requester:         "⛔ 이 명령을 유발한 메시지를 보낸 사람만 거부할 수 있습니다."
     denied_singular:       "❌ 명령이 거부되었습니다."
     denied_plural:         "❌ 명령이 거부되었습니다 ({count}개)."
 

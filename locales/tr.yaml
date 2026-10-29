@@ -56,6 +56,7 @@ gateway:
 
   approve:
     no_pending:            "Onaylanacak bekleyen komut yok."
+    not_requester:         "⛔ Bu komutu yalnızca onu tetikleyen mesajın sahibi onaylayabilir."
     once_singular:         "✅ Komut onaylandı. Ajan devam ediyor..."
     once_plural:           "✅ Komutlar onaylandı ({count} komut). Ajan devam ediyor..."
     session_singular:      "✅ Komut onaylandı (desen bu oturum için onaylandı). Ajan devam ediyor..."
@@ -105,6 +106,7 @@ gateway:
   deny:
     stale:                 "❌ Komut reddedildi (onay geçersizdi)."
     no_pending:            "Reddedilecek bekleyen komut yok."
+    not_requester:         "⛔ Bu komutu yalnızca onu tetikleyen mesajın sahibi reddedebilir."
     denied_singular:       "❌ Komut reddedildi."
     denied_plural:         "❌ Komutlar reddedildi ({count} komut)."
 

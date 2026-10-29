@@ -56,6 +56,7 @@ gateway:
 
   approve:
     no_pending:            "没有待批准的命令。"
+    not_requester:         "⛔ 只有触发此命令的消息发送者才能批准。"
     once_singular:         "✅ 命令已批准。代理正在恢复…"
     once_plural:           "✅ 命令已批准（{count} 条命令）。代理正在恢复…"
     session_singular:      "✅ 命令已批准（本次会话内允许该模式）。代理正在恢复…"
@@ -105,6 +106,7 @@ gateway:
   deny:
     stale:                 "❌ 命令已拒绝（批准已过期）。"
     no_pending:            "没有待拒绝的命令。"
+    not_requester:         "⛔ 只有触发此命令的消息发送者才能拒绝。"
     denied_singular:       "❌ 命令已拒绝。"
     denied_plural:         "❌ 命令已拒绝（{count} 条命令）。"
 

@@ -1148,6 +1148,9 @@ class QQAdapter(BasePlatformAdapter):
                 # Import lazily to keep the adapter importable in tests that
                 # don't exercise the approval subsystem.
                 from tools.approval import resolve_gateway_approval
+                # No approver: QQ's operator_openid is not guaranteed to match
+                # the requester id recorded on the request, so requester
+                # binding would wrongly lock out the requester here.
                 count = resolve_gateway_approval(session_key, choice)
                 logger.info(
                     "[%s] Button resolved %d approval(s) for session %s "
