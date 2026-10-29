@@ -2171,6 +2171,14 @@ DEFAULT_CONFIG = {
         # can retry with the flagged content removed.  External hub installs
         # (trusted/community sources) are always scanned regardless.
         "guard_agent_created": "auto",
+        # Per-skill version history (`janus skills history|diff|undo`). Every
+        # write by skill_manage, the skill miner, the curator or self_improve
+        # first copies the skill to skills/.versions/<skill>/. Versions beyond
+        # `keep` move into a per-skill tarball — archived, never deleted.
+        "versions": {
+            "enabled": True,
+            "keep": 10,
+        },
     },
 
     # Curator — background skill maintenance.

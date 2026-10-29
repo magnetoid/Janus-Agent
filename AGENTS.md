@@ -819,6 +819,28 @@ Config section (`curator:` in `config.yaml`):
 
 Full user-facing docs: `website/docs/user-guide/features/curator.md`.
 
+### Skill version history (`agent/skill_versions.py`)
+
+Per-skill history + undo. Any code that writes to a skill directory must
+call `skill_versions.record_version(name, skill_dir, source=..., reason=...)`
+**before** the write (best-effort, never raises, never touches the live
+skill). Sources: `skill_manage`, `skill_miner`, `curator`, `self_improve`,
+`user`. Code that drives `skill_manage` indirectly wraps the run in
+`skill_versions.attributed("<source>", reason)` — a ContextVar that follows
+tool calls into worker threads — instead of passing a source through.
+
+- Store: `<janus_home>/skills/.versions/<skill>/<utc-ts>-<source>/` + `index.json`,
+  guarded by a per-skill file lock. Versions beyond `skills.versions.keep`
+  (default 10) are appended to `.versions/<skill>/.archive/versions.tar`
+  — archive-not-delete; the index keeps every entry.
+- `.versions` is in `EXCLUDED_SKILL_DIRS` and curator_backup's
+  `_EXCLUDE_TOP_LEVEL`. A new skill scanner must prune it, or version copies
+  show up as duplicate skills.
+- `undo` / `archive` refuse pinned skills. Undo moves the current state into
+  a new `user` version before restoring, so nothing is deleted.
+- CLI: `janus_cli/skill_versions_cli.py` (`janus skills history|diff|undo|archive|restore`,
+  same verbs under `/skills`).
+
 ---
 
 ## Evals (`janus evals`)

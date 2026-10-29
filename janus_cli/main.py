@@ -14700,6 +14700,13 @@ Examples:
     skills_subparsers.add_parser(
         "graph", help="Skill DAG: promotion tiers + verifiable-reward assessment")
 
+    # history / diff / undo / archive / restore — per-skill version history
+    from janus_cli.skill_versions_cli import (
+        VERSION_VERBS as _SKILL_VERSION_VERBS,
+        register_subparsers as _register_skill_version_subparsers,
+    )
+    _register_skill_version_subparsers(skills_subparsers)
+
     def _cmd_skills_graph(args):
         from agent import skill_graph as sg
 
@@ -14770,6 +14777,12 @@ Examples:
             _cmd_skills_graph(args)
         elif getattr(args, "skills_action", None) == "mine":
             _cmd_skills_mine(args)
+        elif getattr(args, "skills_action", None) in _SKILL_VERSION_VERBS:
+            from janus_cli.skill_versions_cli import run_from_args
+
+            rc = run_from_args(args)
+            if rc:
+                sys.exit(rc)
         else:
             from janus_cli.skills_hub import skills_command
 

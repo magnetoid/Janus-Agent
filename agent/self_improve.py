@@ -466,6 +466,7 @@ def _promote_skill(proposal_id: str, rec: Dict[str, Any], root: Path,
     active_md = resolve_active_skill_md(skills_root, name)
     if active_md is not None:
         # In-place replacement of the live skill.
+        _record_skill_version(name, active_md.parent, f"promote proposal {proposal_id}")
         backup = rec.get("backup") or ""
         if not backup:
             bpath = active_md.with_name(active_md.name + f".bak-{proposal_id}")
@@ -494,7 +495,9 @@ def _promote_skill(proposal_id: str, rec: Dict[str, Any], root: Path,
         fm = {}
     try:
         from agent.skill_graph import _activate_draft
-        moved = _activate_draft(draft_target.parent, name, fm or {}, set())
+        moved = _activate_draft(draft_target.parent, name, fm or {}, set(),
+                                source="self_improve",
+                                reason=f"promote proposal {proposal_id}")
     except Exception as exc:
         logger.warning("self_improve: draft activation failed: %s", exc)
         moved = None
@@ -508,6 +511,16 @@ def _promote_skill(proposal_id: str, rec: Dict[str, Any], root: Path,
     _audit_promoted(proposal_id, str(applied), backup)
     logger.info("self_improve: promoted %s as new skill → %s", proposal_id, applied)
     return {"promoted": True, "target": str(applied), "backup": backup or None}
+
+
+def _record_skill_version(name: str, skill_dir: Path, reason: str) -> None:
+    """Best-effort pre-write snapshot into the skill's version history."""
+    try:
+        from agent import skill_versions
+        skill_versions.record_version(
+            name, skill_dir, source=skill_versions.SOURCE_SELF_IMPROVE, reason=reason)
+    except Exception:
+        logger.debug("skill version record failed for %s", name, exc_info=True)
 
 
 def rollback(proposal_id: str) -> Dict[str, Any]:
@@ -533,6 +546,12 @@ def rollback(proposal_id: str) -> Dict[str, Any]:
             applied_path = p
         except (ValueError, OSError):
             return {"rolled_back": False, "reason": "applied_to escapes skills dir"}
+    _versioned_dir = applied_path.parent if applied_path is not None else (
+        target.parent if target is not None else None)
+    if _versioned_dir is not None:
+        from agent.skill_utils import draft_skill_name_from_target
+        _vname = draft_skill_name_from_target(rec.get("target", "")) or _versioned_dir.name
+        _record_skill_version(_vname, _versioned_dir, f"rollback proposal {proposal_id}")
     try:
         backup = rec.get("backup") or ""
         if mode == "activated" and applied_path is not None:

@@ -1597,7 +1597,7 @@ def skills_command(args) -> None:
             return
         do_tap(tap_action, repo=repo)
     else:
-        _console.print("Usage: janus skills [browse|search|install|inspect|list|check|update|audit|uninstall|reset|opt-out|opt-in|publish|snapshot|tap]\n")
+        _console.print("Usage: janus skills [browse|search|install|inspect|list|check|update|audit|uninstall|reset|opt-out|opt-in|publish|snapshot|tap|history|diff|undo|archive|restore]\n")
         _console.print("Run 'janus skills <command> --help' for details.\n")
 
 
@@ -1804,6 +1804,13 @@ def handle_skills_slash(cmd: str, console: Optional[Console] = None) -> None:
         repo = args[1] if len(args) > 1 else ""
         do_tap(tap_action, repo=repo, console=c)
 
+    elif action in {"history", "diff", "undo", "archive", "restore"}:
+        from janus_cli.skill_versions_cli import dispatch as _versions_dispatch
+        _versions_dispatch(
+            action, args,
+            emit=lambda line: c.print(line, markup=False, highlight=False),
+        )
+
     elif action in {"help", "--help", "-h"}:
         _print_skills_help(c)
 
@@ -1829,6 +1836,12 @@ def _print_skills_help(console: Console) -> None:
         "  [cyan]reset[/] <name> [--restore]    Reset bundled-skill tracking (fix 'user-modified' flag)\n"
         "  [cyan]publish[/] <path> --repo <r>   Publish a skill to GitHub via PR\n"
         "  [cyan]snapshot[/] export|import      Export/import skill configurations\n"
-        "  [cyan]tap[/] list|add|remove         Manage skill sources\n",
+        "  [cyan]tap[/] list|add|remove         Manage skill sources\n\n"
+        "[bold]Version history:[/]\n\n"
+        "  [cyan]history[/] <name>              List a skill's recorded versions\n"
+        "  [cyan]diff[/] <name> [version]       Diff a version against the current skill\n"
+        "  [cyan]undo[/] <name> [version]       Restore a version (the undo is recorded too)\n"
+        "  [cyan]archive[/] <name>              Move a skill to skills/.archive/\n"
+        "  [cyan]restore[/] <name>              Bring an archived skill back\n",
         title="/skills",
     ))

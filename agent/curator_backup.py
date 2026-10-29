@@ -11,6 +11,7 @@ is undoable, then extracts the chosen snapshot into place.
 The snapshot does NOT include:
   - ``.curator_backups/`` (would recurse)
   - ``.hub/`` (hub-installed skills — managed by the hub, not us)
+  - ``.versions/`` (per-skill history — see ``agent/skill_versions.py``)
 
 It DOES include:
   - all SKILL.md files + their directories (``scripts/``, ``references/``,
@@ -59,7 +60,9 @@ DEFAULT_KEEP = 5
 # Entries under skills/ that should NEVER be rolled up into a snapshot.
 # .hub/ is managed by the skills hub; rolling it back would break lockfile
 # invariants. .curator_backups is the backup dir itself — recursion bomb.
-_EXCLUDE_TOP_LEVEL = {".curator_backups", ".hub"}
+# .versions is per-skill history (agent/skill_versions.py): a rollback must
+# never rewind it, or the record of what the rollback replaced is lost.
+_EXCLUDE_TOP_LEVEL = {".curator_backups", ".hub", ".versions"}
 
 # Snapshot id regex: UTC ISO with colons replaced by dashes so the filename
 # is portable (Windows-safe). An optional ``-NN`` suffix handles two

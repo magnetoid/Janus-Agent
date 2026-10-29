@@ -31,6 +31,7 @@ EXCLUDED_SKILL_DIRS = frozenset(
         ".hub",
         ".archive",
         ".drafts",
+        ".versions",  # per-skill history (agent/skill_versions.py)
         ".venv",
         "venv",
         "node_modules",

@@ -507,6 +507,24 @@ def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -
         raise
 
 
+def _record_version(name: str, skill_dir: Path, action: str, detail: str = "") -> None:
+    """Snapshot the skill's pre-write state into its version history.
+
+    Best-effort (``record_version`` never raises). The writer is labelled
+    ``skill_manage`` unless a caller attributed the run to someone else —
+    the curator's review fork does, so its edits show as ``curator``.
+    """
+    try:
+        from agent import skill_versions
+        source, why = skill_versions.attributed_source(skill_versions.SOURCE_SKILL_MANAGE)
+        reason = f"before {action}" + (f" {detail}" if detail else "")
+        if why:
+            reason += f" ({why})"
+        skill_versions.record_version(name, skill_dir, source=source, reason=reason)
+    except Exception:
+        logger.debug("skill version record failed for %s", name, exc_info=True)
+
+
 # =============================================================================
 # Core actions
 # =============================================================================
@@ -541,6 +559,7 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
 
     # Create the skill directory
     skill_dir = _resolve_skill_dir(name, category)
+    _record_version(name, skill_dir, "create")
     skill_dir.mkdir(parents=True, exist_ok=True)
 
     # Write SKILL.md atomically
@@ -585,6 +604,7 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
     skill_md = existing["path"] / "SKILL.md"
     # Back up original content for rollback
     original_content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else None
+    _record_version(name, existing["path"], "edit")
     _atomic_write_text(skill_md, content)
 
     # Security scan — roll back on block
@@ -681,6 +701,7 @@ def _patch_skill(
             }
 
     original_content = content  # for rollback
+    _record_version(name, skill_dir, "patch", file_path or "SKILL.md")
     _atomic_write_text(target, new_content)
 
     # Security scan — roll back on block
@@ -735,6 +756,9 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
 
     skill_dir = existing["path"]
     skills_root = _containing_skills_root(skill_dir)
+    # The full pre-delete copy lands in version history, so `janus skills
+    # undo <name>` brings a deleted skill back.
+    _record_version(name, skill_dir, "delete")
     shutil.rmtree(skill_dir)
 
     # Clean up empty category directories (don't remove the skills root itself)
@@ -783,6 +807,7 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     target, err = _resolve_skill_target(existing["path"], file_path)
     if err:
         return {"success": False, "error": err}
+    _record_version(name, existing["path"], "write_file", file_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     # Back up for rollback
     original_content = target.read_text(encoding="utf-8") if target.exists() else None
@@ -834,6 +859,7 @@ def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
             "available_files": available if available else None,
         }
 
+    _record_version(name, skill_dir, "remove_file", file_path)
     target.unlink()
 
     # Clean up empty subdirectories

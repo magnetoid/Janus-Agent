@@ -309,7 +309,11 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
         current = row.get("state", _u.STATE_ACTIVE)
 
         if anchor <= archive_cutoff and current != _u.STATE_ARCHIVED:
-            ok, _msg = _u.archive_skill(name)
+            # archive_skill records the pre-archive version; attribute it.
+            from agent import skill_versions
+            with skill_versions.attributed(skill_versions.SOURCE_CURATOR,
+                                           "auto-archive: inactive"):
+                ok, _msg = _u.archive_skill(name)
             if ok:
                 counts["archived"] += 1
         elif anchor <= stale_cutoff and current == _u.STATE_ACTIVE:
@@ -1822,9 +1826,14 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         # terminal. The background-thread runner also hides it; this
         # belt-and-suspenders path matters when a caller invokes
         # run_curator_review(synchronous=True) from the CLI.
+        # Every skill_manage write the fork makes is versioned; attribute
+        # those versions to the curator (the ContextVar follows tool calls
+        # into worker threads via tools.thread_context).
+        from agent import skill_versions
         with open(os.devnull, "w", encoding="utf-8") as _devnull, \
              contextlib.redirect_stdout(_devnull), \
-             contextlib.redirect_stderr(_devnull):
+             contextlib.redirect_stderr(_devnull), \
+             skill_versions.attributed(skill_versions.SOURCE_CURATOR, "curator review pass"):
             conv_result = review_agent.run_conversation(user_message=prompt)
 
         final = ""

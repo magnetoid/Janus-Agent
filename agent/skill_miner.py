@@ -186,6 +186,14 @@ def write_skill_draft(proposal: Dict[str, Any], drafts_dir: Optional[Path] = Non
     while target.exists():
         target = drafts_dir / f"{base}-{n}"
         n += 1
+    try:
+        from agent import skill_versions
+        skill_versions.record_version(
+            target.name, target, source=skill_versions.SOURCE_SKILL_MINER,
+            reason="draft mined from a session",
+        )
+    except Exception:
+        logger.debug("skill version record failed for draft %s", target.name, exc_info=True)
     target.mkdir(parents=True, exist_ok=True)
     (target / "SKILL.md").write_text(render_skill_md(proposal), encoding="utf-8")
     if proposal.get("script_filename") and proposal.get("script_content"):

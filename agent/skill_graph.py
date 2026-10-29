@@ -431,7 +431,9 @@ def auto_promote_drafts(
                     logger.debug("pre-promote snapshot failed (continuing)", exc_info=True)
                 snapshotted = True
 
-            moved = _activate_draft(draft_dir, name, meta, active_names)
+            moved = _activate_draft(draft_dir, name, meta, active_names,
+                                    source="skill_miner",
+                                    reason="auto-promote draft")
             if moved is None:
                 summary["skipped"].append({"skill": name, "reason": "activation move failed"})
                 continue
@@ -479,7 +481,8 @@ def _red_team_promotion(name, meta, draft_dir, active_names, llm_caller) -> Opti
         return None
 
 
-def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_names) -> Optional[str]:
+def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_names,
+                    *, source: str = "skill_miner", reason: str = "activate draft") -> Optional[str]:
     """Move a draft dir out of .drafts/ into the active tree.
 
     Same-skill replacement: when an ACTIVE skill already carries this
@@ -490,9 +493,13 @@ def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_nam
     "promotion breaks the skill" failure.
 
     The ``-N`` suffix remains only for genuine different-skill *directory*
-    collisions. Returns the activated skill name, or None on failure."""
+    collisions. Returns the activated skill name, or None on failure.
+
+    Both paths record a version first (``source`` names the writer), so
+    ``janus skills undo <name>`` reverts a promotion."""
     try:
         import shutil
+        from agent import skill_versions
         from datetime import datetime, timezone
         from janus_constants import get_janus_home
         from agent.skill_utils import resolve_active_skill_md
@@ -502,6 +509,7 @@ def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_nam
         existing_md = resolve_active_skill_md(base_root, name)
         if existing_md is not None:
             existing_dir = existing_md.parent
+            skill_versions.record_version(name, existing_dir, source=source, reason=reason)
             archive_root = base_root / ".archive"
             archive_root.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -529,6 +537,7 @@ def _activate_draft(draft_dir: Path, name: str, meta: Dict[str, Any], active_nam
             target_name = f"{name}-{n}"
             target = parent / target_name
             n += 1
+        skill_versions.record_version(target_name, target, source=source, reason=reason)
         parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(draft_dir), str(target))
         return target_name

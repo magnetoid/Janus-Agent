@@ -401,6 +401,45 @@ The agent can create, update, and delete its own skills via the `skill_manage` t
 The `patch` action is preferred for updates — it's more token-efficient than `edit` because only the changed text appears in the tool call.
 :::
 
+## Version history and undo
+
+Janus edits its own skills, so every change is recoverable. Before any write to a skill directory, the skill's current state is copied into its version history. That covers every writer:
+
+| Source | What writes |
+|--------|-------------|
+| `skill_manage` | The agent's `create`, `edit`, `patch`, `delete`, `write_file`, `remove_file` |
+| `skill_miner` | Mined drafts and their promotion into the active tree |
+| `curator` | Automatic archiving and the curator's LLM review pass |
+| `self_improve` | Promotion and rollback of approved skill variants |
+| `user` | `janus skills undo`, `archive` and `restore` |
+
+Each version is the state **before** that write. A `create` records an "absent" version, so undoing it moves the new skill into history.
+
+```bash
+janus skills history my-skill        # every version, newest first
+janus skills diff my-skill           # newest version vs. the current skill
+janus skills diff my-skill 3         # a version by history position (1 = newest)
+janus skills undo my-skill           # restore the newest version
+janus skills undo my-skill 20261029T120501123456Z-curator   # a version by id or unique id prefix
+janus skills archive my-skill        # move to ~/.janus/skills/.archive/
+janus skills restore my-skill        # bring it back
+```
+
+The same verbs work inside a chat session as `/skills history my-skill`, `/skills undo my-skill`, and so on.
+
+Undo restores the files byte for byte, and is itself recorded: the state it replaces becomes a new `user` version. Running `undo` twice in a row is therefore a redo. After an undo that changes a skill's description, run `/reload-skills` in any open session.
+
+**Pinned skills.** `undo` and `archive` refuse a pinned skill, exactly as the curator leaves pinned skills alone. Unpin with `janus curator unpin <name>` first.
+
+**Storage and retention.** History lives in `~/.janus/skills/.versions/<skill>/`, with an `index.json` describing each version. Only the newest `keep` versions stay as plain directories. Older ones are appended to `~/.janus/skills/.versions/<skill>/.archive/versions.tar` — archived, never deleted — and remain restorable by id or position. Version copies are never loaded as skills, and a `janus curator rollback` never rewinds history.
+
+```yaml
+skills:
+  versions:
+    enabled: true   # set false to stop recording new versions
+    keep: 10        # versions kept as directories per skill
+```
+
 ## Skills Hub
 
 Browse, search, install, and manage skills from online registries, `skills.sh`, direct well-known skill endpoints, and official optional skills.

@@ -671,6 +671,19 @@ def archive_skill(skill_name: str) -> Tuple[bool, str]:
     if dest.exists():
         dest = archive_root / f"{skill_dir.name}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
 
+    # Version history first (best-effort, never blocks the archive). The
+    # writer is whoever attributed this call — the curator's automatic
+    # transitions, or the user via `janus skills|curator archive`.
+    try:
+        from agent import skill_versions
+        source, why = skill_versions.attributed_source(skill_versions.SOURCE_USER)
+        skill_versions.record_version(
+            skill_name, skill_dir, source=source,
+            reason="before archive" + (f" ({why})" if why else ""),
+        )
+    except Exception:
+        pass
+
     try:
         skill_dir.rename(dest)
     except OSError as e:
@@ -746,6 +759,18 @@ def restore_skill(skill_name: str) -> Tuple[bool, str]:
 
     # Restoring a pruned built-in lifts its suppression so updates can manage it.
     remove_suppressed_name(skill_name)
+
+    # The skill did not exist in the live tree before this restore; record
+    # that so `janus skills undo` can send it back to history.
+    try:
+        from agent import skill_versions
+        source, why = skill_versions.attributed_source(skill_versions.SOURCE_USER)
+        skill_versions.record_absent(
+            skill_name, dest, source=source,
+            reason="before restore from archive" + (f" ({why})" if why else ""),
+        )
+    except Exception:
+        pass
 
     set_state(skill_name, STATE_ACTIVE)
     return True, f"restored to {dest}"

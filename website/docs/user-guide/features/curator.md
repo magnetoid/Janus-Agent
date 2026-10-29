@@ -128,6 +128,8 @@ curator:
 
 Set `curator.backup.enabled: false` to disable automatic snapshotting. The manual `janus curator backup` command still works when backups are disabled only if you set `enabled: true` first — the flag gates both paths symmetrically so there's no way to accidentally skip the pre-run snapshot on mutating runs.
 
+Curator snapshots cover the whole tree. For a single skill, every curator change — an automatic archive or an edit made by the review pass — is also recorded in that skill's version history with source `curator`. `janus skills history <name>` shows it and `janus skills undo <name>` reverts just that skill. See [Version history and undo](./skills.md#version-history-and-undo).
+
 `janus curator status` also lists the five least-recently-used skills — a quick way to see what's likely to become stale next.
 
 The same subcommands are available as the `/curator` slash command inside a running session (CLI or gateway platforms).
