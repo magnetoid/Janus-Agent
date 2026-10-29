@@ -12680,7 +12680,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat", "secrets", "security",
         # Self-learning / proactive command families (see learning stack).
-        "aspire", "autonomy", "delegations", "interest", "learning", "models", "persona",
+        "aspire", "autonomy", "delegation", "delegations", "interest", "learning", "models", "persona",
         "self-improve", "sleep", "team", "workflow", "corpus",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
@@ -15788,6 +15788,42 @@ Examples:
         print()
 
     learning_parser.set_defaults(func=cmd_learning)
+
+    # =========================================================================
+    # delegation command — named subagent profiles (delegation.profiles)
+    # =========================================================================
+    delegation_parser = subparsers.add_parser(
+        "delegation",
+        help="Manage named subagent profiles for delegate_task(profile=...)",
+    )
+    delegation_sub = delegation_parser.add_subparsers(dest="delegation_command")
+    _dp = delegation_sub.add_parser("profiles", help="List, add or remove delegation profiles")
+    _dp_sub = _dp.add_subparsers(dest="profiles_command")
+    _dp_list = _dp_sub.add_parser("list", help="Show configured profiles")
+    _dp_list.add_argument("--json", action="store_true", help="Machine-readable output")
+    _dp_add = _dp_sub.add_parser("add", help="Add a profile (guided when no name is given)")
+    _dp_add.add_argument("name", nargs="?", help="Profile name")
+    _dp_add.add_argument("--model")
+    _dp_add.add_argument("--provider")
+    _dp_add.add_argument("--base-url", dest="base_url")
+    _dp_add.add_argument("--api-mode", dest="api_mode",
+                         choices=["chat_completions", "codex_responses", "anthropic_messages"])
+    _dp_add.add_argument("--toolsets", help="Comma separated, e.g. web,file")
+    _dp_add.add_argument("--max-iterations", dest="max_iterations", type=int)
+    _dp_add.add_argument("--budget-usd", dest="budget_usd", type=float,
+                         help="Spend cap for each child using this profile")
+    _dp_add.add_argument("--role", choices=["leaf", "orchestrator"])
+    _dp_add.add_argument("--force", action="store_true", help="Replace an existing profile")
+    _dp_add.add_argument("-i", "--interactive", action="store_true",
+                         help="Prompt for every value (guided picker)")
+    _dp_rm = _dp_sub.add_parser("remove", help="Remove a profile")
+    _dp_rm.add_argument("name")
+
+    def cmd_delegation(args):
+        from janus_cli.delegation_profiles import delegation_command
+        return delegation_command(args)
+
+    delegation_parser.set_defaults(func=cmd_delegation)
 
     # =========================================================================
     # autonomy command — the safety floor: kill switch + rolling spend view

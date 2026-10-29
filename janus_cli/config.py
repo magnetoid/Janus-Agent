@@ -2076,6 +2076,12 @@ DEFAULT_CONFIG = {
             "enabled": False,
             "max_running": 3,
         },
+        # Named subagent profiles, selected with delegate_task(profile="<name>").
+        # Each may set provider/model/base_url/api_key/api_mode, toolsets,
+        # max_iterations, budget_usd (per-child spend cap) and role. Explicit
+        # delegate_task arguments beat the profile. Empty = feature unused.
+        # Manage with `janus delegation profiles list|add|remove`.
+        "profiles": {},
     },
 
     # Consensus / smart model routing. Route each task to the right-cost model:

@@ -1075,6 +1075,9 @@ def init_agent(
     # Background delegation children set this so `janus delegations attach
     # --follow` sees tool iterations as they happen, not just at turn exit.
     agent._flush_db_each_iteration = False
+    # Per-child USD ceiling set from a delegation profile's budget_usd;
+    # the loop's cost gate uses the tighter of it and budget.session_cost_usd.
+    agent._session_cost_limit_usd_override = None
     agent._session_db_created = False  # DB row deferred to run_conversation()
     agent._session_init_model_config = {
         "max_iterations": agent.max_iterations,

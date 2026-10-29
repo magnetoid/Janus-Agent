@@ -879,6 +879,11 @@ def run_conversation(
     # B-PR2: per-session USD ceiling (None = unlimited). Read once; enforced at
     # the turn boundary below — halting only, never a mid-turn prompt/toolset change.
     _cost_limit_usd = cost_ledger.session_cost_limit_usd()
+    # A delegation profile's budget_usd caps this child's own spend; the
+    # tighter of it and the global per-session ceiling applies.
+    _child_cap = getattr(agent, "_session_cost_limit_usd_override", None)
+    if isinstance(_child_cap, (int, float)) and _child_cap > 0:
+        _cost_limit_usd = _child_cap if _cost_limit_usd is None else min(_cost_limit_usd, _child_cap)
 
     while (api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0) or agent._budget_grace_call:
         # Reset per-turn checkpoint dedup so each iteration can take one snapshot

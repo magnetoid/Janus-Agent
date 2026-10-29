@@ -57,6 +57,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus kanban` | Multi-profile collaboration board (tasks, links, dispatcher). |
 | `janus webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
 | `janus hooks` | Inspect, approve, or remove shell-script hooks declared in `config.yaml`. |
+| `janus delegation profiles` | List, add or remove named subagent profiles for `delegate_task(profile=...)`. |
 | `janus doctor` | Diagnose config and dependency issues. |
 | `janus security audit` | On-demand supply-chain audit (OSV.dev) for the venv, plugin requirements, and pinned MCP servers. |
 | `janus dump` | Copy-pasteable setup summary for support/debugging. |
@@ -631,6 +632,18 @@ janus webhook subscribe <name> [options]
 | `--deliver-only` | Skip the agent — deliver the rendered `--prompt` as the literal message. Zero LLM cost, sub-second delivery. Requires `--deliver` to be a real target (not `log`). |
 
 Subscriptions persist to `~/.janus/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
+
+## `janus delegation`
+
+```bash
+janus delegation profiles list [--json]
+janus delegation profiles add [name] [--model M] [--provider P] [--base-url URL]
+    [--api-mode MODE] [--toolsets a,b] [--max-iterations N] [--budget-usd X]
+    [--role leaf|orchestrator] [--force] [-i]
+janus delegation profiles remove <name>
+```
+
+Manages `delegation.profiles` in `config.yaml`. `add` with no name (or `-i`) walks through each value; blank answers are left unset. `--force` replaces an existing profile. See [Subagent Delegation → Profiles](/user-guide/features/delegation#profiles).
 
 ## `janus doctor`
 

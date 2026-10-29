@@ -2065,6 +2065,7 @@ def delegate_task(
     role: Optional[str] = None,
     parent_agent=None,
     background: bool = False,
+    profile: Optional[str] = None,
 ) -> str:
     """
     Spawn one or more child agents to handle delegated tasks.
@@ -2111,9 +2112,6 @@ def delegate_task(
             f"(budget.daily_usd / budget.monthly_usd) or clear the freeze "
             f"(`janus autonomy unfreeze`) before retrying."
         )
-
-    # Normalise the top-level role once; per-task overrides re-normalise.
-    top_role = _normalize_role(role)
 
     # Depth limit — configurable via delegation.max_spawn_depth,
     # default 2 for parity with the original MAX_DEPTH constant.
@@ -2186,7 +2184,7 @@ def delegate_task(
         task_list = tasks
     elif goal and isinstance(goal, str) and goal.strip():
         task_list = [
-            {"goal": goal, "context": context, "toolsets": toolsets, "role": top_role}
+            {"goal": goal, "context": context, "toolsets": toolsets, "role": role}
         ]
     else:
         return tool_error("Provide either 'goal' (single task) or 'tasks' (batch).")
@@ -2202,6 +2200,26 @@ def delegate_task(
             )
         if not task.get("goal", "").strip():
             return tool_error(f"Task {i} is missing a 'goal'.")
+
+    # Named profiles (delegation.profiles.<name>) — resolve every one before
+    # building anything so an unknown name never leaves half a batch running.
+    task_profiles: Dict[int, Dict[str, Any]] = {}
+    task_profile_creds: Dict[int, Dict[str, Any]] = {}
+    for i, task in enumerate(task_list):
+        name = task.get("profile") or profile
+        if not name:
+            continue
+        prof, prof_error = _resolve_profile(cfg, str(name))
+        if prof_error:
+            return tool_error(prof_error)
+        task_profiles[i] = prof or {}
+        if _profile_has_credentials(task_profiles[i]):
+            try:
+                task_profile_creds[i] = _resolve_delegation_credentials(
+                    _profile_credential_cfg(task_profiles[i]), parent_agent
+                )
+            except ValueError as exc:
+                return tool_error(f"Delegation profile '{name}': {exc}")
 
     overall_start = time.monotonic()
     results = []
@@ -2225,13 +2243,18 @@ def delegate_task(
     try:
         for i, t in enumerate(task_list):
             task_acp_args = t.get("acp_args") if "acp_args" in t else None
-            # Per-task role beats top-level; normalise again so unknown
-            # per-task values warn and degrade to leaf uniformly.
-            effective_role = _normalize_role(t.get("role") or top_role)
+            prof = task_profiles.get(i, {})
+            # Per-task role beats top-level, which beats the profile's;
+            # normalise again so unknown values warn and degrade to leaf.
+            effective_role = _normalize_role(t.get("role") or role or prof.get("role"))
             # Learned routing (Track D): per-task complexity-priced model at
             # task entry. No-op unless delegation.routing + consensus.enabled.
             # ACP children run a subprocess CLI whose model isn't ours to pick.
-            if t.get("acp_command") or acp_command:
+            # A profile that names a model/provider/endpoint is an explicit
+            # choice and is never re-routed.
+            if i in task_profile_creds:
+                task_creds, routing_info = task_profile_creds[i], None
+            elif t.get("acp_command") or acp_command:
                 task_creds, routing_info = creds, None
             else:
                 task_creds, routing_info = _maybe_route_task_credentials(
@@ -2243,9 +2266,9 @@ def delegate_task(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                toolsets=t.get("toolsets") or toolsets,
+                toolsets=t.get("toolsets") or toolsets or prof.get("toolsets"),
                 model=task_creds["model"],
-                max_iterations=effective_max_iter,
+                max_iterations=_profile_max_iterations(prof, effective_max_iter),
                 task_count=n_tasks,
                 parent_agent=parent_agent,
                 override_provider=task_creds["provider"],
@@ -2264,6 +2287,9 @@ def delegate_task(
             )
             # Override with correct parent tool names (before child construction mutated global)
             child._delegate_saved_tool_names = _parent_tool_names
+            budget = _profile_budget_usd(prof)
+            if budget is not None:
+                child._session_cost_limit_usd_override = budget
             children.append((i, t, child))
     finally:
         # Authoritative restore: reset global to parent's tool names after all children built
@@ -2747,6 +2773,50 @@ def _maybe_route_task_credentials(goal: str, cfg: dict, parent_agent, creds: dic
         return creds, None
 
 
+_PROFILE_CREDENTIAL_KEYS = ("model", "provider", "base_url", "api_key", "api_mode")
+
+
+def _resolve_profile(cfg: dict, name: str):
+    """Look up ``delegation.profiles.<name>``; return ``(profile, error)``."""
+    profiles = cfg.get("profiles") if isinstance(cfg, dict) else None
+    profiles = profiles if isinstance(profiles, dict) else {}
+    prof = profiles.get(name)
+    if isinstance(prof, dict):
+        return prof, None
+    available = ", ".join(sorted(profiles)) or "none configured"
+    return None, (
+        f"Unknown delegation profile '{name}'. Available: {available}. "
+        f"Define profiles under delegation.profiles in config.yaml "
+        f"(`janus delegation profiles add`)."
+    )
+
+
+def _profile_has_credentials(prof: Dict[str, Any]) -> bool:
+    return any(str(prof.get(k) or "").strip() for k in ("model", "provider", "base_url"))
+
+
+def _profile_credential_cfg(prof: Dict[str, Any]) -> Dict[str, Any]:
+    """A profile that names any credential key replaces the global set whole,
+    so a profile's ``provider`` is never shadowed by a global ``base_url``."""
+    return {k: prof.get(k) for k in _PROFILE_CREDENTIAL_KEYS}
+
+
+def _profile_max_iterations(prof: Dict[str, Any], default: int) -> int:
+    try:
+        value = int(prof.get("max_iterations") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else default
+
+
+def _profile_budget_usd(prof: Dict[str, Any]) -> Optional[float]:
+    try:
+        value = float(prof.get("budget_usd") or 0)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def _load_config() -> dict:
     """Load delegation config from CLI_CONFIG or persistent config.
 
@@ -3027,6 +3097,10 @@ DELEGATE_TASK_SCHEMA = {
                             "enum": ["leaf", "orchestrator"],
                             "description": "Per-task role override. See top-level 'role' for semantics.",
                         },
+                        "profile": {
+                            "type": "string",
+                            "description": "Per-task profile override. See top-level 'profile'.",
+                        },
                     },
                     "required": ["goal"],
                 },
@@ -3039,6 +3113,15 @@ DELEGATE_TASK_SCHEMA = {
                 "type": "string",
                 "enum": ["leaf", "orchestrator"],
                 "description": "(rebuilt at get_definitions() time)",
+            },
+            "profile": {
+                "type": "string",
+                "description": (
+                    "Named subagent profile from delegation.profiles in the user's "
+                    "config (model/provider, toolsets, max_iterations, budget_usd, role). "
+                    "Explicit toolsets/role in this call override the profile's. "
+                    "Only use names the user has configured."
+                ),
             },
             "acp_command": {
                 "type": "string",
@@ -3129,6 +3212,7 @@ registry.register(
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
         role=args.get("role"),
+        profile=args.get("profile"),
         parent_agent=kw.get("parent_agent"),
         background=bool(args.get("background", False)),
     ),
