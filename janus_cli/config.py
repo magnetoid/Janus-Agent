@@ -1748,6 +1748,12 @@ DEFAULT_CONFIG = {
         # get trimmed over time; this journal is the never-trimmed, browsable
         # history (OpenClaw-style). Set false to disable the journal.
         "daily_snapshots": True,
+        # Provenance: record where each MEMORY.md/USER.md entry came from
+        # (agent, miner, reconcile…), the session, what a replace superseded,
+        # and whether untrusted external content was in context — in a
+        # sidecar memories/provenance.db (the prompt never sees it). Feeds
+        # `janus memory lint`. Off by default.
+        "provenance": False,
         # Session-end memory mining: when a session ends, distill durable
         # facts from the transcript into MEMORY.md/USER.md via a cheap
         # auxiliary model (OpenClaw-style). Opt-in (default off) because it

@@ -1180,6 +1180,7 @@ Subcommands:
 | `setup` | Interactive provider selection and configuration. |
 | `status` | Show current memory provider config. |
 | `off` | Disable external provider (built-in only). |
+| `lint` | Read-only report of contradicted, duplicate, stale or doubtful-origin built-in memory entries. Flags: `--target memory\|user\|all`, `--offline` (no model call), `--stale-days N`, `--json`, `--strict` (exit 1 on findings). Origin and staleness checks need `memory.provenance: true`. |
 
 :::info Provider-specific subcommands
 When an external memory provider is active, it may register its own top-level `janus <provider>` command for provider-specific management (e.g. `janus honcho` when Honcho is active). Inactive providers do not expose their subcommands. Run `janus --help` to see what's currently wired in.

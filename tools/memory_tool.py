@@ -189,6 +189,15 @@ def read_daily_snapshots(date: Optional[str] = None, days: int = 7) -> Dict[str,
 from tools.threat_patterns import first_threat_message as _first_threat_message
 
 
+def _record_provenance(target: str, action: str, content: str, **kwargs) -> None:
+    """Best-effort provenance sidecar write (agent/memory_provenance.py)."""
+    try:
+        from agent.memory_provenance import record
+        record(target, action, content, **kwargs)
+    except Exception as exc:  # provenance must never break a memory write
+        logger.debug("memory provenance hook failed: %s", exc)
+
+
 def _scan_memory_content(content: str) -> Optional[str]:
     """Scan memory content for injection/exfil patterns. Returns error string if blocked."""
     return _first_threat_message(content, scope="strict")
@@ -473,6 +482,7 @@ class MemoryStore:
             self._set_entries(target, entries)
             self.save_to_disk(target)
             append_daily_snapshot(target, content, "add")
+            _record_provenance(target, "add", content)
 
         return self._success_response(target, "Entry added.")
 
@@ -530,10 +540,12 @@ class MemoryStore:
                     ),
                 }
 
+            superseded = entries[idx]
             entries[idx] = new_content
             self._set_entries(target, entries)
             self.save_to_disk(target)
             append_daily_snapshot(target, new_content, "replace")
+            _record_provenance(target, "replace", new_content, supersedes_text=superseded)
 
         return self._success_response(target, "Entry replaced.")
 
@@ -572,6 +584,7 @@ class MemoryStore:
             self._set_entries(target, entries)
             self.save_to_disk(target)
             append_daily_snapshot(target, removed, "remove")
+            _record_provenance(target, "remove", removed)
 
         return self._success_response(target, "Entry removed.")
 

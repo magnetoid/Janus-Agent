@@ -1748,13 +1748,18 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
         def _execute(next_args: dict) -> Any:
             target = next_args.get("target", "memory")
             from tools.memory_tool import memory_tool as _memory_tool
-            result = _memory_tool(
-                action=next_args.get("action"),
-                target=target,
-                content=next_args.get("content"),
-                old_text=next_args.get("old_text"),
-                store=agent._memory_store,
-            )
+            from agent.memory_provenance import provenance_context, turn_has_untrusted
+            with provenance_context(
+                "agent", session_id=getattr(agent, "session_id", None),
+                untrusted=turn_has_untrusted(messages),
+            ):
+                result = _memory_tool(
+                    action=next_args.get("action"),
+                    target=target,
+                    content=next_args.get("content"),
+                    old_text=next_args.get("old_text"),
+                    store=agent._memory_store,
+                )
             # Bridge: notify external memory provider of built-in memory writes
             if agent._memory_manager and next_args.get("action") in {"add", "replace"}:
                 try:
