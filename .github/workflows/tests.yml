@@ -29,9 +29,13 @@
 # continue-on-error. A gate people are allowed to ignore is not a gate, and
 # re-softening it silently restores the baseline this replaced.
 #
+#   * typecheck     — INFORMATIONAL: `ty check` over shipped code (tests/ and
+#                     optional-skills/ excluded in pyproject). ~4.1k
+#                     diagnostics today, so it reports the count in the job
+#                     summary instead of failing; make it a hard gate once
+#                     the count is driven to zero, not before.
 # Deliberately NOT here yet: `janus evals gate --fail-closed` (needs
-# execution-based checks + a persistent trend store) and `ty check` (~9.4k
-# diagnostics today — a red job people learn to ignore).
+# execution-based checks + a persistent trend store).
 
 name: tests
 
@@ -64,6 +68,45 @@ jobs:
         run: .venv/bin/ruff check .
       - name: Windows cross-platform footguns
         run: .venv/bin/python scripts/check-windows-footguns.py --all
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Visibility, not a gate (see header): green while ty runs cleanly, with
+    # the count in the step summary; red only if ty itself crashes.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: "3.11"
+      - name: Install (full extras + dev)
+        # Full extras so optional imports resolve instead of inflating the
+        # count with unresolved-import noise.
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install -e ".[all,dev]" --python .venv/bin/python
+      - name: ty check
+        run: |
+          set +e
+          .venv/bin/ty check --output-format concise > ty.txt 2>&1
+          status=$?
+          set -e
+          total=$(grep -cE '^[^ ]+:[0-9]+:[0-9]+: (error|warning)\[' ty.txt || true)
+          {
+            echo "### ty check: ${total} diagnostics"
+            echo
+            echo "| Rule | Count |"
+            echo "|---|---|"
+            grep -oE '(error|warning)\[[a-z-]+\]' ty.txt | sort | uniq -c | sort -rn | head -15 \
+              | awk '{print "| `" $2 "` | " $1 " |"}'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::ty check: ${total} diagnostics (informational, see the job summary)"
+          # ty exits 1 when it finds diagnostics: expected until the count is
+          # zero, so it must not turn the check red. Fail only when ty itself
+          # broke (exit >= 2, or a panic that leaves the count incomplete).
+          if grep -q 'panic' ty.txt; then echo "::error::ty panicked; the count is incomplete"; exit 1; fi
+          if [ "$status" -ge 2 ]; then cat ty.txt | tail -20; exit "$status"; fi
 
   tests-changed:
     runs-on: ubuntu-latest
