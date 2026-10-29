@@ -122,3 +122,27 @@ jobs:
       # tests/{integration,e2e,docker} are excluded by its default discovery.
       - name: Full suite
         run: scripts/run_tests.sh
+
+  # The Ink/React TUI. HARD gate on type-check + vitest: both were red on main
+  # for weeks without anyone noticing because nothing ran them. eslint is not
+  # gated yet (32 pre-existing errors) — add it once `npm run lint` is clean.
+  ui-tui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+      # --ignore-scripts mirrors the local allow-scripts hardening: no
+      # dependency lifecycle scripts run (electron/node-pty aren't needed here).
+      - name: Install workspace
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # ui-tui imports @janus/ink from its built dist/, so build it first.
+      - name: Build @janus/ink
+        run: npm run build --workspace ui-tui/packages/janus-ink
+      - name: Type-check
+        run: npm run type-check --workspace ui-tui
+      - name: Tests
+        run: npm test --workspace ui-tui
