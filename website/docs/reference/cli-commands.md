@@ -984,6 +984,9 @@ Subcommands:
 | `update` | Reinstall hub skills with upstream changes when available. |
 | `audit` | Re-scan installed hub skills. |
 | `uninstall` | Remove a hub-installed skill. |
+| `history <name>` | List recorded versions of a skill (newest first, with who changed it and why). Needs `skills.versions.enabled: true`. |
+| `diff <name> [id]` | Show what changed since a recorded version (default: the newest). |
+| `undo <name> [id]` | Restore a skill to a recorded version. The current state is recorded first, so an undo can be undone. Pinned skills need `--force`. |
 | `reset` | Un-stick a bundled skill flagged as `user_modified` by clearing its manifest entry. With `--restore`, also replaces the user copy with the bundled version. |
 | `opt-out` | Stop bundled skills from being seeded into the active profile. Writes a `.no-bundled-skills` marker so the installer, `janus update`, and any sync skip bundled-skill seeding. Safe by default — nothing on disk is touched. With `--remove`, also deletes already-present bundled skills that are **unmodified** (user-edited, hub-installed, and hand-written skills are never removed; previews and confirms first, `--yes` to skip). |
 | `opt-in` | Undo `opt-out` by removing the `.no-bundled-skills` marker so bundled skills are seeded again on the next `janus update`. With `--sync`, re-seed immediately. |

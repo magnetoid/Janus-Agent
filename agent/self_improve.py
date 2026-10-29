@@ -466,6 +466,12 @@ def _promote_skill(proposal_id: str, rec: Dict[str, Any], root: Path,
     active_md = resolve_active_skill_md(skills_root, name)
     if active_md is not None:
         # In-place replacement of the live skill.
+        try:
+            from agent.skill_versions import record_version
+            record_version(active_md.parent, reason=f"self-improve {proposal_id}",
+                           actor="self_improve")
+        except Exception:
+            logger.debug("skill history hook failed (continuing)", exc_info=True)
         backup = rec.get("backup") or ""
         if not backup:
             bpath = active_md.with_name(active_md.name + f".bak-{proposal_id}")

@@ -14562,6 +14562,23 @@ Examples:
     )
     skills_uninstall.add_argument("name", help="Skill name to remove")
 
+    # Per-skill version history (agent/skill_versions.py, skills.versions.enabled)
+    skills_history = skills_subparsers.add_parser(
+        "history", help="List recorded versions of a skill (needs skills.versions.enabled)")
+    skills_history.add_argument("name", help="Skill name")
+    skills_history.add_argument("--json", action="store_true", help="Machine-readable output")
+    skills_diff = skills_subparsers.add_parser(
+        "diff", help="Show what changed in a skill since a recorded version")
+    skills_diff.add_argument("name", help="Skill name")
+    skills_diff.add_argument("version", nargs="?", default=None,
+                             help="Version id or prefix (default: newest)")
+    skills_undo = skills_subparsers.add_parser(
+        "undo", help="Restore a skill to a recorded version (the current state is kept as a version)")
+    skills_undo.add_argument("name", help="Skill name")
+    skills_undo.add_argument("version", nargs="?", default=None,
+                             help="Version id or prefix (default: newest)")
+    skills_undo.add_argument("--force", action="store_true", help="Also restore a pinned skill")
+
     skills_reset = skills_subparsers.add_parser(
         "reset",
         help="Reset a bundled skill — clears 'user-modified' tracking so updates work again",
@@ -14770,6 +14787,10 @@ Examples:
             _cmd_skills_graph(args)
         elif getattr(args, "skills_action", None) == "mine":
             _cmd_skills_mine(args)
+        elif getattr(args, "skills_action", None) in {"history", "diff", "undo"}:
+            from janus_cli.skills_versions_cli import run as _skills_versions_run
+
+            return _skills_versions_run(args)
         else:
             from janus_cli.skills_hub import skills_command
 
