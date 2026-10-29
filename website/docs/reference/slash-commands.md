@@ -95,6 +95,8 @@ Type `/` in the CLI to open the autocomplete menu. Built-in commands are case-in
 | `/reload-skills` (alias: `/reload_skills`) | Re-scan `~/.janus/skills/` for newly installed or removed skills |
 | `/reload` | Reload `.env` variables into the running session (picks up new API keys without restarting) |
 | `/plugins` | List installed plugins and their status |
+| `/aspire [set <goal>\|list\|show\|done\|clear]` | Long-term aspirations Janus keeps across sessions, with a drafted roadmap and recurring check-ins. Same as `janus aspire`. |
+| `/interest [add <field>\|list\|remove]` | Track a field Janus researches on a schedule and proposes what to learn. Same as `janus interest`. |
 
 ### Info
 
@@ -104,6 +106,7 @@ Type `/` in the CLI to open the autocomplete menu. Built-in commands are case-in
 | `/version` | Show Janus Agent version, build, and environment info. |
 | `/usage` | Show token usage, cost breakdown, session duration, and — when available from the active provider — an **Account limits** section with remaining quota / credits / plan usage pulled live from the provider's API. |
 | `/insights` | Show usage insights and analytics (last 30 days) |
+| `/memory [log [N]\|mine]` | Browse the dated memory journal (`log`, last N days) or mine the current session for memories now. |
 | `/platforms` (alias: `/gateway`) | Show gateway/messaging platform status (CLI-only summary view). |
 | `/platform <list\|pause\|resume> [name]` | Operate a running gateway platform. `/platform list` lists every adapter and its state (running, paused-by-breaker, manually-paused); `/platform pause <name>` stops dispatching new messages to that adapter without unloading it; `/platform resume <name>` re-enables it. The gateway also auto-pauses an adapter when its circuit breaker trips on repeated retryable failures (network / rate-limit / 5xx) — use `/platform resume <name>` to clear the breaker once the upstream is healthy. Available wherever the gateway is reachable (CLI session, Telegram, Discord, …). |
 | `/paste` | Attach a clipboard image |
