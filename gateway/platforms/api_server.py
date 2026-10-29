@@ -56,6 +56,7 @@ except ImportError:
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms import agui as agui_protocol
+from gateway.platforms import a2a as a2a_protocol
 from gateway.platforms import api_config
 from gateway.platforms import blob_files
 from gateway.platforms.base import (
@@ -771,6 +772,11 @@ class APIServerAdapter(BasePlatformAdapter):
         self._blob_signing_secret: str = extra.get(
             "blob_signing_secret", os.getenv("BLOB_SIGNING_SECRET", "")
         )
+        # A2A server (/.well-known/agent-card.json + POST /a2a). Off unless
+        # enabled: it exposes the agent to other agents using the bearer key.
+        _a2a_raw = extra.get("a2a", os.getenv("API_SERVER_A2A", ""))
+        self._a2a_enabled: bool = str(_a2a_raw).strip().lower() in {"1", "true", "yes", "on"}
+        self._a2a_tasks = a2a_protocol.TaskStore()
         # Parsed defensively. These run in the adapter's constructor, so a typo in one
         # of them used to take the entire gateway down at start-up — every platform, not
         # just this route — which is a steep price for a misspelled duration.
@@ -1189,6 +1195,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 ),
             },
             "features": {
+                "a2a": self._a2a_enabled,
                 "chat_completions": True,
                 "chat_completions_streaming": True,
                 "responses_api": True,
@@ -3624,6 +3631,79 @@ class APIServerAdapter(BasePlatformAdapter):
     # Agent execution
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # A2A (Agent2Agent) — see gateway/platforms/a2a.py
+    # ------------------------------------------------------------------
+
+    def _register_a2a_routes(self, app: "web.Application") -> None:
+        if not self._a2a_enabled:
+            return
+        app.router.add_get("/.well-known/agent-card.json", self._handle_a2a_card)
+        app.router.add_get("/.well-known/agent.json", self._handle_a2a_card)
+        app.router.add_post("/a2a", self._handle_a2a_rpc)
+
+    async def _handle_a2a_card(self, request: "web.Request") -> "web.Response":
+        """Public A2A agent card (static description; no secrets)."""
+        try:
+            from janus_cli import __version__ as _version
+        except Exception:
+            _version = "0"
+        card = a2a_protocol.agent_card(
+            str(request.url.origin()), name="Janus Agent", version=str(_version),
+            description=("Self-improving general-purpose agent by Cloud Industry. "
+                         f"Model: {self._model_name}."),
+        )
+        return web.json_response(card)
+
+    async def _handle_a2a_rpc(self, request: "web.Request") -> "web.Response":
+        """POST /a2a — A2A JSON-RPC 2.0 (message/send, tasks/get, tasks/cancel)."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(a2a_protocol.rpc_error(None, a2a_protocol.PARSE_ERROR, "Parse error"))
+        if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
+            return web.json_response(a2a_protocol.rpc_error(
+                payload.get("id") if isinstance(payload, dict) else None,
+                a2a_protocol.INVALID_REQUEST, "Invalid JSON-RPC request"))
+        rid = payload.get("id")
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        kind = a2a_protocol.METHODS.get(str(payload.get("method", "")))
+        if kind is None:
+            return web.json_response(a2a_protocol.rpc_error(
+                rid, a2a_protocol.METHOD_NOT_FOUND, f"Method not found: {payload.get('method')}"))
+        if kind == "get":
+            task = self._a2a_tasks.get(str(params.get("id", "")))
+            if task is None:
+                return web.json_response(a2a_protocol.rpc_error(rid, a2a_protocol.TASK_NOT_FOUND, "Task not found"))
+            return web.json_response(a2a_protocol.rpc_result(rid, task))
+        if kind == "cancel":
+            if self._a2a_tasks.get(str(params.get("id", ""))) is None:
+                return web.json_response(a2a_protocol.rpc_error(rid, a2a_protocol.TASK_NOT_FOUND, "Task not found"))
+            return web.json_response(a2a_protocol.rpc_error(
+                rid, a2a_protocol.TASK_NOT_CANCELABLE, "Task already finished (tasks complete within message/send)"))
+
+        message = params.get("message")
+        text, err = a2a_protocol.message_text(message)
+        if err:
+            return web.json_response(a2a_protocol.rpc_error(rid, a2a_protocol.INVALID_PARAMS, err))
+        context_id = str(message.get("contextId") or f"a2a-{uuid.uuid4().hex[:16]}")
+        history = self._conversation_history_for_session(context_id)
+        try:
+            result, _usage = await self._run_agent(
+                user_message=text, conversation_history=history, session_id=context_id)
+            final = result.get("final_response", "") if isinstance(result, dict) else ""
+            task = a2a_protocol.build_task(context_id=context_id, user_message=message,
+                                           state="completed", text=final or "")
+        except Exception as exc:
+            logger.warning("A2A message/send failed: %s", exc)
+            task = a2a_protocol.build_task(context_id=context_id, user_message=message,
+                                           state="failed", text=f"Agent run failed: {exc}")
+        self._a2a_tasks.put(task)
+        return web.json_response(a2a_protocol.rpc_result(rid, task))
+
     async def _run_agent(
         self,
         user_message: str,
@@ -4460,6 +4540,8 @@ class APIServerAdapter(BasePlatformAdapter):
             # is nothing to check and it must not exist at all.
             if self._blob_signing_secret:
                 self._app.router.add_post("/v1/agui", self._handle_agui)
+            # A2A — only when api_server.a2a / API_SERVER_A2A is enabled.
+            self._register_a2a_routes(self._app)
             # Session/client control surface (thin wrappers over SessionDB + _run_agent)
             self._app.router.add_get("/api/sessions", self._handle_list_sessions)
             self._app.router.add_post("/api/sessions", self._handle_create_session)

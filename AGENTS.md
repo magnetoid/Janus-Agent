@@ -899,6 +899,19 @@ them.
 
 ---
 
+## A2A server (`gateway/platforms/a2a.py`)
+
+Off unless `API_SERVER_A2A` (or the adapter's `extra["a2a"]`) is truthy.
+`APIServerAdapter._register_a2a_routes()` adds the public agent card
+(`/.well-known/agent-card.json` + legacy `agent.json`) and bearer-authed
+`POST /a2a` (JSON-RPC: `message/send`|`SendMessage`, `tasks/get`|`GetTask`,
+`tasks/cancel`|`CancelTask`). `contextId` = Janus session id; tasks are
+synchronous and kept in a 256-entry in-memory `TaskStore`; agent failures
+return a `failed` task, never a 500. No streaming/push yet. Bot-to-bot DMs
+are intentionally not built (kanban covers intra-Janus coordination).
+
+---
+
 ## Curator (skill lifecycle)
 
 Background skill-maintenance system that tracks usage on agent-created
