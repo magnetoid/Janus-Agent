@@ -80,6 +80,7 @@ class MyMemoryProvider(MemoryProvider):
 | `sync_turn(user, assistant, *, session_id="")` | After each completed turn | Persist conversation |
 | `on_session_end(messages)` | Conversation ends | Final extraction/flush |
 | `on_pre_compress(messages)` | Before context compression | Save insights before discard |
+| `on_post_compress(messages, old_session_id=, new_session_id=)` | After context compression | Re-index the compacted transcript, refresh per-session caches |
 | `on_memory_write(action, target, content)` | Built-in memory writes | Mirror to your backend |
 | `shutdown()` | Process exit | Clean up connections |
 

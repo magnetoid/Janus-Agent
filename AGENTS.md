@@ -550,6 +550,21 @@ as a side effect of importing `model_tools.py`. Code paths that read plugin
 state without importing `model_tools.py` first must call `discover_plugins()`
 explicitly (it's idempotent).
 
+### Post-compaction and tool-progress hooks
+
+- `MemoryProvider.on_post_compress(messages, old_session_id=, new_session_id=)`
+  (default no-op; `MemoryManager` fans out with per-provider isolation) and
+  the `post_compress` plugin hook both fire in
+  `agent/conversation_compression.py` after session rotation, before the
+  lock is released. Observers only — never mutate the transcript there.
+- `tools/tool_progress.py`: the tool executor binds the agent per turn
+  (`bind_agent`); tools call `report_progress(name, message, progress,
+  total)` to emit `tool.progress` through `tool_progress_callback` and touch
+  activity. Capture `current_sink()` on the calling thread before hopping
+  to another event loop (the MCP handler does this and passes
+  `progress_callback=` to `session.call_tool`). Progress callbacks must
+  ignore unknown event types.
+
 ### Memory-provider plugins (`plugins/memory/<name>/`)
 
 Separate discovery system for pluggable memory backends. Current built-in

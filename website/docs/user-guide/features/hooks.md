@@ -385,6 +385,7 @@ def register(ctx):
 | [`on_session_end`](#on_session_end) | Session ends | ignored |
 | [`on_session_finalize`](#on_session_finalize) | CLI/gateway tears down an active session (flush, save, stats) | ignored |
 | [`on_session_reset`](#on_session_reset) | Gateway swaps in a fresh session key (e.g. `/new`, `/reset`) | ignored |
+| [`post_compress`](#post_compress) | Context compression replaced older turns with a summary | ignored |
 | [`subagent_stop`](#subagent_stop) | A `delegate_task` child has exited | ignored |
 | [`pre_gateway_dispatch`](#pre_gateway_dispatch) | Gateway received a user message, before auth + dispatch | `{"action": "skip" \| "rewrite" \| "allow", ...}` to influence flow |
 | [`pre_approval_request`](#pre_approval_request) | Dangerous command needs user approval, before the prompt/notification is sent | ignored |
@@ -808,6 +809,22 @@ def my_callback(session_id: str, platform: str, **kwargs):
 See the **[Build a Plugin guide](/guides/build-a-janus-plugin)** for the full walkthrough including tool schemas, handlers, and advanced hook patterns.
 
 ---
+
+
+### `post_compress`
+
+Fires after context compression has replaced older turns with a summary and, when a session store is in use, rotated the session id. Observers only: the return value is ignored and an exception never affects compaction.
+
+| Kwarg | Type | Meaning |
+|---|---|---|
+| `session_id` | `str` | Session id the conversation continues under |
+| `old_session_id` | `str` | Session id before compression (empty if it did not rotate) |
+| `messages_before` | `int` | Message count before compression |
+| `messages_after` | `int` | Message count after compression |
+| `compression_count` | `int` | How many times this conversation has been compressed |
+| `messages` | `list[dict]` | The compacted transcript |
+
+**Fires:** In `agent/conversation_compression.py`, after the session rotation and memory-provider notifications, before the compression lock is released.
 
 ### `subagent_stop`
 

@@ -247,6 +247,13 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     Results are collected in the original tool-call order and appended to
     messages so the API sees them in the expected sequence.
     """
+    # Route mid-call progress (MCP notifications/progress) to this agent;
+    # the binding follows worker threads via propagate_context_to_thread.
+    try:
+        from tools.tool_progress import bind_agent as _bind_progress
+        _bind_progress(agent)
+    except Exception:
+        pass
     tool_calls = assistant_message.tool_calls
     num_tools = len(tool_calls)
 
@@ -770,6 +777,13 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
 
 def execute_tool_calls_sequential(agent, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
     """Execute tool calls sequentially (original behavior). Used for single calls or interactive tools."""
+    # Route mid-call progress (MCP notifications/progress) to this agent;
+    # the binding follows worker threads via propagate_context_to_thread.
+    try:
+        from tools.tool_progress import bind_agent as _bind_progress
+        _bind_progress(agent)
+    except Exception:
+        pass
     for i, tool_call in enumerate(assistant_message.tool_calls, 1):
         # SAFETY: check interrupt BEFORE starting each tool.
         # If the user sent "stop" during a previous tool's execution,

@@ -591,6 +591,17 @@ class MemoryManager:
                 )
         return "\n\n".join(parts)
 
+    def on_post_compress(self, messages: List[Dict[str, Any]], **kwargs) -> None:
+        """Notify all providers after context compression; failures are isolated."""
+        for provider in self._providers:
+            try:
+                provider.on_post_compress(messages, **kwargs)
+            except Exception as e:
+                logger.debug(
+                    "Memory provider '%s' on_post_compress failed: %s",
+                    provider.name, e,
+                )
+
     @staticmethod
     def _provider_memory_write_metadata_mode(provider: MemoryProvider) -> str:
         """Return how to pass metadata to a provider's memory-write hook."""
