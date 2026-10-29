@@ -126,9 +126,19 @@ def _run_switch(raw_input: str, **extra):
         # For other providers, return empty so tests don't depend on them.
         return []
 
+    # Validation probes the provider's live /models endpoint and falls back
+    # to the live models.dev registry; pin both so the result doesn't change
+    # whenever upstream renames a model (deepseek-v4-flash →
+    # deepseek-v4.1-flash once auto-corrected this test red).
     with patch(
         "janus_cli.model_switch.list_provider_models",
         side_effect=fake_list_provider_models,
+    ), patch(
+        "janus_cli.models.fetch_api_models",
+        side_effect=lambda *a, **k: list(_OPENCODE_GO_LIVE),
+    ), patch(
+        "agent.models_dev.fetch_models_dev",
+        return_value={},
     ):
         return switch_model(raw_input=raw_input, **defaults)
 

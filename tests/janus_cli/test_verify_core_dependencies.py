@@ -155,11 +155,16 @@ class TestVerifyCoreDependencies:
             captured_argv.append(list(cmd))
             return MagicMock(returncode=0, stdout="", stderr="")
 
-        # Force sys.platform to look like Windows so the marker filters
-        # ptyprocess out. (We need the actual marker.evaluate() to see win32.)
+        # Evaluate markers against a Windows environment so the real
+        # marker.evaluate() filters ptyprocess out. packaging >= 26.3 caches
+        # its default environment per process, so patching sys.platform alone
+        # no longer reaches marker evaluation; it is still patched for the
+        # rest of the function's Windows behaviour.
+        windows_markers = {"sys_platform": "win32", "platform_system": "Windows", "os_name": "nt"}
         with patch("janus_cli.main._resolve_install_target_python", return_value=py), \
              patch("janus_cli.main.subprocess.run", side_effect=fake_subprocess_run), \
              patch("janus_cli.main._run_install_with_heartbeat"), \
+             patch("janus_cli.main._dependency_marker_environment", return_value=windows_markers), \
              patch("sys.platform", "win32"):
 
             from janus_cli.main import _verify_core_dependencies_installed
