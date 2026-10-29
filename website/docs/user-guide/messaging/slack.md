@@ -310,6 +310,10 @@ In channels, always @mention the bot to start a conversation. Once the bot is ac
 
 ---
 
+## Questions With Choices
+
+When the agent asks you to choose (the `clarify` tool with choices), Slack shows the options as buttons: one numbered button per choice and an **Other (type answer)** button. Clicking a number answers immediately and the message is updated with what was chosen. **Other** switches the prompt to a typed answer, so your next message in the thread is taken as the reply. Only users allowed to talk to the bot can click. Open questions without choices are plain messages; just reply.
+
 ## Configuration Options
 
 Beyond the required environment variables from Step 8, you can customize Slack bot behavior through `~/.janus/config.yaml`.

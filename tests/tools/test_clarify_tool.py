@@ -176,9 +176,12 @@ class TestClarifySchema:
         assert "description" in CLARIFY_SCHEMA
         assert len(CLARIFY_SCHEMA["description"]) > 50
 
-    def test_schema_question_required(self):
-        """Question parameter should be required."""
-        assert "question" in CLARIFY_SCHEMA["parameters"]["required"]
+    def test_schema_offers_single_and_multi_question_forms(self):
+        """Either `question` or `questions` is enough, so neither is schema-required;
+        clarify_tool rejects a call that has neither."""
+        props = CLARIFY_SCHEMA["parameters"]["properties"]
+        assert "question" in props and "questions" in props
+        assert "question" not in CLARIFY_SCHEMA["parameters"].get("required", [])
 
     def test_schema_choices_optional(self):
         """Choices parameter should be optional."""
