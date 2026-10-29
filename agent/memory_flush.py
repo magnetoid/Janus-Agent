@@ -20,9 +20,8 @@ Invariants:
 """
 from __future__ import annotations
 
-import hashlib
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +50,10 @@ def _text(content: Any) -> str:
     return "" if content is None else str(content)
 
 
-def _fingerprint(msg: Dict[str, Any]) -> str:
-    raw = f"{msg.get('role')}\x00{msg.get('tool_call_id') or ''}\x00{_text(msg.get('content'))}"
-    return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
+def _fingerprint(msg: Dict[str, Any]) -> Tuple[str, str, str]:
+    # The key itself, not a digest: it only dedupes messages already held in
+    # memory, so hashing buys nothing (and reads as password hashing to scanners).
+    return (str(msg.get("role")), str(msg.get("tool_call_id") or ""), _text(msg.get("content")))
 
 
 def _unflushed(agent: Any, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
