@@ -2634,9 +2634,24 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 "error": f"MCP server '{server_name}' is not connected"
             }, ensure_ascii=False)
 
+        # Forward MCP notifications/progress to the agent's progress display.
+        # The sink is captured here, on the calling thread, because the call
+        # itself runs on the MCP event loop thread.
+        from tools.tool_progress import current_sink, report_progress
+        _progress_sink = current_sink()
+        _progress_name = f"mcp_{server_name}_{tool_name}"
+
+        async def _on_progress(progress, total=None, message=None):
+            report_progress(_progress_name, str(message or ""), progress, total,
+                            sink=_progress_sink)
+
         async def _call():
             async with server._rpc_lock:
-                result = await server.session.call_tool(tool_name, arguments=args)
+                if _progress_sink is not None:
+                    result = await server.session.call_tool(
+                        tool_name, arguments=args, progress_callback=_on_progress)
+                else:
+                    result = await server.session.call_tool(tool_name, arguments=args)
             # MCP CallToolResult has .content (list of content blocks) and .isError
             if result.isError:
                 error_text = ""

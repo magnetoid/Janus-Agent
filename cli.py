@@ -11428,6 +11428,24 @@ class JanusCLI:
                     pass
             self._invalidate()
             return
+        if event_type == "tool.progress":
+            # Mid-call progress (e.g. MCP notifications/progress): keep the
+            # running tool's spinner line, append "n/total message".
+            base = (self._spinner_text or "").split("  ·  ", 1)[0]
+            progress, total = kwargs.get("progress"), kwargs.get("total")
+            frac = ""
+            if progress is not None:
+                p_txt = f"{progress:g}" if isinstance(progress, (int, float)) else str(progress)
+                if total:
+                    t_txt = f"{total:g}" if isinstance(total, (int, float)) else str(total)
+                    frac = f"{p_txt}/{t_txt}"
+                else:
+                    frac = p_txt
+            detail = " ".join(x for x in (frac, (preview or "").strip()) if x)
+            if detail:
+                self._spinner_text = f"{base}  ·  {detail}" if base else detail
+                self._invalidate()
+            return
         if event_type != "tool.started":
             return
         if function_name and not function_name.startswith("_"):

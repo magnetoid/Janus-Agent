@@ -143,6 +143,10 @@ VALID_HOOKS: Set[str] = {
     "on_session_end",
     "on_session_finalize",
     "on_session_reset",
+    # Fired after context compression. Observers only. Kwargs: session_id,
+    # old_session_id, messages_before, messages_after, compression_count,
+    # messages (the compacted transcript).
+    "post_compress",
     "subagent_start",
     "subagent_stop",
     # Gateway pre-dispatch hook. Fired once per incoming MessageEvent

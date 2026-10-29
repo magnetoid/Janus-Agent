@@ -489,6 +489,10 @@ That keeps the tool list clean.
 
 ## Runtime behavior
 
+### Progress from long-running tools
+
+When an MCP server sends `notifications/progress` during a tool call, Janus shows it while the call runs: the CLI spinner line gets `n/total message` appended, and the progress events reach gateway and plugin progress callbacks as `tool.progress`. Each update also counts as activity, so a slow tool that keeps reporting progress is not treated as hung by the inactivity watchdog. Nothing needs configuring; servers that never report progress behave as before.
+
 ### Discovery time
 
 Janus discovers MCP servers at startup and registers their tools into the normal tool registry.

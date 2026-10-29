@@ -228,6 +228,16 @@ class MemoryProvider(ABC):
         """
         return ""
 
+    def on_post_compress(self, messages: List[Dict[str, Any]], **kwargs) -> None:
+        """Called after context compression replaced older turns with a summary.
+
+        ``messages`` is the compacted transcript the agent continues with.
+        kwargs: ``old_session_id`` and ``new_session_id`` (compression may
+        rotate the session id). Use it to re-index, refresh caches or record
+        what was summarised. Return value is ignored. Default is a no-op.
+        """
+        return None
+
     def on_delegation(self, task: str, result: str, *,
                       child_session_id: str = "", **kwargs) -> None:
         """Called on the PARENT agent when a subagent completes.

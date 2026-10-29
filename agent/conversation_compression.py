@@ -619,6 +619,33 @@ def compress_context(
     except Exception as _me_err:
         logger.debug("memory manager on_session_switch (compression): %s", _me_err)
 
+    # Post-compaction lifecycle: memory providers and plugins see the
+    # compacted transcript (observers only; return values are ignored and
+    # failures never affect compaction).
+    _old_sid_post = locals().get("old_session_id") or ""
+    try:
+        if agent._memory_manager:
+            agent._memory_manager.on_post_compress(
+                compressed,
+                old_session_id=_old_sid_post,
+                new_session_id=agent.session_id or "",
+            )
+    except Exception as _pc_err:
+        logger.debug("memory manager on_post_compress: %s", _pc_err)
+    try:
+        from janus_cli.plugins import invoke_hook as _invoke_hook
+        _invoke_hook(
+            "post_compress",
+            session_id=agent.session_id or "",
+            old_session_id=_old_sid_post,
+            messages_before=_pre_msg_count,
+            messages_after=len(compressed),
+            compression_count=getattr(agent.context_compressor, "compression_count", 0),
+            messages=compressed,
+        )
+    except Exception as _ph_err:
+        logger.debug("post_compress plugin hook: %s", _ph_err)
+
     # Warn on repeated compressions (quality degrades with each pass)
     _cc = agent.context_compressor.compression_count
     if _cc >= 2:
