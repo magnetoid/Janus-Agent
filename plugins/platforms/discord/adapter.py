@@ -4308,6 +4308,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 session_key=session_key,
                 allowed_user_ids=self._allowed_user_ids,
                 allowed_role_ids=self._allowed_role_ids,
+                request_id=(metadata or {}).get("approval_request_id"),
             )
 
             msg = await channel.send(embed=embed, view=view)
@@ -5274,11 +5275,13 @@ def _define_discord_view_classes() -> None:
             session_key: str,
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
+            request_id: Optional[str] = None,
         ):
             super().__init__(timeout=300)  # 5-minute timeout
             self.session_key = session_key
             self.allowed_user_ids = allowed_user_ids
             self.allowed_role_ids = allowed_role_ids or set()
+            self.request_id = request_id
             self.resolved = False
 
         def _check_auth(self, interaction: discord.Interaction) -> bool:
@@ -5304,6 +5307,25 @@ def _define_discord_view_classes() -> None:
                 )
                 return
 
+            # Scoped approvals: only the requester may answer, and only this
+            # prompt. Checked before consuming the click so a refused click
+            # leaves the buttons in place for the requester.
+            from tools.approval import gateway_approval_refusal
+            approver = str(interaction.user.id)
+            refusal = gateway_approval_refusal(self.session_key, approver=approver,
+                                               request_id=self.request_id)
+            if refusal == "not_requester":
+                from agent.i18n import t
+                await interaction.response.send_message(
+                    t("gateway.approve.not_requester"), ephemeral=True
+                )
+                return
+            if refusal == "stale":
+                await interaction.response.send_message(
+                    "This approval has already been resolved~", ephemeral=True
+                )
+                return
+
             self.resolved = True
 
             # Update the embed with the decision
@@ -5321,7 +5343,8 @@ def _define_discord_view_classes() -> None:
             # Unblock the waiting agent thread via the gateway approval queue
             try:
                 from tools.approval import resolve_gateway_approval
-                count = resolve_gateway_approval(self.session_key, choice)
+                count = resolve_gateway_approval(self.session_key, choice, approver=approver,
+                                                 request_id=self.request_id)
                 logger.info(
                     "Discord button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                     count, self.session_key, choice, interaction.user.display_name,

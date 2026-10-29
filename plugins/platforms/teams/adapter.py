@@ -825,7 +825,9 @@ class TeamsAdapter(BasePlatformAdapter):
         self, ctx: "ActivityContext[AdaptiveCardInvokeActivity]"
     ) -> "InvokeResponse[AdaptiveCardActionMessageResponse]":
         """Handle an Adaptive Card Action.Execute button click."""
-        from tools.approval import resolve_gateway_approval, has_blocking_approval
+        from tools.approval import (
+            gateway_approval_refusal, has_blocking_approval, resolve_gateway_approval,
+        )
 
         action = ctx.activity.value.action
         data = action.data or {}
@@ -845,6 +847,9 @@ class TeamsAdapter(BasePlatformAdapter):
         # Teams user who could message the bot could approve dangerous commands.
         allowed_csv = os.getenv("TEAMS_ALLOWED_USERS", "").strip()
         allow_all = os.getenv("TEAMS_ALLOW_ALL_USERS", "").strip().lower() in {"1", "true", "yes"}
+        # Same id the message handler records as the requester.
+        from_account = ctx.activity.from_
+        clicker_id = getattr(from_account, "aad_object_id", None) or getattr(from_account, "id", "")
 
         if not allow_all:
             if not allowed_csv:
@@ -858,8 +863,6 @@ class TeamsAdapter(BasePlatformAdapter):
                         value="⛔ Approval buttons require TEAMS_ALLOWED_USERS to be configured."
                     ),
                 )
-            from_account = ctx.activity.from_
-            clicker_id = getattr(from_account, "aad_object_id", None) or getattr(from_account, "id", "")
             allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
             if "*" not in allowed_ids and clicker_id not in allowed_ids:
                 logger.warning("[teams] Unauthorized card action by %s — ignoring", clicker_id)
@@ -881,7 +884,18 @@ class TeamsAdapter(BasePlatformAdapter):
                 body=AdaptiveCardActionMessageResponse(value="Unknown action."),
             )
 
-        if not has_blocking_approval(session_key):
+        # Scoped approvals: only the requester may answer, and only this prompt.
+        request_id = data.get("request_id") or None
+        refusal = gateway_approval_refusal(session_key, approver=clicker_id or None,
+                                           request_id=request_id)
+        if refusal == "not_requester":
+            from agent.i18n import t
+            return InvokeResponse(
+                status=200,
+                body=AdaptiveCardActionMessageResponse(value=t("gateway.approve.not_requester")),
+            )
+
+        if refusal == "stale" or not has_blocking_approval(session_key):
             return InvokeResponse(
                 status=200,
                 body=AdaptiveCardActionCardResponse(
@@ -891,7 +905,8 @@ class TeamsAdapter(BasePlatformAdapter):
                 ),
             )
 
-        resolve_gateway_approval(session_key, choice)
+        resolve_gateway_approval(session_key, choice, approver=clicker_id or None,
+                                 request_id=request_id)
 
         label_map = {
             "once": "✅ Allowed (once)",
@@ -934,6 +949,7 @@ class TeamsAdapter(BasePlatformAdapter):
             "session_key": session_key,
             "cmd": command[:200] + "..." if len(command) > 200 else command,
             "desc": description,
+            "request_id": (metadata or {}).get("approval_request_id"),
         }
 
         card = (
