@@ -81,6 +81,7 @@ from gateway.platforms.base import (
     SUPPORTED_IMAGE_DOCUMENT_TYPES,
     utf16_len,
 )
+from gateway.platforms.helpers import split_table_row
 from gateway.platforms.telegram_network import (
     TelegramFallbackTransport,
     discover_fallback_ips,
@@ -216,14 +217,7 @@ def _is_table_row(line: str) -> bool:
     return bool(stripped) and '|' in stripped
 
 
-def _split_markdown_table_row(line: str) -> list[str]:
-    """Split a simple GFM table row into stripped cell values."""
-    stripped = line.strip()
-    if stripped.startswith("|"):
-        stripped = stripped[1:]
-    if stripped.endswith("|"):
-        stripped = stripped[:-1]
-    return [cell.strip() for cell in stripped.split("|")]
+_split_markdown_table_row = split_table_row
 
 
 def _render_table_block_for_telegram(table_block: list[str]) -> str:
