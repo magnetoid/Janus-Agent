@@ -1151,6 +1151,7 @@ from gateway.config import (
     load_gateway_config,
 )
 from gateway.session import (
+    TURN_IN_FLIGHT_HEARTBEAT_S,
     TURN_IN_FLIGHT_REASON,
     SessionStore,
     SessionSource,

@@ -16987,18 +16987,33 @@ class GatewayRunner:
                     _conversation_kwargs["persist_user_message"] = message
                 # Durable "turn running" marker: if the process dies before
                 # it is cleared, startup auto-resume continues this turn.
-                _turn_marked = False
+                _turn_token = None
+                _turn_heartbeat_stop = threading.Event()
                 if session_key:
                     try:
-                        _turn_marked = self.session_store.mark_turn_in_flight(session_key)
+                        _turn_token = self.session_store.mark_turn_in_flight(session_key)
                     except Exception as _e:
                         logger.debug("mark_turn_in_flight failed for %s: %s", session_key, _e)
+                if _turn_token:
+                    _store, _key, _tok = self.session_store, session_key, _turn_token
+
+                    def _turn_heartbeat():
+                        while not _turn_heartbeat_stop.wait(TURN_IN_FLIGHT_HEARTBEAT_S):
+                            try:
+                                if not _store.touch_turn_in_flight(_key, _tok):
+                                    return
+                            except Exception:
+                                return
+
+                    threading.Thread(target=_turn_heartbeat, daemon=True,
+                                     name="turn-in-flight-heartbeat").start()
                 try:
                     result = agent.run_conversation(_api_run_message, **_conversation_kwargs)
                 finally:
-                    if _turn_marked:
+                    _turn_heartbeat_stop.set()
+                    if _turn_token:
                         try:
-                            self.session_store.end_turn_in_flight(session_key)
+                            self.session_store.end_turn_in_flight(session_key, _turn_token)
                         except Exception as _e:
                             logger.debug("end_turn_in_flight failed for %s: %s", session_key, _e)
             finally:

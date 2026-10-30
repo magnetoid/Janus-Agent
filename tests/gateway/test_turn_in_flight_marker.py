@@ -8,7 +8,7 @@ right after it; if the process dies in between, startup auto-resume finds it.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -30,10 +30,11 @@ def _entry(store):
 def test_marker_is_set_and_cleared_around_a_turn(tmp_path):
     store = _store(tmp_path)
     key = _entry(store).session_key
-    assert store.mark_turn_in_flight(key) is True
+    token = store.mark_turn_in_flight(key)
+    assert token
     e = store._entries[key]
     assert e.resume_pending and e.resume_reason == TURN_IN_FLIGHT_REASON
-    assert store.end_turn_in_flight(key) is True
+    assert store.end_turn_in_flight(key, token) is True
     e = store._entries[key]
     assert not e.resume_pending and e.resume_reason is None
 
@@ -53,8 +54,8 @@ def test_recovery_turn_keeps_its_original_reason(tmp_path):
     store = _store(tmp_path)
     key = _entry(store).session_key
     store.mark_resume_pending(key, "restart_timeout")
-    assert store.mark_turn_in_flight(key) is False
-    assert store.end_turn_in_flight(key) is False
+    assert store.mark_turn_in_flight(key) is None
+    assert store.end_turn_in_flight(key, "any") is False
     assert store._entries[key].resume_reason == "restart_timeout"
 
 
@@ -63,9 +64,9 @@ def test_shutdown_marker_set_mid_turn_is_not_cleared_by_turn_end(tmp_path):
     # then interrupts them; the turn ending must leave that marker alone.
     store = _store(tmp_path)
     key = _entry(store).session_key
-    store.mark_turn_in_flight(key)
+    token = store.mark_turn_in_flight(key)
     store.mark_resume_pending(key, "shutdown_timeout")
-    assert store.end_turn_in_flight(key) is False
+    assert store.end_turn_in_flight(key, token) is False
     e = store._entries[key]
     assert e.resume_pending and e.resume_reason == "shutdown_timeout"
 
@@ -74,13 +75,37 @@ def test_suspended_session_is_never_marked(tmp_path):
     store = _store(tmp_path)
     key = _entry(store).session_key
     store.suspend_session(key)
-    assert store.mark_turn_in_flight(key) is False
+    assert store.mark_turn_in_flight(key) is None
 
 
 def test_unknown_session_is_a_no_op(tmp_path):
     store = _store(tmp_path)
-    assert store.mark_turn_in_flight("nope") is False
-    assert store.end_turn_in_flight("nope") is False
+    assert store.mark_turn_in_flight("nope") is None
+    assert store.end_turn_in_flight("nope", "t") is False
+
+
+def test_a_stale_worker_cannot_clear_a_newer_turns_marker(tmp_path):
+    # After /new the old worker may return while a replacement turn already
+    # marked the same session key; only the owning token clears it.
+    store = _store(tmp_path)
+    key = _entry(store).session_key
+    old = store.mark_turn_in_flight(key)
+    store.end_turn_in_flight(key, old)
+    new = store.mark_turn_in_flight(key)
+    assert store.end_turn_in_flight(key, old) is False
+    assert store._entries[key].resume_reason == TURN_IN_FLIGHT_REASON
+    assert store.end_turn_in_flight(key, new) is True
+
+
+def test_heartbeat_keeps_a_long_turn_fresh(tmp_path):
+    store = _store(tmp_path)
+    key = _entry(store).session_key
+    token = store.mark_turn_in_flight(key)
+    long_ago = datetime.now() - timedelta(hours=3)
+    store._entries[key].last_resume_marked_at = long_ago
+    assert store.touch_turn_in_flight(key, token) is True
+    assert store._entries[key].last_resume_marked_at > long_ago
+    assert store.touch_turn_in_flight(key, "someone-else") is False
 
 
 def test_crash_recovery_note_names_the_exit():
