@@ -2417,7 +2417,7 @@ class GatewayRunner:
     # .clean_shutdown marker).  All three mean "the agent was mid-turn and
     # we killed it" — eligible for startup auto-resume.
     _AUTO_RESUME_REASONS = frozenset(
-        {"restart_timeout", "shutdown_timeout", "restart_interrupted"}
+        {"restart_timeout", "shutdown_timeout", "restart_interrupted", TURN_IN_FLIGHT_REASON}
     )
 
     def _schedule_resume_pending_sessions(self, platform=None) -> int:
@@ -16910,14 +16910,7 @@ class GatewayRunner:
             )
 
             if _is_resume_pending:
-                _reason = getattr(_resume_entry, "resume_reason", None) or "restart_timeout"
-                _reason_phrase = (
-                    "a gateway restart"
-                    if _reason == "restart_timeout"
-                    else "a gateway shutdown"
-                    if _reason == "shutdown_timeout"
-                    else "a gateway interruption"
-                )
+                _reason_phrase = resume_reason_phrase(getattr(_resume_entry, "resume_reason", None))
                 message = (
                     f"[System note: Your previous turn in this session was interrupted "
                     f"by {_reason_phrase}. The conversation history below is intact. "
@@ -16992,7 +16985,37 @@ class GatewayRunner:
                 }
                 if observed_group_context:
                     _conversation_kwargs["persist_user_message"] = message
-                result = agent.run_conversation(_api_run_message, **_conversation_kwargs)
+                # Durable "turn running" marker: if the process dies before
+                # it is cleared, startup auto-resume continues this turn.
+                _turn_token = None
+                _turn_heartbeat_stop = threading.Event()
+                if session_key:
+                    try:
+                        _turn_token = self.session_store.mark_turn_in_flight(session_key)
+                    except Exception as _e:
+                        logger.debug("mark_turn_in_flight failed for %s: %s", session_key, _e)
+                if _turn_token:
+                    _store, _key, _tok = self.session_store, session_key, _turn_token
+
+                    def _turn_heartbeat():
+                        while not _turn_heartbeat_stop.wait(TURN_IN_FLIGHT_HEARTBEAT_S):
+                            try:
+                                if not _store.touch_turn_in_flight(_key, _tok):
+                                    return
+                            except Exception:
+                                return
+
+                    threading.Thread(target=_turn_heartbeat, daemon=True,
+                                     name="turn-in-flight-heartbeat").start()
+                try:
+                    result = agent.run_conversation(_api_run_message, **_conversation_kwargs)
+                finally:
+                    _turn_heartbeat_stop.set()
+                    if _turn_token:
+                        try:
+                            self.session_store.end_turn_in_flight(session_key, _turn_token)
+                        except Exception as _e:
+                            logger.debug("end_turn_in_flight failed for %s: %s", session_key, _e)
             finally:
                 unregister_gateway_notify(_approval_session_key)
                 # Cancel any pending clarify entries so blocked agent
