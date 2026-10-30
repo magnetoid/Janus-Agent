@@ -14,11 +14,11 @@ NOW = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)
 NOW_TS = NOW.timestamp()
 
 
-def _row(days_ago, session, model, cost, *, status="actual", estimated=False, tokens=150):
+def _row(days_ago, session, model, cost, *, status="actual", estimated=False, tokens=150, cached=0):
     return {
         "ts": (NOW - timedelta(days=days_ago)).isoformat(),
         "session_id": session, "model": model,
-        "input_tokens": tokens - 50, "output_tokens": 50, "cache_read_tokens": 0,
+        "input_tokens": tokens - 50, "output_tokens": 50, "cache_read_tokens": cached,
         "cost_usd": cost, "estimated": estimated, "status": status,
     }
 
@@ -29,6 +29,8 @@ ROWS = [
     _row(2.0, "s2", "haiku", 0.01),
     _row(3.0, "cron_ab12cd34ef56_20261025_090000", "opus", 0.30),
     _row(3.5, "cron_ab12cd34ef56_20261024_090000", "opus", 0.20),
+    # A cron run that compressed: the continuation keeps billing the job.
+    _row(3.2, "20261025_090500_c0ffee", "opus", 0.10, cached=9800),
     _row(4.0, "s3", "mystery", 0.02, status="estimated", estimated=True),
     # Legacy rows from before the `estimated` flag: $0 with an unknown status.
     _row(5.0, "s5", "deepseek-reasoner", 0.0, status="unknown"),
@@ -42,6 +44,8 @@ META = {
     "s2": {"source": "telegram", "title": ""},
     "cron_ab12cd34ef56_20261025_090000": {"source": "cron", "title": "daily-blog · Oct 25"},
     "cron_ab12cd34ef56_20261024_090000": {"source": "cron", "title": "daily-blog · Oct 24"},
+    "20261025_090500_c0ffee": {"source": "cron", "title": "",
+                               "parent_session_id": "cron_ab12cd34ef56_20261025_090000"},
 }
 JOBS = {"ab12cd34ef56": "daily-blog"}
 
@@ -59,7 +63,7 @@ def test_every_grouping_reconciles_with_the_totals(by):
     assert round(sum(g["priced_usd"] for g in groups), 6) == round(r["priced_usd"], 6)
     assert round(sum(g["estimated_usd"] for g in groups), 6) == round(r["estimated_usd"], 6)
     assert sum(g["unpriced_turns"] for g in groups) == r["unpriced_turns"]
-    assert sum(g["input_tokens"] + g["output_tokens"] for g in groups) == r["tokens"]
+    assert sum(g["input_tokens"] + g["output_tokens"] + g["cache_read_tokens"] for g in groups) == r["tokens"]
 
 
 def test_totals_are_the_same_whatever_the_grouping():
@@ -98,8 +102,16 @@ def test_partly_unpriced_group_is_marked():
 def test_job_grouping_names_cron_jobs_and_pools_the_rest():
     jobs = {g["key"]: g for g in _report("job")["groups"]}
     assert jobs["ab12cd34ef56"]["label"] == "daily-blog"
-    assert jobs["ab12cd34ef56"]["turns"] == 2 and jobs["ab12cd34ef56"]["sessions"] == 2
-    assert jobs["(interactive)"]["turns"] == _report("job")["turns"] - 2
+    # Two runs plus one compression continuation of the first.
+    assert jobs["ab12cd34ef56"]["turns"] == 3 and jobs["ab12cd34ef56"]["sessions"] == 3
+    assert jobs["(interactive)"]["turns"] == _report("job")["turns"] - 3
+
+
+def test_cache_reads_count_toward_tokens():
+    sessions = {g["key"]: g for g in _report("session")["groups"]}
+    cont = sessions["20261025_090500_c0ffee"]
+    assert cont["cache_read_tokens"] == 9800
+    assert _report("session")["tokens"] >= 9800 + 150
 
 
 def test_session_grouping_uses_titles_when_known():
@@ -110,10 +122,10 @@ def test_session_grouping_uses_titles_when_known():
 
 def test_platform_grouping_and_source_filter():
     platforms = {g["key"]: g for g in _report("platform")["groups"]}
-    assert platforms["cron"]["turns"] == 2
+    assert platforms["cron"]["turns"] == 3
     assert platforms["unknown"]["turns"] >= 1
     only_cron = _report("model", source="cron")
-    assert only_cron["turns"] == 2
+    assert only_cron["turns"] == 3
 
 
 def test_groups_are_sorted_by_spend():

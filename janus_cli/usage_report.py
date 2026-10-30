@@ -23,10 +23,12 @@ def _session_meta() -> Dict[str, Dict[str, str]]:
         from janus_state import SessionDB
         db = SessionDB()
         try:
-            rows = db._conn.execute("SELECT id, source, title FROM sessions").fetchall()
+            rows = db._conn.execute(
+                "SELECT id, source, title, parent_session_id FROM sessions").fetchall()
         finally:
             db.close()
-        return {r[0]: {"source": r[1] or "", "title": r[2] or ""} for r in rows}
+        return {r[0]: {"source": r[1] or "", "title": r[2] or "", "parent_session_id": r[3] or ""}
+                for r in rows}
     except Exception:
         return {}
 
@@ -55,7 +57,7 @@ def render(report: Dict[str, Any], *, limit: Optional[int] = 25) -> str:
     lines.append(f"  {title:<{width}}  {'Turns':>6}  {'Tokens':>8}  {'Cost':>14}")
     for g in shown:
         label = g["label"] if len(g["label"]) <= width else g["label"][: width - 1] + "…"
-        tokens = _tokens(g["input_tokens"] + g["output_tokens"])
+        tokens = _tokens(g["input_tokens"] + g["output_tokens"] + g["cache_read_tokens"])
         lines.append(f"  {label:<{width}}  {g['turns']:>6}  {tokens:>8}  {cost_ledger.format_usd(g):>14}")
     if limit is not None and len(groups) > limit:
         lines.append(f"  … {len(groups) - limit} more (use --limit 0 for all)")

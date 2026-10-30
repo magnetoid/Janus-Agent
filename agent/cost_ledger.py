@@ -419,6 +419,22 @@ def cron_job_id(session_id: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _job_through_lineage(sid: str, meta: Dict[str, Dict[str, str]], hops: int = 32) -> Optional[str]:
+    """Cron job of *sid* or of the cron run it continues.
+
+    Compression gives a run a fresh session id and records the old one as
+    ``parent_session_id``; later turns are billed to the continuation."""
+    seen: set = set()
+    while sid and sid not in seen and hops > 0:
+        job = cron_job_id(sid)
+        if job:
+            return job
+        seen.add(sid)
+        sid = (meta.get(sid) or {}).get("parent_session_id") or ""
+        hops -= 1
+    return None
+
+
 def usage_by(
     by: str, days: int = 30, *,
     rows: Optional[List[Dict[str, Any]]] = None,
@@ -430,7 +446,8 @@ def usage_by(
     """Group the trailing ``days`` of the ledger by one dimension.
 
     ``by`` is one of :data:`USAGE_GROUPS`. ``session_meta`` maps session_id →
-    ``{"source", "title"}`` (from ``sessions``); ``job_names`` maps cron job id
+    ``{"source", "title", "parent_session_id"}`` (from ``sessions``; the parent
+    links compression continuations back to their cron run); ``job_names`` maps cron job id
     → name. Each group reports ``priced_usd`` (real prices, including genuine
     $0) separately from ``estimated_usd`` and ``unpriced_turns``, so a turn
     that couldn't be priced is never shown as free. Every grouping reconciles
@@ -460,7 +477,8 @@ def usage_by(
             continue
         sid = str(r.get("session_id", "") or "")
         info = meta.get(sid) or {}
-        platform = info.get("source") or ("cron" if cron_job_id(sid) else "unknown")
+        job = _job_through_lineage(sid, meta)
+        platform = info.get("source") or ("cron" if job else "unknown")
         if source and platform != source:
             continue
 
@@ -475,13 +493,14 @@ def usage_by(
         elif by == "day":
             key = label = datetime.fromisoformat(str(r.get("ts"))).date().isoformat()
         else:  # job
-            job = cron_job_id(sid)
             key = job or "(interactive)"
             label = jobs.get(job, job) if job else key
 
         cost = float(r.get("cost_usd", 0.0) or 0.0)
         in_tok = int(r.get("input_tokens", 0) or 0)
         out_tok = int(r.get("output_tokens", 0) or 0)
+        # input_tokens is fresh input only; cache reads are recorded apart.
+        cached = int(r.get("cache_read_tokens", 0) or 0)
         unpriced = _row_is_unpriced(r)
 
         g = groups.setdefault(key, {
@@ -492,9 +511,9 @@ def usage_by(
         g["turns"] += 1
         g["input_tokens"] += in_tok
         g["output_tokens"] += out_tok
-        g["cache_read_tokens"] += int(r.get("cache_read_tokens", 0) or 0)
+        g["cache_read_tokens"] += cached
         totals["turns"] += 1
-        totals["tokens"] += in_tok + out_tok
+        totals["tokens"] += in_tok + out_tok + cached
         if unpriced:
             g["unpriced_turns"] += 1
             g["estimated_usd"] += cost
