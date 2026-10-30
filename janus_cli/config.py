@@ -174,7 +174,8 @@ def _load_user_config_yaml(config_path: Path) -> Any:
     copy, or ``{}`` when there is none — the broken file is never rewritten.
     Read errors propagate so callers keep their own missing-file handling.
     """
-    text = config_path.read_text(encoding="utf-8")
+    with open(config_path, encoding="utf-8") as f:
+        text = f.read()
     try:
         data = yaml.safe_load(text)
     except Exception as exc:
@@ -192,7 +193,7 @@ def _load_user_config_yaml(config_path: Path) -> Any:
         return fallback if fallback is not None else {}
     if data is None:
         data = {}   # empty or comments-only: a valid return to defaults
-    if isinstance(data, dict):
+    if isinstance(data, dict) and isinstance(text, str):
         _remember_last_good(config_path, text)
     return data
 
