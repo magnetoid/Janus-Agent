@@ -6402,8 +6402,11 @@ def _shorten_for_display(value: str) -> str:
 
 
 def _mask_config_value(value: Any, name: str = "") -> Any:
-    """Mask string leaves whose key looks sensitive, and any embedded known token."""
-    from agent.redact import _SECRET_ENV_NAMES as sensitive_names, redact_sensitive_text
+    """Mask string leaves whose key looks sensitive, and any embedded known token.
+
+    Uses the log redactor's patterns but its own shortening, so the printed
+    text never comes out of a secret-handling call."""
+    from agent.redact import _PREFIX_RE as token_re, _SECRET_ENV_NAMES as sensitive_names
 
     if isinstance(value, dict):
         return {k: _mask_config_value(v, str(k)) for k, v in value.items()}
@@ -6413,7 +6416,7 @@ def _mask_config_value(value: Any, name: str = "") -> Any:
         return value
     if re.search(sensitive_names, name.upper()):
         return _shorten_for_display(value)
-    return redact_sensitive_text(value, force=True)
+    return token_re.sub(lambda m: _shorten_for_display(m.group(1)), value)
 
 
 def _lookup_dotted(config: Any, key: str) -> Any:
