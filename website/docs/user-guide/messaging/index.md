@@ -511,6 +511,8 @@ Scheduled auto-resume for N restart-interrupted session(s)
 
 No configuration is required. If you don't want the heads-up, set `gateway_restart_notification: false` on the platform.
 
+The same thing happens when the gateway dies without shutting down (a crash, `kill -9`, an out-of-memory kill, or power loss), however long the interrupted turn had been running. Each turn writes a "turn in flight" marker to `sessions.json` before the agent starts and clears it when the turn returns. On the next startup, any marker still present means that turn never finished, and the session is resumed with a note that the previous turn was cut off by an unexpected gateway exit. Auto-resume only picks up turns that were interrupted within the last hour, the same window as the other recovery paths (`agent.gateway_auto_continue_freshness`).
+
 ### Replies survive restarts (delivery ledger)
 
 Auto-resume covers turns that were cut off *before* the agent finished. The delivery ledger covers the other gap: the agent finished, but the reply never reached you because the gateway restarted between "turn done" and "message acked", or the platform API stalled past the in-process retries.

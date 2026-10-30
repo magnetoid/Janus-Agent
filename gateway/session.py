@@ -19,6 +19,10 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
+# ``resume_reason`` for a turn that was running when the process died; see
+# ``SessionStore.mark_turn_in_flight``.
+TURN_IN_FLIGHT_REASON = "turn_in_flight"
+
 logger = logging.getLogger(__name__)
 
 
@@ -1090,6 +1094,47 @@ class SessionStore:
                 len(removed_keys), max_age_days,
             )
         return len(removed_keys)
+
+    def mark_turn_in_flight(self, session_key: str) -> bool:
+        """Durably note that an agent turn is running for *session_key*.
+
+        Set right before ``run_conversation`` and cleared by
+        :meth:`end_turn_in_flight`. If the process dies in between (crash,
+        SIGKILL, OOM), the marker survives in sessions.json and startup
+        auto-resume continues the turn — unlike ``suspend_recently_active``,
+        this does not depend on the turn having started in the last 120 s.
+
+        A session already ``resume_pending`` (this turn *is* a recovery) or
+        ``suspended`` is left untouched. Returns True if the marker was set.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._entries.get(session_key)
+            if entry is None or entry.suspended or entry.resume_pending:
+                return False
+            entry.resume_pending = True
+            entry.resume_reason = TURN_IN_FLIGHT_REASON
+            entry.last_resume_marked_at = _now()
+            self._save()
+            return True
+
+    def end_turn_in_flight(self, session_key: str) -> bool:
+        """Clear the in-flight marker once the turn has returned.
+
+        Only clears its own reason: a drain shutdown re-marks running
+        sessions ``restart_timeout``/``shutdown_timeout`` before interrupting
+        them, and that marker must survive the interrupted turn ending.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._entries.get(session_key)
+            if entry is None or not entry.resume_pending or entry.resume_reason != TURN_IN_FLIGHT_REASON:
+                return False
+            entry.resume_pending = False
+            entry.resume_reason = None
+            entry.last_resume_marked_at = None
+            self._save()
+            return True
 
     def suspend_recently_active(self, max_age_seconds: int = 120) -> int:
         """Mark recently-active sessions as resumable after an unexpected exit.

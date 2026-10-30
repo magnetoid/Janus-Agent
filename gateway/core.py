@@ -1151,6 +1151,7 @@ from gateway.config import (
     load_gateway_config,
 )
 from gateway.session import (
+    TURN_IN_FLIGHT_REASON,
     SessionStore,
     SessionSource,
     SessionContext,
@@ -1756,6 +1757,17 @@ def _normalize_empty_agent_response(
         )
 
     return response
+
+
+def resume_reason_phrase(reason: Optional[str]) -> str:
+    """How the resume system note names what interrupted the previous turn."""
+    if reason == "shutdown_timeout":
+        return "a gateway shutdown"
+    if reason == TURN_IN_FLIGHT_REASON:
+        return "an unexpected gateway exit"
+    if reason in (None, "", "restart_timeout"):
+        return "a gateway restart"
+    return "a gateway interruption"
 
 
 def _should_clear_resume_pending_after_turn(agent_result: dict) -> bool:
