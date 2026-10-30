@@ -5,7 +5,7 @@ struct ComposerView: View {
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    private var canSend: Bool { draft.nonEmpty != nil && store.phase == .ready }
+    private var canSend: Bool { draft.nonEmpty != nil && store.phase == .ready && !store.isLoadingThread }
 
     var body: some View {
         VStack(spacing: 8) {

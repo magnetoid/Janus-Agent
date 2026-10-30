@@ -32,7 +32,11 @@ final class AppStore {
     // Current conversation
     var transcript: [ChatItem] = []
     var storedID: String?
-    var isRunning = false
+    /// Between pressing send and the backend accepting the prompt.
+    var isSubmitting = false
+    /// True while the open chat's turn is running (per runtime session, so a
+    /// background chat's turn never leaks into the one on screen).
+    var isRunning: Bool { isSubmitting || (runtimeSID.map { runningSIDs.contains($0) } ?? false) }
     var isLoadingThread = false
     var usage = Usage()
 
@@ -49,6 +53,10 @@ final class AppStore {
     private var api: JanusAPI?
     private var runtimeSID: String?
     private var runtimeByStored: [String: String] = [:]
+    private var runningSIDs: Set<String> = []
+    /// Unanswered approval/clarify requests per runtime session. The backend
+    /// blocks on them, so they must survive switching chats.
+    private var pendingPrompts: [String: [ChatItem]] = [:]
     private var sawTextThisTurn = false
 
     init() {
@@ -89,7 +97,8 @@ final class AppStore {
             // JANUS_MAC_OPEN=first|<session id>
             if let want = ProcessInfo.processInfo.environment["JANUS_MAC_OPEN"]?.nonEmpty,
                let target = want == "first" ? sessions.first?.id : want {
-                selection = .session(target)
+                await open(target)            // finish loading before any probe
+                selection = .session(target)  // select() then sees it's already open
             }
             if let probe = ProcessInfo.processInfo.environment["JANUS_MAC_PROBE"]?.nonEmpty {
                 await send(probe)
@@ -138,7 +147,7 @@ final class AppStore {
         runtimeSID = nil
         transcript = []
         usage = Usage()
-        isRunning = false
+        isSubmitting = false
         if selection != .newChat { selection = .newChat }
     }
 
@@ -160,9 +169,11 @@ final class AppStore {
             guard storedID == id, let sid = r.str("session_id") else { return }
             runtimeSID = sid
             runtimeByStored[id] = sid
-            isRunning = r.bool("running")
+            if r.bool("running") { runningSIDs.insert(sid) } else { runningSIDs.remove(sid) }
             applyInfo(r.obj("info"))
         }
+        // Stored messages can't carry live prompts; put back any still waiting.
+        if let sid = runtimeSID, storedID == id { transcript += pendingPrompts[sid] ?? [] }
     }
 
     func delete(_ id: String) async {
@@ -185,18 +196,22 @@ final class AppStore {
 
     func send(_ raw: String) async {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isRunning, phase == .ready else { return }
+        // While a chat is loading its runtime session isn't known yet; sending
+        // now would start a new conversation without its history.
+        guard !text.isEmpty, !isRunning, !isLoadingThread, phase == .ready else { return }
         transcript.append(ChatItem(kind: .user(text)))
-        isRunning = true
+        isSubmitting = true
+        defer { isSubmitting = false }
         sawTextThisTurn = false
+        var sid: String?
         do {
-            let sid = try await ensureRuntimeSession()
-            _ = try await socket.call("prompt.submit", ["session_id": sid, "text": text])
+            sid = try await ensureRuntimeSession()
+            runningSIDs.insert(sid!)
+            _ = try await socket.call("prompt.submit", ["session_id": sid!, "text": text])
         } catch let e as GatewaySocket.RPCError where e.code == 4009 {
-            isRunning = false
             notice("Janus is still busy with the previous message.", error: true)
         } catch {
-            isRunning = false
+            if let sid { runningSIDs.remove(sid) }
             notice(error.localizedDescription, error: true)
         }
     }
@@ -212,6 +227,7 @@ final class AppStore {
         _ = try? await socket.call("approval.respond", ["session_id": sid, "choice": choice])
         a.resolved = choice
         transcript[i].kind = .approval(a)
+        pendingPrompts[sid]?.removeAll { $0.id == itemID }
     }
 
     func respondClarify(itemID: ChatItem.ID, answer: String) async {
@@ -220,6 +236,7 @@ final class AppStore {
         _ = try? await socket.call("clarify.respond", ["request_id": c.requestID, "answer": answer])
         c.answer = answer
         transcript[i].kind = .clarify(c)
+        if let sid = runtimeSID { pendingPrompts[sid]?.removeAll { $0.id == itemID } }
     }
 
     private func ensureRuntimeSession() async throws -> String {
@@ -293,7 +310,27 @@ final class AppStore {
             if sid == runtimeSID { applyInfo(p) }
             return
         }
-        guard !sid.isEmpty, sid == runtimeSID else {
+        guard !sid.isEmpty else { return }
+        // Bookkeeping for every chat, on screen or not.
+        switch type {
+        case "approval.request", "clarify.request":
+            let item = type == "approval.request"
+                ? ChatItem(kind: .approval(ApprovalRequest(
+                    command: p.str("command") ?? "", description: p.str("description") ?? "")))
+                : ChatItem(kind: .clarify(ClarifyRequest(
+                    requestID: p.str("request_id") ?? "", question: p.str("question") ?? "",
+                    choices: p["choices"] as? [String] ?? [])))
+            pendingPrompts[sid, default: []].append(item)
+            if sid == runtimeSID { transcript.append(item) }
+            return
+        case "message.complete", "error":
+            runningSIDs.remove(sid)
+            // A finished or interrupted turn has released its prompts.
+            pendingPrompts[sid] = nil
+        default:
+            break
+        }
+        guard sid == runtimeSID else {
             if type == "message.complete" { Task { await refreshSessions() } }
             return
         }
@@ -312,7 +349,7 @@ final class AppStore {
             updateTool(p.str("tool_id")) { t in
                 t.state = .done
                 t.summary = p.str("summary") ?? ""
-                t.result = String((p.str("result_text") ?? (p["result"] as? String) ?? "").prefix(4000))
+                t.result = String(Self.resultText(p).prefix(4000))
                 t.duration = p.num("duration_s")
             }
         case "subagent.start":
@@ -325,13 +362,6 @@ final class AppStore {
                 t.summary = p.str("summary") ?? ""
                 t.duration = p.num("duration_seconds")
             }
-        case "approval.request":
-            transcript.append(ChatItem(kind: .approval(ApprovalRequest(
-                command: p.str("command") ?? "", description: p.str("description") ?? ""))))
-        case "clarify.request":
-            transcript.append(ChatItem(kind: .clarify(ClarifyRequest(
-                requestID: p.str("request_id") ?? "", question: p.str("question") ?? "",
-                choices: p["choices"] as? [String] ?? []))))
         case "message.complete":
             if !sawTextThisTurn, let t = p.str("text")?.nonEmpty { appendAssistant(text: t) }
             switch p.str("status") {
@@ -340,7 +370,6 @@ final class AppStore {
             default: break
             }
             usage = Usage(p.obj("usage"))
-            isRunning = false
             finishRunningTools()
             Task {
                 await refreshSessions()
@@ -349,10 +378,22 @@ final class AppStore {
             }
         case "error":
             notice(p.str("message") ?? "Something went wrong.", error: true)
-            isRunning = false
             finishRunningTools()
         default:
             break
+        }
+    }
+
+    /// `result_text` only comes in verbose mode; `result` is usually decoded JSON.
+    private static func resultText(_ p: JSONObject) -> String {
+        if let t = p.str("result_text")?.nonEmpty { return t }
+        switch p["result"] {
+        case let s as String: return s
+        case let v? where JSONSerialization.isValidJSONObject(v):
+            let d = try? JSONSerialization.data(withJSONObject: v, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            return d.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        case let v?: return "\(v)"
+        default: return ""
         }
     }
 
