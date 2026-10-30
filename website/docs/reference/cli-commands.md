@@ -997,10 +997,13 @@ Subcommands:
 | `show` | Show current config values. |
 | `edit` | Open `config.yaml` in your editor. |
 | `set <key> <value>` | Set a config value. |
+| `get <key> [--raw]` | Print one value: a dotted config key (`model.default`, `providers`) or a `.env` variable. Secrets are masked unless `--raw`. |
 | `path` | Print the config file path. |
 | `env-path` | Print the `.env` file path. |
 | `check` | Check for missing or stale config. |
 | `migrate` | Add newly introduced options interactively. |
+
+Every time `config.yaml` parses, Janus keeps a verbatim copy beside it as `config.yaml.last-good` (mode 0600). If a later edit breaks the YAML, the CLI, gateway and every other loader use that copy instead of falling back to defaults, and print a warning that names the broken file. The broken file is never rewritten, and a snapshot of it is saved as `config.yaml.corrupt.<timestamp>.bak`.
 
 ## `janus pairing`
 
