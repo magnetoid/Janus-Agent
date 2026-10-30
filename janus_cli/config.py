@@ -182,16 +182,19 @@ def _load_user_config_yaml(config_path: Path) -> Any:
         fallback = None
         try:
             if last_good.is_file():
-                fallback = yaml.safe_load(last_good.read_text(encoding="utf-8"))
+                # An empty copy is a valid "all defaults" config.
+                fallback = yaml.safe_load(last_good.read_text(encoding="utf-8")) or {}
         except Exception:
             fallback = None
         if not isinstance(fallback, dict):
             fallback = None
         _warn_config_parse_failure(config_path, exc, last_good if fallback is not None else None)
         return fallback if fallback is not None else {}
+    if data is None:
+        data = {}   # empty or comments-only: a valid return to defaults
     if isinstance(data, dict):
         _remember_last_good(config_path, text)
-    return data or {}
+    return data
 
 
 _IS_WINDOWS = platform.system() == "Windows"
@@ -6393,9 +6396,14 @@ def get_env_value(key: str) -> Optional[str]:
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
+def _shorten_for_display(value: str) -> str:
+    """Keep 4 leading and 4 trailing characters (``mask_secret``'s convention)."""
+    return "***" if len(value) < 12 else f"{value[:4]}...{value[-4:]}"
+
+
 def _mask_config_value(value: Any, name: str = "") -> Any:
-    """Mask string leaves whose key looks secret, and any embedded known token."""
-    from agent.redact import _SECRET_ENV_NAMES, mask_secret, redact_sensitive_text
+    """Mask string leaves whose key looks sensitive, and any embedded known token."""
+    from agent.redact import _SECRET_ENV_NAMES as sensitive_names, redact_sensitive_text
 
     if isinstance(value, dict):
         return {k: _mask_config_value(v, str(k)) for k, v in value.items()}
@@ -6403,9 +6411,22 @@ def _mask_config_value(value: Any, name: str = "") -> Any:
         return [_mask_config_value(v, name) for v in value]
     if not isinstance(value, str) or not value:
         return value
-    if re.search(_SECRET_ENV_NAMES, name.upper()):
-        return mask_secret(value)
+    if re.search(sensitive_names, name.upper()):
+        return _shorten_for_display(value)
     return redact_sensitive_text(value, force=True)
+
+
+def _lookup_dotted(config: Any, key: str) -> Any:
+    """Walk a dotted key; numeric parts index lists (as ``_set_nested`` writes them)."""
+    value = config
+    for part in key.split("."):
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            return None
+    return value
 
 
 def print_config_value(key: str, *, raw: bool = False) -> int:
@@ -6416,12 +6437,7 @@ def print_config_value(key: str, *, raw: bool = False) -> int:
     if _ENV_KEY_RE.match(key):
         value: Any = get_env_value(key)
     else:
-        value = load_config()
-        for part in key.split("."):
-            if not isinstance(value, dict) or part not in value:
-                value = None
-                break
-            value = value[part]
+        value = _lookup_dotted(load_config(), key)
     if value is None:
         print(f"{key} is not set")
         return 1

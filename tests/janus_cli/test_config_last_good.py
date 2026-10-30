@@ -114,3 +114,27 @@ def test_a_fixed_config_replaces_the_copy(home):
     _write(home, fixed)
     assert cfg_mod.load_config()["model"]["default"] == "fixed/model"
     assert _last_good(home).read_text(encoding="utf-8") == fixed
+
+
+def test_empty_config_is_a_valid_copy(home):
+    # Clearing config.yaml to go back to defaults must not leave the old
+    # overrides waiting in the copy for the next typo.
+    _write(home, _GOOD)
+    cfg_mod.load_config()
+    _write(home, "# back to defaults\n")
+    cfg_mod.load_config()
+    assert _last_good(home).read_text(encoding="utf-8") == "# back to defaults\n"
+    _write(home, _BROKEN)
+    assert cfg_mod.load_config()["agent"]["max_turns"] == cfg_mod.DEFAULT_CONFIG["agent"]["max_turns"]
+
+
+def test_gateway_loader_uses_the_copy_when_config_breaks(home, monkeypatch):
+    from gateway import config as gw_config
+
+    good = "session_reset:\n  mode: idle\n  idle_minutes: 42\n"
+    _write(home, good)
+    cfg_mod.load_config()
+    _write(home, _BROKEN)
+    monkeypatch.setattr(gw_config, "get_janus_home", lambda: home, raising=False)
+    gw = gw_config.load_gateway_config()
+    assert gw.default_reset_policy.idle_minutes == 42

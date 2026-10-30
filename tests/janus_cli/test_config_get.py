@@ -23,6 +23,7 @@ def home(tmp_path, monkeypatch):
         "providers": {"mine": {"base_url": "https://llm.example.com/v1", "api_key": _KEY,
                                "notes": f"rotated {_PREFIXED}"}},
         "agent": {"max_tokens": 4096},
+        "fallback_providers": [{"provider": "openrouter", "api_key": _KEY}],
     }), encoding="utf-8")
     (tmp_path / ".env").write_text(f"OPENROUTER_API_KEY={_KEY}\nJANUS_LOG_LEVEL=debug\n", encoding="utf-8")
     return tmp_path
@@ -73,3 +74,12 @@ def test_env_key_is_read_from_dotenv_and_masked(home, capsys):
 def test_missing_key_exits_non_zero(home, capsys):
     code, out = _get(capsys, "model.nope")
     assert code == 1 and "not set" in out
+
+
+def test_numeric_parts_index_lists(home, capsys):
+    code, out = _get(capsys, "fallback_providers.0.provider")
+    assert code == 0 and out.strip() == "openrouter"
+    code, out = _get(capsys, "fallback_providers.0.api_key")
+    assert code == 0 and _KEY not in out
+    code, out = _get(capsys, "fallback_providers.5.provider")
+    assert code == 1
