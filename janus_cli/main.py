@@ -14455,6 +14455,17 @@ Examples:
     )
     config_set.add_argument("value", nargs="?", help="Value to set")
 
+    # config get
+    config_get = config_subparsers.add_parser(
+        "get", help="Print one configuration value (secrets masked)"
+    )
+    config_get.add_argument(
+        "key", nargs="?", help="Dotted config key (e.g., model.default) or .env variable"
+    )
+    config_get.add_argument(
+        "--raw", action="store_true", help="Print secrets unmasked"
+    )
+
     # config path
     config_subparsers.add_parser("path", help="Print config file path")
 
