@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -389,3 +390,140 @@ def usage_summary(
     except Exception as exc:
         logger.debug("cost ledger usage_summary failed: %s", exc)
         return _empty_summary(days)
+
+
+# ── `janus usage --by …` ────────────────────────────────────────────────────
+
+USAGE_GROUPS = ("model", "platform", "session", "day", "job")
+_CRON_SESSION_RE = re.compile(r"^cron_([0-9a-f]+)_\d{8}_\d{6}$")
+
+
+def _row_is_unpriced(row: Dict[str, Any]) -> bool:
+    """A turn the pricing layer could not value.
+
+    ``estimated`` rows carry a conservative cost for the spend caps, but it is
+    not a price. Rows written before that flag existed show up as $0 with an
+    empty/unknown status; those are unpriced too. ``actual``/``included`` $0
+    rows are genuinely free and stay priced."""
+    if row.get("estimated"):
+        return True
+    cost = float(row.get("cost_usd", 0.0) or 0.0)
+    tokens = int(row.get("input_tokens", 0) or 0) + int(row.get("output_tokens", 0) or 0)
+    status = str(row.get("status", "") or "").lower()
+    return cost <= 0.0 and tokens > 0 and status not in ("actual", "included")
+
+
+def cron_job_id(session_id: str) -> Optional[str]:
+    """Job id of a cron run's session (``cron_<job>_<YYYYmmdd>_<HHMMSS>``)."""
+    m = _CRON_SESSION_RE.match(session_id or "")
+    return m.group(1) if m else None
+
+
+def usage_by(
+    by: str, days: int = 30, *,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    now_ts: Optional[float] = None,
+    session_meta: Optional[Dict[str, Dict[str, str]]] = None,
+    job_names: Optional[Dict[str, str]] = None,
+    source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Group the trailing ``days`` of the ledger by one dimension.
+
+    ``by`` is one of :data:`USAGE_GROUPS`. ``session_meta`` maps session_id →
+    ``{"source", "title"}`` (from ``sessions``); ``job_names`` maps cron job id
+    → name. Each group reports ``priced_usd`` (real prices, including genuine
+    $0) separately from ``estimated_usd`` and ``unpriced_turns``, so a turn
+    that couldn't be priced is never shown as free. Every grouping reconciles
+    with the same totals."""
+    if by not in USAGE_GROUPS:
+        raise ValueError(f"unknown grouping {by!r}; expected one of {', '.join(USAGE_GROUPS)}")
+    import time
+    from datetime import datetime
+
+    rows = load_ledger() if rows is None else rows
+    now_ts = time.time() if now_ts is None else now_ts
+    cutoff = now_ts - float(days) * 86400.0
+    meta = session_meta or {}
+    jobs = job_names or {}
+
+    totals: Dict[str, Any] = {
+        "by": by, "days": int(days), "turns": 0, "sessions": 0, "tokens": 0,
+        "priced_usd": 0.0, "estimated_usd": 0.0, "unpriced_turns": 0, "groups": [],
+    }
+    groups: Dict[str, Dict[str, Any]] = {}
+    group_sessions: Dict[str, set] = {}
+    all_sessions: set = set()
+
+    for r in rows:
+        rt = _parse_ts(r.get("ts"))
+        if rt is None or rt < cutoff:
+            continue
+        sid = str(r.get("session_id", "") or "")
+        info = meta.get(sid) or {}
+        platform = info.get("source") or ("cron" if cron_job_id(sid) else "unknown")
+        if source and platform != source:
+            continue
+
+        if by == "model":
+            key = str(r.get("model", "") or "") or "(unknown)"
+            label = key
+        elif by == "platform":
+            key = label = platform
+        elif by == "session":
+            key = sid or "(none)"
+            label = info.get("title") or key
+        elif by == "day":
+            key = label = datetime.fromisoformat(str(r.get("ts"))).date().isoformat()
+        else:  # job
+            job = cron_job_id(sid)
+            key = job or "(interactive)"
+            label = jobs.get(job, job) if job else key
+
+        cost = float(r.get("cost_usd", 0.0) or 0.0)
+        in_tok = int(r.get("input_tokens", 0) or 0)
+        out_tok = int(r.get("output_tokens", 0) or 0)
+        unpriced = _row_is_unpriced(r)
+
+        g = groups.setdefault(key, {
+            "key": key, "label": label, "turns": 0, "sessions": 0,
+            "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+            "priced_usd": 0.0, "estimated_usd": 0.0, "unpriced_turns": 0,
+        })
+        g["turns"] += 1
+        g["input_tokens"] += in_tok
+        g["output_tokens"] += out_tok
+        g["cache_read_tokens"] += int(r.get("cache_read_tokens", 0) or 0)
+        totals["turns"] += 1
+        totals["tokens"] += in_tok + out_tok
+        if unpriced:
+            g["unpriced_turns"] += 1
+            g["estimated_usd"] += cost
+            totals["unpriced_turns"] += 1
+            totals["estimated_usd"] += cost
+        else:
+            g["priced_usd"] += cost
+            totals["priced_usd"] += cost
+        group_sessions.setdefault(key, set()).add(sid)
+        all_sessions.add(sid)
+
+    for key, g in groups.items():
+        g["sessions"] = len(group_sessions[key])
+        g["priced_usd"] = round(g["priced_usd"], 6)
+        g["estimated_usd"] = round(g["estimated_usd"], 6)
+    totals["sessions"] = len(all_sessions)
+    totals["priced_usd"] = round(totals["priced_usd"], 6)
+    totals["estimated_usd"] = round(totals["estimated_usd"], 6)
+    order = (lambda g: g["key"]) if by == "day" else (lambda g: (g["priced_usd"] + g["estimated_usd"], g["turns"]))
+    totals["groups"] = sorted(groups.values(), key=order, reverse=by != "day")
+    return totals
+
+
+def format_usd(group: Dict[str, Any]) -> str:
+    """Cost cell for a usage group: ``n/a`` when nothing in it could be priced."""
+    turns = int(group.get("turns", 0) or 0)
+    unpriced = int(group.get("unpriced_turns", 0) or 0)
+    priced = float(group.get("priced_usd", 0.0) or 0.0)
+    if turns and unpriced >= turns:
+        return "n/a"
+    text = f"${priced:,.2f}"
+    return f"{text} + n/a" if unpriced else text
