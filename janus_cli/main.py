@@ -9937,6 +9937,83 @@ def _resolve_update_branch(args) -> str:
     return (getattr(args, "branch", None) or "main").strip() or "main"
 
 
+def _resolve_update_channel(args) -> str:
+    """``--channel`` if given, else ``updates.channel``; ``--branch`` implies main.
+
+    Raises ``ValueError`` for an unknown channel or ``--channel stable --branch``.
+    """
+    from janus_cli.update_channel import resolve_channel
+
+    try:
+        from janus_cli.config import load_config
+
+        config = load_config() or {}
+    except Exception as exc:
+        logger.debug("Could not read updates.channel: %s", exc)
+        config = {}
+    return resolve_channel(getattr(args, "channel", None), getattr(args, "branch", None), config)
+
+
+def _fetch_release_tags(git_cmd: list[str]) -> None:
+    subprocess.run(
+        git_cmd + ["fetch", "origin", "--tags"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _stable_release_target(git_cmd: list[str], *, allow_rollback: bool) -> Optional[str]:
+    """The release tag ``janus update`` on the stable channel should move to.
+
+    Returns None (after saying why) when there is nothing to do: already on
+    the newest release, or the newest release is older than this checkout
+    and ``--allow-rollback`` was not given. Exits when nothing is released.
+    """
+    from janus_cli import update_channel
+
+    _fetch_release_tags(git_cmd)
+    tag = update_channel.latest_release_tag(git_cmd, PROJECT_ROOT)
+    if tag is None:
+        print("✗ No release has been published yet, so the stable channel has nothing to install.")
+        print("  Follow main until the first release: janus update --channel main")
+        sys.exit(1)
+    move = update_channel.classify_move(git_cmd, PROJECT_ROOT, tag)
+    if move == "current":
+        print(f"✓ Already on the latest release ({tag}).")
+        return None
+    if move == "rollback" and not allow_rollback:
+        print(f"ℹ This checkout is newer than the latest release ({tag}); staying where it is.")
+        print("  Run 'janus update --allow-rollback' to go back to that release.")
+        return None
+    return tag
+
+
+def _cmd_update_check_stable() -> None:
+    """``janus update --check`` on the stable channel: compare HEAD with the newest release."""
+    from janus_cli import update_channel
+
+    git_cmd = ["git"]
+    print("→ Fetching release tags...")
+    _fetch_release_tags(git_cmd)
+    tag = update_channel.latest_release_tag(git_cmd, PROJECT_ROOT)
+    if tag is None:
+        print("✗ No release has been published yet.")
+        return
+    move = update_channel.classify_move(git_cmd, PROJECT_ROOT, tag)
+    if move == "current":
+        print(f"✓ Already on the latest release ({tag}).")
+    elif move == "forward":
+        print(f"⚕ Release {tag} is available.")
+        url = update_channel.release_notes_url(_get_origin_url(git_cmd, PROJECT_ROOT), tag)
+        if url:
+            print(f"  Release notes: {url}")
+        print("  Run 'janus update' to install it.")
+    else:
+        print(f"ℹ This checkout is newer than the latest release ({tag}).")
+        print("  'janus update --allow-rollback' would move back to it.")
+
+
 def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
     """Implement ``janus update --check``: fetch and report without installing.
 
@@ -10317,7 +10394,16 @@ def cmd_update(args):
         print(format_docker_update_message())
         sys.exit(1)
 
+    try:
+        channel = _resolve_update_channel(args)
+    except ValueError as exc:
+        print(f"✗ {exc}")
+        sys.exit(2)
+
     if getattr(args, "check", False):
+        if channel == "stable" and (PROJECT_ROOT / ".git").exists():
+            _cmd_update_check_stable()
+            return
         # --check honors --branch so the "any new commits?" answer matches
         # what a subsequent `janus update --branch=<x>` would actually pull.
         branch = _resolve_update_branch(args)
@@ -10327,6 +10413,12 @@ def cmd_update(args):
         )
         return
 
+    if getattr(args, "channel", None):
+        from janus_cli import update_channel
+
+        update_channel.save_channel(channel)
+        print(f"→ Update channel: {channel} (saved as updates.channel)")
+
     gateway_mode = getattr(args, "gateway", False)
 
     # Protect against mid-update terminal disconnects (SIGHUP) and tolerate
@@ -10334,7 +10426,7 @@ def cmd_update(args):
     # _install_hangup_protection for rationale.
     _update_io_state = _install_hangup_protection(gateway_mode=gateway_mode)
     try:
-        _cmd_update_impl(args, gateway_mode=gateway_mode)
+        _cmd_update_impl(args, gateway_mode=gateway_mode, channel=channel)
     finally:
         _finalize_update_output(_update_io_state)
 
@@ -10400,7 +10492,7 @@ def _cmd_update_pip(args):
     print("✓ Update complete! Restart janus to use the new version.")
 
 
-def _cmd_update_impl(args, gateway_mode: bool):
+def _cmd_update_impl(args, gateway_mode: bool, channel: str = "main"):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
     # In gateway mode, use file-based IPC for prompts instead of stdin
@@ -10516,6 +10608,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
     if use_zip_update:
         # ZIP-based update for Windows when git is broken
+        if channel == "stable":
+            print("⚠ The stable channel needs git; the ZIP fallback installs main instead.")
         _update_via_zip(args)
         return
 
@@ -10556,17 +10650,28 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
         current_branch = result.stdout.strip()
 
+        # Stable channel: the target is the newest release tag, checked out
+        # as a detached HEAD instead of pulling a branch.
+        release_tag = None
+        if channel == "stable":
+            release_tag = _stable_release_target(
+                git_cmd, allow_rollback=bool(getattr(args, "allow_rollback", False))
+            )
+            if release_tag is None:
+                _invalidate_update_cache()
+                return
+
         # Determine the target branch. Default is "main" (the long-standing
         # CLI behavior); --branch overrides for callers that want to update
         # against a non-default channel.
-        branch = _resolve_update_branch(args)
+        branch = release_tag or _resolve_update_branch(args)
 
         # If user is on a different branch than the update target, switch
         # to the target. When the target is "main" this is the historical
         # "always update against main" behavior; for any other target it's
         # the same thing — get HEAD onto the requested branch first, then
         # fast-forward.
-        if current_branch != branch:
+        if release_tag is None and current_branch != branch:
             label = (
                 "detached HEAD"
                 if current_branch == "HEAD"
@@ -10618,7 +10723,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Check if there are updates
         result = subprocess.run(
-            git_cmd + ["rev-list", f"HEAD..origin/{branch}", "--count"],
+            git_cmd + ["rev-list", f"HEAD..{release_tag or f'origin/{branch}'}", "--count"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -10626,7 +10731,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
         commit_count = int(result.stdout.strip())
 
-        if commit_count == 0:
+        # On the stable channel _stable_release_target already decided there
+        # is a move to make; zero new commits there means a rollback.
+        if commit_count == 0 and release_tag is None:
             _invalidate_update_cache()
 
             # Even if origin is up to date, the fork may be behind upstream
@@ -10653,7 +10760,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
             print("✓ Already up to date!")
             return
 
-        print(f"→ Found {commit_count} new commit(s)")
+        if release_tag is not None:
+            verb = "Updating" if commit_count else "Rolling back"
+            print(f"→ {verb} to release {release_tag}")
+        else:
+            print(f"→ Found {commit_count} new commit(s)")
 
         # Snapshot critical state (state.db, config, pairing JSONs, etc.)
         # before pulling so a user can recover if something goes wrong.
@@ -10681,13 +10792,22 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # the bad commit and the fix landing).
         pre_pull_sha = _capture_head_sha(git_cmd, PROJECT_ROOT)
         try:
+            if release_tag is not None:
+                move_cmd = git_cmd + ["checkout", "--detach", release_tag]
+            else:
+                move_cmd = git_cmd + ["pull", "--ff-only", "origin", branch]
             pull_result = subprocess.run(
-                git_cmd + ["pull", "--ff-only", "origin", branch],
+                move_cmd,
                 cwd=PROJECT_ROOT,
                 capture_output=True,
                 text=True,
             )
-            if pull_result.returncode != 0:
+            if pull_result.returncode != 0 and release_tag is not None:
+                print(f"✗ Could not check out release {release_tag}.")
+                if pull_result.stderr.strip():
+                    print(f"  {pull_result.stderr.strip().splitlines()[0]}")
+                sys.exit(1)
+            elif pull_result.returncode != 0:
                 # ff-only failed — local and remote have diverged (e.g. upstream
                 # force-pushed or rebase).  Since local changes are already
                 # stashed, reset to match the remote exactly.
@@ -10878,6 +10998,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         print()
         print("✓ Code updated!")
+        if release_tag is not None:
+            from janus_cli.update_channel import release_notes_url
+
+            notes = release_notes_url(origin_url, release_tag)
+            if notes:
+                print(f"  Release notes: {notes}")
 
         # After git pull, source files on disk are newer than cached Python
         # modules in this process.  Reload janus_constants so that any lazy
@@ -17177,6 +17303,22 @@ Examples:
             "switch to the requested branch first (auto-stashing any "
             "uncommitted changes)."
         ),
+    )
+    update_parser.add_argument(
+        "--channel",
+        choices=["main", "stable"],
+        default=None,
+        help=(
+            "Follow 'stable' (the newest published release) or 'main' (the "
+            "tip of the main branch). The choice is saved as updates.channel "
+            "and used by later updates."
+        ),
+    )
+    update_parser.add_argument(
+        "--allow-rollback",
+        action="store_true",
+        default=False,
+        help="Stable channel: allow moving back to a release older than the current checkout",
     )
     update_parser.add_argument(
         "--force",
