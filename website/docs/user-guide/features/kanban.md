@@ -230,7 +230,16 @@ until one comes up — `janus kanban create` warns about this at creation
 time.
 
 The standalone `janus kanban daemon` command has been removed; the
-dispatcher runs only inside the gateway.
+dispatcher runs only inside the gateway. If you installed the old
+`janus-kanban-dispatcher.service` systemd unit, it can no longer start —
+disable it and run the gateway instead:
+
+```bash
+systemctl --user disable --now janus-kanban-dispatcher.service
+rm ~/.config/systemd/user/janus-kanban-dispatcher.service
+systemctl --user daemon-reload
+janus gateway start   # or your existing gateway service
+```
 
 ### Idempotent create (for automation / webhooks)
 

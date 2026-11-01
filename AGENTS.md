@@ -1148,9 +1148,9 @@ kanban task.
   stale claims, promotes ready tasks, atomically claims, and spawns
   assigned profiles. Runs **inside the gateway** by default via
   `kanban.dispatch_in_gateway: true`.
-- **Plugin assets:** `plugins/kanban/dashboard/` (web UI) +
-  `plugins/kanban/systemd/` (`janus-kanban-dispatcher.service` for
-  standalone dispatcher deployment).
+- **Plugin assets:** `plugins/kanban/dashboard/` (web UI). The standalone
+  dispatcher daemon and its systemd unit were retired; the gateway is the
+  only dispatcher.
 
 Isolation model:
 - **Board** is the hard boundary — workers are spawned with
