@@ -240,7 +240,7 @@ class TestSubcommandDrift:
         defined = set(re.findall(r'"(\w+)"', match.group(1)))
 
         required = {
-            "chat", "model", "gateway", "setup", "login", "logout", "auth",
+            "chat", "model", "gateway", "setup", "logout", "auth",
             "status", "cron", "config", "sessions", "version", "update",
             "uninstall", "profile", "skills", "tools", "mcp", "plugins",
             "acp", "claw", "honcho", "completion", "logs",
