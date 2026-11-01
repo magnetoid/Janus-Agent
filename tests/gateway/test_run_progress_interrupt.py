@@ -131,7 +131,7 @@ def _make_runner(adapter):
 
 
 async def _run_once(monkeypatch, tmp_path, agent_cls, session_id):
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -145,6 +145,7 @@ async def _run_once(monkeypatch, tmp_path, agent_cls, session_id):
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.runner")
     monkeypatch.setattr(gateway_run, "_janus_home", tmp_path)
+    monkeypatch.setattr("gateway.core._janus_home", tmp_path)
     monkeypatch.setattr(
         gateway_run,
         "_resolve_runtime_agent_kwargs",

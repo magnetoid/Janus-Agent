@@ -156,7 +156,6 @@ def _make_runner(adapter):
 
 def _install_fakes(monkeypatch, agent_cls, *, cleanup_on: bool):
     """Wire up the module stubs every _run_agent test needs."""
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *a, **k: None
@@ -174,11 +173,12 @@ def _install_fakes(monkeypatch, agent_cls, *, cleanup_on: bool):
     # gateway actually reads (``_load_gateway_config`` returns user config).
     cfg = {
         "display": {
+            "tool_progress": "all",
             "platforms": {
                 "telegram": {"cleanup_progress": True},
-            }
+            },
         }
-    } if cleanup_on else {}
+    } if cleanup_on else {"display": {"tool_progress": "all"}}
     monkeypatch.setattr(gateway_run, "_load_gateway_config", lambda: cfg)
     return gateway_run
 

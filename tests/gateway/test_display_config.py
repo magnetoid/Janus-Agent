@@ -80,52 +80,30 @@ class TestResolveDisplaySetting:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility: tool_progress_overrides
+# Retired: tool_progress_overrides
 # ---------------------------------------------------------------------------
 
-class TestBackwardCompat:
-    """Legacy tool_progress_overrides is still respected as a fallback."""
+class TestLegacyOverridesRetired:
+    """``display.tool_progress_overrides`` is no longer read at runtime.
 
-    def test_legacy_overrides_read(self):
-        """tool_progress_overrides is read when no platforms entry exists."""
+    The version 16 migration (see TestConfigMigration) moves it into
+    ``display.platforms``; leftovers must not change the resolved value.
+    """
+
+    def test_leftover_legacy_map_does_not_override(self):
         from gateway.display_config import resolve_display_setting
 
-        config = {
+        base = {"display": {"tool_progress": "all"}}
+        with_legacy = {
             "display": {
                 "tool_progress": "all",
-                "tool_progress_overrides": {
-                    "signal": "off",
-                    "telegram": "verbose",
-                },
+                "tool_progress_overrides": {"signal": "off", "telegram": "verbose"},
             }
         }
-        assert resolve_display_setting(config, "signal", "tool_progress") == "off"
-        assert resolve_display_setting(config, "telegram", "tool_progress") == "verbose"
-
-    def test_new_platforms_takes_precedence_over_legacy(self):
-        """display.platforms beats tool_progress_overrides."""
-        from gateway.display_config import resolve_display_setting
-
-        config = {
-            "display": {
-                "tool_progress": "all",
-                "tool_progress_overrides": {"telegram": "verbose"},
-                "platforms": {"telegram": {"tool_progress": "new"}},
-            }
-        }
-        assert resolve_display_setting(config, "telegram", "tool_progress") == "new"
-
-    def test_legacy_overrides_only_for_tool_progress(self):
-        """Legacy overrides don't affect other settings."""
-        from gateway.display_config import resolve_display_setting
-
-        config = {
-            "display": {
-                "tool_progress_overrides": {"telegram": "verbose"},
-            }
-        }
-        # show_reasoning should NOT read from tool_progress_overrides
-        assert resolve_display_setting(config, "telegram", "show_reasoning") is False
+        for platform in ("signal", "telegram"):
+            assert resolve_display_setting(with_legacy, platform, "tool_progress") == (
+                resolve_display_setting(base, platform, "tool_progress")
+            )
 
 
 # ---------------------------------------------------------------------------

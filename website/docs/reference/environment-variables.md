@@ -563,8 +563,7 @@ Advanced per-platform knobs for throttling the outbound message batcher. Most us
 | `JANUS_IGNORE_USER_CONFIG` | Skip `~/.janus/config.yaml` and use built-in defaults (credentials in `.env` still load). Equivalent to `--ignore-user-config`. |
 | `JANUS_IGNORE_RULES` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, memory, and preloaded skills. Equivalent to `--ignore-rules`. |
 | `JANUS_MD_NAMES` | Comma-separated list of rules-file names to auto-inject (default: `AGENTS.md,CLAUDE.md,.cursorrules,SOUL.md`). |
-| `JANUS_TOOL_PROGRESS` | Deprecated compatibility variable for tool progress display. Prefer `display.tool_progress` in `config.yaml`. |
-| `JANUS_TOOL_PROGRESS_MODE` | Deprecated compatibility variable for tool progress mode. Prefer `display.tool_progress` in `config.yaml`. |
+| `JANUS_TOOL_PROGRESS` / `JANUS_TOOL_PROGRESS_MODE` | **Removed** — no longer read. Set `display.tool_progress` (or `display.platforms.<platform>.tool_progress`) in `config.yaml`; `janus doctor` flags leftovers. |
 | `JANUS_HUMAN_DELAY_MODE` | Response pacing: `off`/`natural`/`custom` |
 | `JANUS_HUMAN_DELAY_MIN_MS` | Custom delay range minimum (ms) |
 | `JANUS_HUMAN_DELAY_MAX_MS` | Custom delay range maximum (ms) |

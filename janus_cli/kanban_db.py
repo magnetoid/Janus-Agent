@@ -6924,69 +6924,6 @@ def _default_spawn(
     return proc.pid
 
 
-# ---------------------------------------------------------------------------
-# Long-lived dispatcher daemon
-# ---------------------------------------------------------------------------
-
-def run_daemon(
-    *,
-    interval: float = 60.0,
-    max_spawn: Optional[int] = None,
-    failure_limit: int = DEFAULT_SPAWN_FAILURE_LIMIT,
-    stop_event=None,
-    on_tick=None,
-) -> None:
-    """Run the dispatcher in a loop until interrupted.
-
-    Calls :func:`dispatch_once` every ``interval`` seconds. Exits cleanly
-    on SIGINT / SIGTERM so ``janus kanban daemon`` is systemd-friendly.
-    ``stop_event`` (a :class:`threading.Event`) and ``on_tick`` (a
-    callable receiving the :class:`DispatchResult`) are test hooks.
-    """
-    import signal
-    import threading
-
-    if stop_event is None:
-        stop_event = threading.Event()
-
-    def _handle(_signum, _frame):
-        stop_event.set()
-
-    # Install handlers only when running on the main thread — tests call
-    # this inline from worker threads and signal() would raise there.
-    if threading.current_thread() is threading.main_thread():
-        for sig_name in ("SIGINT", "SIGTERM"):
-            sig = getattr(signal, sig_name, None)
-            if sig is not None:
-                try:
-                    signal.signal(sig, _handle)
-                except (ValueError, OSError):
-                    pass
-
-    while not stop_event.is_set():
-        try:
-            with contextlib.closing(connect()) as conn:
-                res = dispatch_once(
-                    conn,
-                    max_spawn=max_spawn,
-                    failure_limit=failure_limit,
-                )
-            if on_tick is not None:
-                try:
-                    on_tick(res)
-                except Exception:
-                    pass
-        except Exception:
-            # Don't let any single tick kill the daemon.
-            import traceback
-            traceback.print_exc()
-        stop_event.wait(timeout=interval)
-
-
-# ---------------------------------------------------------------------------
-# Worker context builder (what a spawned worker sees)
-# ---------------------------------------------------------------------------
-
 def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
     """Return the full text a worker should read to understand its task.
 

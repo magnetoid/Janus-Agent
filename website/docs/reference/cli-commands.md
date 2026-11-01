@@ -48,7 +48,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus whatsapp` | Configure and pair the WhatsApp bridge. |
 | `janus slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
 | `janus auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Nous/Anthropic. |
-| `janus login` / `logout` | **Deprecated** — use `janus auth` instead. |
+| `janus logout` | Clear stored credentials for a provider. (`janus login` was removed — use `janus auth`.) |
 | `janus send` | Send a one-shot message to a configured messaging platform (Telegram, Discord, Slack, Signal, SMS, …). Useful from shell scripts, cron jobs, CI hooks, and monitoring daemons — no agent loop, no LLM. |
 | `janus secrets` | Manage external secret sources (currently Bitwarden Secrets Manager) for pulling API keys at process startup instead of from `~/.janus/.env`. |
 | `janus migrate` | Diagnose and (optionally) rewrite `config.yaml` to replace references to retired models or deprecated settings (e.g. `migrate xai`). |
@@ -489,11 +489,9 @@ On-demand vulnerability scan against [OSV.dev](https://osv.dev). Covers the Janu
 | `--skip-mcp` | off | Skip scanning pinned MCP servers in `config.yaml`. |
 
 
-## `janus login` / `janus logout` *(Deprecated)*
+## `janus logout`
 
-:::caution
-`janus login` has been removed. Use `janus auth` to manage OAuth credentials, `janus model` to select a provider, or `janus setup` for full interactive setup.
-:::
+Clears stored credentials for a provider. `janus login` no longer exists: use `janus auth` to manage OAuth credentials, `janus model` to select a provider, or `janus setup` for full interactive setup.
 
 ## `janus auth`
 

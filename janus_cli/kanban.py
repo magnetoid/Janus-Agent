@@ -171,8 +171,8 @@ def _check_dispatcher_presence() -> tuple[bool, str]:
             False,
             "Gateway is running but kanban.dispatch_in_gateway=false in "
             "config.yaml — the task will sit in 'ready' until you flip it "
-            "back on and restart the gateway, OR run the legacy "
-            "standalone daemon (`janus kanban daemon --force`)."
+            "back on and restart the gateway, or run "
+            "`janus kanban dispatch` by hand."
         )
     return (
         False,
@@ -633,27 +633,6 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                              f"(spawn_failed, timed_out, or crashed; default: {kb.DEFAULT_SPAWN_FAILURE_LIMIT})")
     p_disp.add_argument("--json", action="store_true")
 
-    # --- daemon (deprecated) ---
-    p_daemon = sub.add_parser(
-        "daemon",
-        help="DEPRECATED — dispatcher now runs in the gateway. Use `janus gateway start`.",
-    )
-    p_daemon.add_argument("--interval", type=float, default=60.0,
-                          help="Seconds between dispatch ticks (default: 60)")
-    p_daemon.add_argument("--max", type=int, default=None,
-                          help="Cap number of spawns per tick")
-    p_daemon.add_argument("--failure-limit", type=int,
-                          default=kb.DEFAULT_SPAWN_FAILURE_LIMIT)
-    p_daemon.add_argument("--pidfile", default=None,
-                          help="Write the daemon's PID to this file on start")
-    p_daemon.add_argument("--verbose", "-v", action="store_true",
-                          help="Log each tick's outcome to stdout")
-    # Undocumented escape hatch for users who truly cannot run the gateway.
-    # Intentionally excluded from --help so nobody discovers it casually and
-    # keeps the old double-dispatcher pattern alive.
-    p_daemon.add_argument("--force", action="store_true",
-                          help=argparse.SUPPRESS)
-
     # --- watch ---
     p_watch = sub.add_parser(
         "watch",
@@ -945,7 +924,6 @@ def kanban_command(args: argparse.Namespace) -> int:
             "archive":  _cmd_archive,
             "tail":     _cmd_tail,
             "dispatch": _cmd_dispatch,
-            "daemon":   _cmd_daemon,
             "watch":    _cmd_watch,
             "stats":    _cmd_stats,
             "log":      _cmd_log,
@@ -2203,147 +2181,6 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             f"Skipped (non-spawnable assignee — terminal lane, OK): "
             f"{', '.join(res.skipped_nonspawnable)}"
         )
-    return 0
-
-
-def _cmd_daemon(args: argparse.Namespace) -> int:
-    """Deprecated — the dispatcher now runs inside the gateway.
-
-    Left in as a stub so users with the old command in scripts/systemd
-    units get a clear migration message instead of a cryptic
-    "no such command" error. A ``--force`` escape hatch keeps the old
-    standalone daemon alive for the rare edge case where someone truly
-    cannot run the gateway (e.g. running on a host that forbids
-    long-lived background services), but the default path exits 2
-    with guidance so nobody accidentally keeps running two dispatchers
-    against the same kanban.db.
-    """
-    # --force lets power users keep the standalone loop for one more
-    # release cycle. Undocumented in `--help` so nobody discovers it
-    # casually — intentional.
-    if not getattr(args, "force", False):
-        print(
-            "janus kanban daemon: DEPRECATED — the dispatcher now runs\n"
-            "inside the gateway. To use kanban:\n"
-            "\n"
-            "    janus gateway start       # starts the gateway + embedded dispatcher\n"
-            "\n"
-            "Ready tasks will be picked up on the next dispatcher tick\n"
-            "(default: every 60 seconds). Configure via config.yaml:\n"
-            "\n"
-            "    kanban:\n"
-            "      dispatch_in_gateway: true      # default\n"
-            "      dispatch_interval_seconds: 60\n"
-            "      failure_limit: 2              # consecutive non-success attempts before auto-block\n"
-            "\n"
-            "Running both the gateway AND this standalone daemon will\n"
-            "race for claims. If you truly need the old standalone\n"
-            "daemon (no gateway available), rerun with --force.",
-            file=sys.stderr,
-        )
-        return 2
-
-    # Legacy path — same logic as before, kept behind --force.
-    # Make sure the DB exists before printing "started" so the user sees the
-    # correct DB path and any init error surfaces immediately.
-    kb.init_db()
-
-    pidfile = getattr(args, "pidfile", None)
-    if pidfile:
-        try:
-            Path(pidfile).parent.mkdir(parents=True, exist_ok=True)
-            Path(pidfile).write_text(str(os.getpid()), encoding="utf-8")
-        except OSError as exc:
-            print(f"warning: could not write pidfile {pidfile}: {exc}", file=sys.stderr)
-
-    verbose = bool(getattr(args, "verbose", False))
-    print(
-        f"Kanban dispatcher running STANDALONE via --force "
-        f"(interval={args.interval}s, pid={os.getpid()}). "
-        f"Ctrl-C to stop. NOTE: if a gateway is also running with "
-        f"dispatch_in_gateway=true (default), you have two dispatchers "
-        f"racing for claims.",
-        file=sys.stderr,
-    )
-
-    # Health telemetry: warn when every tick finds ready work but fails to
-    # spawn any worker. Catches broken profiles, PATH drift, missing venv,
-    # credential loss — cases where the per-task circuit breaker auto-blocks
-    # each task quietly but the operator has no signal that the dispatcher
-    # itself is dysfunctional.
-    HEALTH_WINDOW = 6  # ticks (default 30s at interval=5)
-    health_state = {"bad_ticks": 0, "last_warn_at": 0}
-
-    def _on_tick(res):
-        ready_pending = bool(res.skipped_unassigned) or _ready_queue_nonempty()
-        spawned_any = bool(res.spawned)
-        if ready_pending and not spawned_any:
-            health_state["bad_ticks"] += 1
-        else:
-            health_state["bad_ticks"] = 0
-        # Emit a warning once per HEALTH_WINDOW bad ticks (not every tick)
-        # so log volume stays bounded while the problem persists.
-        if health_state["bad_ticks"] >= HEALTH_WINDOW:
-            now = int(time.time())
-            # Rate-limit repeats: at most one warning per 5 minutes.
-            if now - health_state["last_warn_at"] >= 300:
-                print(
-                    f"[{_fmt_ts(now)}] WARN dispatcher stuck: "
-                    f"ready queue non-empty for {health_state['bad_ticks']} "
-                    f"consecutive ticks but 0 workers spawned successfully. "
-                    f"Check profile health (venv, PATH, credentials) and "
-                    f"`janus kanban list --status ready` / "
-                    f"`janus kanban list --status blocked` for recent "
-                    f"spawn_failed tasks.",
-                    file=sys.stderr, flush=True,
-                )
-                health_state["last_warn_at"] = now
-        if not verbose:
-            return
-        did_work = (
-            res.reclaimed or res.crashed or res.timed_out or res.promoted
-            or res.spawned or res.auto_blocked or res.stale
-        )
-        if did_work:
-            print(
-                f"[{_fmt_ts(int(time.time()))}] "
-                f"reclaimed={res.reclaimed} crashed={len(res.crashed)} "
-                f"timed_out={len(res.timed_out)} stale={len(res.stale)} "
-                f"promoted={res.promoted} spawned={len(res.spawned)} "
-                f"auto_blocked={len(res.auto_blocked)}",
-                flush=True,
-            )
-
-    def _ready_queue_nonempty() -> bool:
-        """Cheap probe — is there at least one ready+assigned+unclaimed
-        task whose assignee maps to a real Janus profile (i.e. one the
-        dispatcher would actually try to spawn for)?
-
-        Filters out tasks assigned to control-plane lanes
-        (e.g. ``orion-cc``, ``orion-research``) that are pulled by
-        terminals via ``claim_task`` directly — those are correctly idle
-        from the dispatcher's perspective, not stuck.
-        """
-        try:
-            with kb.connect_closing() as conn:
-                return kb.has_spawnable_ready(conn)
-        except Exception:
-            return False
-
-    try:
-        kb.run_daemon(
-            interval=args.interval,
-            max_spawn=args.max,
-            failure_limit=getattr(args, "failure_limit", kb.DEFAULT_SPAWN_FAILURE_LIMIT),
-            on_tick=_on_tick,
-        )
-    finally:
-        if pidfile:
-            try:
-                Path(pidfile).unlink()
-            except OSError:
-                pass
-    print("(dispatcher stopped)")
     return 0
 
 

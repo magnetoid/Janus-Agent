@@ -179,6 +179,34 @@ def _has_healthy_oauth_fallback_for_apikey_provider(provider_label: str) -> bool
     return False
 
 
+def _fold_legacy_tool_progress(config: dict) -> list[str] | None:
+    """Move a leftover ``display.tool_progress_overrides`` map into display.platforms.
+
+    The map stopped being read at runtime; an explicit
+    ``display.platforms.<p>.tool_progress`` always wins.  Mutates *config* and
+    returns the platforms that were moved, or None when there was nothing to do.
+    """
+    display = config.get("display")
+    if not isinstance(display, dict) or "tool_progress_overrides" not in display:
+        return None
+    legacy = display.pop("tool_progress_overrides")
+    moved: list[str] = []
+    if isinstance(legacy, dict):
+        platforms = display.get("platforms")
+        if not isinstance(platforms, dict):
+            platforms = {}
+            display["platforms"] = platforms
+        for platform, mode in legacy.items():
+            entry = platforms.get(platform)
+            if not isinstance(entry, dict):
+                entry = {}
+                platforms[platform] = entry
+            if "tool_progress" not in entry:
+                entry["tool_progress"] = mode
+                moved.append(str(platform))
+    return moved
+
+
 def check_ok(text: str, detail: str = ""):
     print(f"  {color('✓', Colors.GREEN)} {text}" + (f" {color(detail, Colors.DIM)}" if detail else ""))
 
@@ -890,6 +918,36 @@ def run_doctor(args):
                     issues.append("Stale root-level provider/base_url in config.yaml — run 'janus doctor --fix'")
         except Exception:
             pass
+
+        # Retired tool-progress settings: display.tool_progress_overrides and
+        # the JANUS_TOOL_PROGRESS / JANUS_TOOL_PROGRESS_MODE env vars are no
+        # longer read.  The map folds into display.platforms on --fix.
+        try:
+            import yaml
+            with open(config_path, encoding="utf-8") as f:
+                raw_config = yaml.safe_load(f) or {}
+            display_cfg = raw_config.get("display")
+            if isinstance(display_cfg, dict) and "tool_progress_overrides" in display_cfg:
+                check_warn(
+                    "display.tool_progress_overrides is no longer read",
+                    "(use display.platforms.<platform>.tool_progress)",
+                )
+                if should_fix:
+                    moved = _fold_legacy_tool_progress(raw_config)
+                    from utils import atomic_yaml_write
+                    atomic_yaml_write(config_path, raw_config)
+                    check_ok(f"Moved tool_progress_overrides into display.platforms ({', '.join(moved or []) or 'nothing to keep'})")
+                    fixed_count += 1
+                else:
+                    issues.append("Retired display.tool_progress_overrides in config.yaml — run 'janus doctor --fix'")
+        except Exception:
+            pass
+        _retired_env = [k for k in ("JANUS_TOOL_PROGRESS", "JANUS_TOOL_PROGRESS_MODE") if os.getenv(k)]
+        if _retired_env:
+            check_warn(
+                f"{', '.join(_retired_env)} no longer read",
+                "(set display.tool_progress in config.yaml instead)",
+            )
 
         # Detect stale JANUS_MAX_ITERATIONS ghost in .env shadowing
         # agent.max_turns in config.yaml (issue #17534). The setup wizard
