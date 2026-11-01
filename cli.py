@@ -3119,6 +3119,10 @@ class JanusCLI:
         self.resume_display = CLI_CONFIG["display"].get("resume_display", "full")
         # bell_on_complete: play terminal bell (\a) when agent finishes a response
         self.bell_on_complete = CLI_CONFIG["display"].get("bell_on_complete", False)
+        # notify_on_wait: bell + desktop notification while approval/clarify waits
+        self.notify_on_wait = CLI_CONFIG["display"].get("notify_on_wait", False)
+        # status_bar_git_branch: show the terminal cwd's git branch in the status bar
+        self.status_bar_git_branch = CLI_CONFIG["display"].get("status_bar_git_branch", False)
         # show_reasoning: display model thinking/reasoning before the response
         self.show_reasoning = CLI_CONFIG["display"].get("show_reasoning", False)
         _configure_output_history(
@@ -3712,6 +3716,7 @@ class JanusCLI:
             "compressions": 0,
             "active_background_tasks": 0,
             "active_background_processes": 0,
+            "git_branch": self._status_bar_branch_label(),
         }
 
         # Count live /background tasks. The dict entry is removed in the
@@ -3765,6 +3770,24 @@ class JanusCLI:
                 snapshot["context_percent"] = max(0, min(100, round((context_tokens / context_length) * 100)))
 
         return snapshot
+
+    def _status_bar_branch_label(self) -> Optional[str]:
+        """``⎇ <branch>`` for the terminal cwd when display.status_bar_git_branch is on."""
+        if not getattr(self, "status_bar_git_branch", False):
+            return None
+        try:
+            from janus_cli.git_branch import cached_git_branch
+            from janus_cli.skin_engine import get_active_skin
+
+            cache = self.__dict__.setdefault("_git_branch_cache", {})
+            branch = cached_git_branch(os.getenv("TERMINAL_CWD") or os.getcwd(), cache=cache)
+            if not branch:
+                return None
+            if len(branch) > 24:
+                branch = f"{branch[:21]}..."
+            return f"{get_active_skin().get_symbol('branch', '⎇')} {branch}"
+        except Exception:
+            return None
 
     @staticmethod
     def _status_bar_display_width(text: str) -> int:
@@ -4005,6 +4028,8 @@ class JanusCLI:
             bg_proc_count = snapshot.get("active_background_processes", 0)
             if bg_proc_count:
                 parts.append(f"⚙ {bg_proc_count}")
+            if snapshot.get("git_branch"):
+                parts.append(snapshot["git_branch"])
             parts.append(duration_label)
             prompt_elapsed = snapshot.get("prompt_elapsed")
             if prompt_elapsed:
@@ -4101,6 +4126,9 @@ class JanusCLI:
                     if bg_proc_count:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-strong", f"⚙ {bg_proc_count}"))
+                    if snapshot.get("git_branch"):
+                        frags.append(("class:status-bar-dim", " │ "))
+                        frags.append(("class:status-bar", snapshot["git_branch"]))
                     frags.extend([
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", duration_label),
@@ -8216,15 +8244,31 @@ class JanusCLI:
           /model <name> --provider <provider> — switch provider + model
           /model --provider <provider>        — switch to provider, auto-detect model
         """
-        from janus_cli.model_switch import switch_model, parse_model_flags
+        from janus_cli.model_switch import switch_model, parse_model_flags, extract_reasoning_flag
         from janus_cli.providers import get_label
 
         # Parse args from the original command
         parts = cmd_original.split(None, 1)  # split off '/model'
         raw_args = parts[1].strip() if len(parts) > 1 else ""
 
+        try:
+            raw_args, reasoning = extract_reasoning_flag(raw_args)
+        except ValueError as exc:
+            _cprint(f"  ✗ {exc}")
+            return
+
         # Parse --provider, --global, and --refresh flags
         model_input, explicit_provider, persist_global, force_refresh = parse_model_flags(raw_args)
+
+        # /model --reasoning <level> with no model: change only the effort.
+        if reasoning is not None and not model_input and not explicit_provider:
+            effort = self._apply_session_reasoning(reasoning)
+            if persist_global:
+                save_config_value("agent.reasoning_effort", effort)
+                _cprint(f"  ✓ Reasoning effort: {effort} (saved to config)")
+            else:
+                _cprint(f"  ✓ Reasoning effort: {effort} (session only — add --global to persist)")
+            return
 
         # --refresh: wipe the on-disk picker cache before building the
         # provider list. Forces a live re-fetch of every authed provider's
@@ -8391,14 +8435,31 @@ class JanusCLI:
         if result.warning_message:
             _cprint(f"    ⚠ {result.warning_message}")
 
+        if reasoning is not None:
+            effort = self._apply_session_reasoning(reasoning)
+            _cprint(f"    Reasoning effort: {effort}")
+
         # Persistence
         if persist_global:
             save_config_value("model.default", result.new_model)
             if result.provider_changed:
                 save_config_value("model.provider", result.target_provider)
+            if reasoning is not None:
+                save_config_value("agent.reasoning_effort", effort)
             _cprint("    Saved to config.yaml (--global)")
         else:
             _cprint("    (session only — add --global to persist)")
+
+    def _apply_session_reasoning(self, reasoning: dict) -> str:
+        """Apply a parsed reasoning config to this session and the live agent.
+
+        Reasoning effort is a per-request parameter, so the running agent
+        picks it up on its next call without a rebuild.  Returns the level name.
+        """
+        self.reasoning_config = reasoning
+        if self.agent is not None:
+            self.agent.reasoning_config = reasoning
+        return reasoning.get("effort", "medium") if reasoning.get("enabled") is not False else "none"
 
     def _handle_codex_runtime(self, cmd_original: str) -> None:
         """Handle /codex-runtime — toggle the codex app-server runtime opt-in.
@@ -11972,6 +12033,7 @@ class JanusCLI:
 
         # Trigger prompt_toolkit repaint from this (non-main) thread
         self._invalidate()
+        self._notify_waiting("Janus has a question", str(question or ""))
 
         # Poll for the user's response.  The countdown in the hint line
         # updates on each invalidate — but frequent repaints cause visible
@@ -12089,6 +12151,7 @@ class JanusCLI:
             self._approval_deadline = _time.monotonic() + timeout
 
             self._invalidate()
+            self._notify_waiting("Janus needs approval", command)
 
             _last_countdown_refresh = _time.monotonic()
             while True:
@@ -12112,6 +12175,17 @@ class JanusCLI:
             self._invalidate()
             _cprint(f"\n{_DIM}  ⏱ Timeout — denying command{_RST}")
             return "deny"
+
+    def _notify_waiting(self, title: str, message: str) -> None:
+        """Bell + desktop notification for a blocking prompt (display.notify_on_wait)."""
+        if not getattr(self, "notify_on_wait", False):
+            return
+        try:
+            from janus_cli import wait_notify
+
+            wait_notify.notify_waiting(title, message)
+        except Exception:
+            pass
 
     def _approval_choices(self, command: str, *, allow_permanent: bool = True) -> list[str]:
         """Return approval choices for a dangerous command prompt."""

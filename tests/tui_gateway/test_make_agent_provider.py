@@ -370,3 +370,40 @@ def test_apply_model_switch_does_not_leak_process_env():
     # Sibling session is completely untouched.
     assert sess_a["model_override"] is None
     assert sess_a["agent"].model == "minimax/m3"
+
+
+def test_apply_model_switch_applies_reasoning_flag_to_live_agent():
+    """``/model X --reasoning high`` sets the effort on the switched agent."""
+    from tui_gateway import server
+
+    class _FakeResult:
+        success = True
+        error_message = ""
+        warning_message = ""
+        new_model = "zai/glm-5.1"
+        target_provider = "zai"
+        base_url = ""
+        api_key = ""
+        api_mode = "chat_completions"
+
+    class _FakeAgent:
+        model = "minimax/m3"
+        provider = "minimax"
+        base_url = ""
+        api_key = ""
+        reasoning_config = None
+
+        def switch_model(self, **kw):
+            self.model = kw["new_model"]
+
+    sess = {"agent": _FakeAgent(), "session_key": "k", "model_override": None}
+    with (
+        patch("janus_cli.model_switch.switch_model", return_value=_FakeResult()),
+        patch("tui_gateway.server._emit"),
+        patch("tui_gateway.server._restart_slash_worker"),
+        patch("tui_gateway.server._session_info", return_value={}),
+    ):
+        server._apply_model_switch("sid", sess, "glm-5.1 --reasoning high")
+
+    assert sess["agent"].model == "zai/glm-5.1"
+    assert sess["agent"].reasoning_config == {"enabled": True, "effort": "high"}

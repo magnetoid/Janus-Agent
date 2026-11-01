@@ -333,6 +333,33 @@ def parse_model_flags(raw_args: str) -> tuple[str, str, bool, bool]:
     return (model_input, explicit_provider, is_global, force_refresh)
 
 
+def extract_reasoning_flag(raw_args: str) -> tuple[str, Optional[dict]]:
+    """Pull ``--reasoning <level>`` out of /model args.
+
+    Returns ``(remaining_args, reasoning_config)``; the config is ``None``
+    when the flag is absent and comes from ``parse_reasoning_effort``
+    otherwise.  Raises ``ValueError`` for a missing or unknown level.
+    Reasoning effort is a request parameter, so applying it alongside a
+    model switch does not touch the cached prompt prefix.
+    """
+    import re as _re
+    from janus_constants import VALID_REASONING_EFFORTS, parse_reasoning_effort
+
+    raw_args = _re.sub(r'[‒–—―]reasoning', '--reasoning', raw_args)
+    parts = raw_args.split()
+    if "--reasoning" not in parts:
+        return raw_args, None
+
+    idx = parts.index("--reasoning")
+    level = parts[idx + 1] if idx + 1 < len(parts) else ""
+    reasoning = parse_reasoning_effort(level)
+    if reasoning is None:
+        valid = ", ".join(("none",) + VALID_REASONING_EFFORTS)
+        raise ValueError(f"--reasoning needs one of: {valid}")
+    rest = parts[:idx] + parts[idx + 2:]
+    return " ".join(rest), reasoning
+
+
 # ---------------------------------------------------------------------------
 # Alias resolution
 # ---------------------------------------------------------------------------

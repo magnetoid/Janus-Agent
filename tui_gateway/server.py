@@ -1454,9 +1454,11 @@ def _persist_model_switch(result) -> None:
 
 
 def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
-    from janus_cli.model_switch import parse_model_flags, switch_model
+    from janus_cli.model_switch import extract_reasoning_flag, parse_model_flags, switch_model
     from janus_cli.runtime_provider import resolve_runtime_provider
 
+    # ValueError (unknown level) propagates like any other bad /model input.
+    raw_input, reasoning = extract_reasoning_flag(raw_input)
     model_input, explicit_provider, persist_global, _force_refresh = parse_model_flags(raw_input)
     if not model_input:
         raise ValueError("model value required")
@@ -1518,6 +1520,9 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
             base_url=result.base_url,
             api_mode=result.api_mode,
         )
+        if reasoning is not None:
+            # Per-request parameter: the live agent applies it on its next call.
+            agent.reasoning_config = reasoning
         _restart_slash_worker(session)
         _emit("session.info", sid, _session_info(agent, session))
 
@@ -1544,6 +1549,19 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
         }
     if persist_global:
         _persist_model_switch(result)
+        if reasoning is not None:
+            from janus_cli.config import save_config
+
+            cfg = _load_cfg()
+            agent_cfg = cfg.get("agent")
+            if not isinstance(agent_cfg, dict):
+                agent_cfg = {}
+                cfg["agent"] = agent_cfg
+            agent_cfg["reasoning_effort"] = (
+                reasoning.get("effort", "medium")
+                if reasoning.get("enabled") is not False else "none"
+            )
+            save_config(cfg)
     return {"value": result.new_model, "warning": result.warning_message or ""}
 
 

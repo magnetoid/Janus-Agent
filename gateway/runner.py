@@ -9417,12 +9417,18 @@ class GatewayRunner:
         import yaml
         from janus_cli.model_switch import (
             switch_model as _switch_model, parse_model_flags,
+            extract_reasoning_flag,
             list_authenticated_providers,
             list_picker_providers,
         )
         from janus_cli.providers import get_label
 
         raw_args = event.get_command_args().strip()
+
+        try:
+            raw_args, reasoning = extract_reasoning_flag(raw_args)
+        except ValueError:
+            return t("gateway.reasoning.unknown_arg", arg=raw_args)
 
         # Parse --provider, --global, and --refresh flags
         model_input, explicit_provider, persist_global, force_refresh = parse_model_flags(raw_args)
@@ -9469,6 +9475,12 @@ class GatewayRunner:
             current_provider = override.get("provider", current_provider)
             current_base_url = override.get("base_url", current_base_url)
             current_api_key = override.get("api_key", current_api_key)
+
+        # /model --reasoning <level> with no model: change only the effort.
+        if reasoning is not None and not model_input and not explicit_provider:
+            return self._apply_model_reasoning(
+                session_key, reasoning, persist_global=persist_global,
+            )
 
         # No args: show interactive picker (Telegram/Discord) or text list
         if not model_input and not explicit_provider:
@@ -9789,6 +9801,10 @@ class GatewayRunner:
         provider_label = result.provider_label or result.target_provider
         lines = [t("gateway.model.switched", model=result.new_model)]
         lines.append(t("gateway.model.provider_label", provider=provider_label))
+        if reasoning is not None:
+            lines.append(self._apply_model_reasoning(
+                session_key, reasoning, persist_global=persist_global,
+            ))
         # Gateway sessions are persistent, so a switch is almost always
         # mid-conversation — surface the cache-invalidation cost
         # (the provider prompt cache is model-keyed).
@@ -15073,6 +15089,50 @@ class GatewayRunner:
         ):
             return True
         return False
+
+    def _apply_model_reasoning(
+        self, session_key: str, reasoning: dict, *, persist_global: bool
+    ) -> str:
+        """Apply ``/model ... --reasoning <level>`` to this session.
+
+        Reasoning effort is a per-request parameter, so a cached agent takes
+        it in place and keeps its cache signature.  Returns the confirmation
+        line shown to the user.
+        """
+        effort = (
+            reasoning.get("effort", "medium")
+            if reasoning.get("enabled") is not False else "none"
+        )
+        self._reasoning_config = reasoning
+        self._set_session_reasoning_override(session_key, reasoning)
+        lock = getattr(self, "_agent_cache_lock", None)
+        cache = getattr(self, "_agent_cache", None)
+        if lock and cache is not None:
+            with lock:
+                cached = cache.get(session_key)
+            if cached and cached[0] is not None:
+                cached[0].reasoning_config = reasoning
+        if persist_global:
+            try:
+                import yaml
+                from janus_cli.config import save_config
+
+                config_path = _janus_home / "config.yaml"
+                cfg = {}
+                if config_path.exists():
+                    with open(config_path, encoding="utf-8") as f:
+                        cfg = yaml.safe_load(f) or {}
+                agent_cfg = cfg.get("agent")
+                if not isinstance(agent_cfg, dict):
+                    agent_cfg = {}
+                    cfg["agent"] = agent_cfg
+                agent_cfg["reasoning_effort"] = effort
+                save_config(cfg)
+                return t("gateway.reasoning.set_global", effort=effort)
+            except Exception as exc:
+                logger.warning("Failed to persist reasoning effort: %s", exc)
+                return t("gateway.reasoning.set_global_save_failed", effort=effort)
+        return t("gateway.reasoning.set_session", effort=effort)
 
     def _keep_cached_agent_after_model_switch(
         self, session_key: str, *, model: str, provider: str

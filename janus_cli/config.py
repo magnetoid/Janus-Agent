@@ -1465,6 +1465,11 @@ DEFAULT_CONFIG = {
         # dashboard. Set false to suppress the hint.
         "tui_agents_nudge": True,
         "bell_on_complete": False,
+        # Ring the bell and post a desktop notification (local sessions only)
+        # when the CLI waits on an approval or clarify answer.
+        "notify_on_wait": False,
+        # Show the current git branch in the CLI status bar (wide terminals).
+        "status_bar_git_branch": False,
         "show_reasoning": False,
         "streaming": False,
         "timestamps": False,      # Show [HH:MM] on user and assistant labels
