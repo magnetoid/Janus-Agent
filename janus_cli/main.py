@@ -10416,8 +10416,11 @@ def cmd_update(args):
     if getattr(args, "channel", None):
         from janus_cli import update_channel
 
-        update_channel.save_channel(channel)
-        print(f"→ Update channel: {channel} (saved as updates.channel)")
+        try:
+            update_channel.save_channel(channel)
+            print(f"→ Update channel: {channel} (saved as updates.channel)")
+        except ValueError as exc:
+            print(f"⚠ Update channel '{channel}' applies to this run only: {exc}.")
 
     gateway_mode = getattr(args, "gateway", False)
 

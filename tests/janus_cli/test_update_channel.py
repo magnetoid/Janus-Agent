@@ -69,6 +69,20 @@ class TestClassifyMove:
         _commit(repo, "b")
         assert update_channel.classify_move(["git"], repo, "v2026.11.1") == "rollback"
 
+    def test_shallow_install_is_deepened_before_calling_it_a_rollback(self, repo, tmp_path):
+        # scripts/install.sh clones with --depth 1; after moving to an older
+        # release the ancestry walk to a newer one stops at the shallow edge.
+        _git(repo, "tag", "v2026.11.1")
+        _commit(repo, "b")
+        _commit(repo, "c")
+        _git(repo, "tag", "v2026.11.2")
+        clone = tmp_path / "clone"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{repo}", str(clone)], check=True)
+        _git(clone, "fetch", "-q", "origin", "--tags")
+        _git(clone, "checkout", "-q", "--detach", "v2026.11.1")
+
+        assert update_channel.classify_move(["git"], clone, "v2026.11.2") == "forward"
+
 
 @pytest.mark.parametrize(
     "origin",
@@ -111,6 +125,17 @@ class TestResolveChannel:
 
     def test_unknown_configured_channel_falls_back_to_main(self):
         assert update_channel.resolve_channel(None, None, {"updates": {"channel": "beta"}}) == "main"
+
+
+def test_save_channel_refuses_to_overwrite_an_unparseable_config(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.yaml"
+    broken = "model:\n  default: [unclosed\n"
+    cfg_path.write_text(broken, encoding="utf-8")
+    monkeypatch.setattr("janus_cli.config.get_config_path", lambda: cfg_path)
+
+    with pytest.raises(ValueError, match="config.yaml"):
+        update_channel.save_channel("stable")
+    assert cfg_path.read_text(encoding="utf-8") == broken
 
 
 def test_save_channel_writes_only_the_user_key(tmp_path, monkeypatch):

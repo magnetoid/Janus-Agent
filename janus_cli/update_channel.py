@@ -50,7 +50,12 @@ def resolve_channel(flag: Optional[str], branch: Optional[str], config: Optional
 
 
 def save_channel(channel: str) -> None:
-    """Persist ``updates.channel`` in the user's config.yaml without dumping defaults."""
+    """Persist ``updates.channel`` in the user's config.yaml without dumping defaults.
+
+    Raises ``ValueError`` when an existing config.yaml cannot be read or
+    parsed, so a broken file is left for the user to repair instead of
+    being replaced by ``{"updates": {"channel": ...}}``.
+    """
     import yaml
 
     from janus_cli.config import _set_nested, ensure_janus_home, get_config_path
@@ -61,8 +66,10 @@ def save_channel(channel: str) -> None:
     if path.exists():
         try:
             user_config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except Exception:
-            user_config = {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise ValueError(f"could not read {path} ({exc.__class__.__name__}); it was left unchanged") from exc
+        if not isinstance(user_config, dict):
+            raise ValueError(f"{path} is not a mapping; it was left unchanged")
     _set_nested(user_config, "updates.channel", channel)
     ensure_janus_home()
     atomic_yaml_write(path, user_config, sort_keys=False)
@@ -107,6 +114,13 @@ def classify_move(git_cmd: list[str], cwd: Path, tag: str) -> Move:
         return "current"
     if _git(git_cmd, cwd, "merge-base", "--is-ancestor", "HEAD", tag).returncode == 0:
         return "forward"
+    # Installer clones are shallow (--depth 1), so the walk from a newer
+    # release back to HEAD can stop at the shallow edge. Fetch the full
+    # history once and ask again before calling this a rollback.
+    if _git(git_cmd, cwd, "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        _git(git_cmd, cwd, "fetch", "--quiet", "--unshallow", "origin")
+        if _git(git_cmd, cwd, "merge-base", "--is-ancestor", "HEAD", tag).returncode == 0:
+            return "forward"
     return "rollback"
 
 
