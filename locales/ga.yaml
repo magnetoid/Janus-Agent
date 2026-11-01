@@ -57,6 +57,7 @@ gateway:
     none:                  "Níl aon ghníomhairí gníomhacha ná tascanna ag rith."
     state_starting:        "ag tosú"
     state_running:         "ag rith"
+    subagent_controls_local: "Oibríonn stopadh nó stiúradh fo-ghníomhaire amháin sa CLI agus sa TUI. Anseo, cuireann /stop isteach ar an seal ar fad."
 
   approve:
     no_pending:            "Níl aon ordú ag fanacht le ceadú."

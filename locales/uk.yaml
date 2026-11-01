@@ -53,6 +53,7 @@ gateway:
     none:                  "Немає активних агентів або задач."
     state_starting:        "запускається"
     state_running:         "виконується"
+    subagent_controls_local: "Зупинити або спрямувати окремого субагента можна в CLI та TUI. Тут /stop перериває весь хід."
 
   approve:
     no_pending:            "Немає команди на схвалення."

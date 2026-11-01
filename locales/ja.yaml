@@ -53,6 +53,7 @@ gateway:
     none:                  "アクティブなエージェントや実行中のタスクはありません。"
     state_starting:        "起動中"
     state_running:         "実行中"
+    subagent_controls_local: "個々のサブエージェントの停止・誘導は CLI と TUI で使えます。ここでは /stop でターン全体を中断します。"
 
   approve:
     no_pending:            "承認待ちのコマンドはありません。"

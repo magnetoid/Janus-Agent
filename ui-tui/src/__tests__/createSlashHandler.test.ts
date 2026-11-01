@@ -52,6 +52,41 @@ describe('createSlashHandler', () => {
     expect(getOverlayState().sessions).toBe(true)
   })
 
+  it('stops one subagent with /agents stop <id> without opening the overlay', async () => {
+    const request = vi.fn(() => Promise.resolve({ found: true, subagent_id: 'sa-1' }))
+    const ctx = buildCtx({ gateway: { ...buildGateway(), gw: { ...buildGateway().gw, request } } })
+
+    expect(createSlashHandler(ctx)('/agents stop sa-1')).toBe(true)
+    expect(request).toHaveBeenCalledWith('subagent.interrupt', { subagent_id: 'sa-1' })
+    expect(getOverlayState().agents).toBe(false)
+    await vi.waitFor(() => expect(ctx.transcript.sys).toHaveBeenCalledWith('subagent sa-1 · stopping'))
+  })
+
+  it('steers one subagent with /agents steer <id> <message>, keeping the message case', async () => {
+    const request = vi.fn(() => Promise.resolve({ steered: true, subagent_id: 'sa-1' }))
+    const ctx = buildCtx({ gateway: { ...buildGateway(), gw: { ...buildGateway().gw, request } } })
+
+    expect(createSlashHandler(ctx)('/agents steer sa-1 Only read Feishu')).toBe(true)
+    expect(request).toHaveBeenCalledWith('subagent.steer', { subagent_id: 'sa-1', text: 'Only read Feishu' })
+    await vi.waitFor(() => expect(ctx.transcript.sys).toHaveBeenCalledWith('subagent sa-1 · steered'))
+  })
+
+  it('reports a steer the backend refused', async () => {
+    const request = vi.fn(() => Promise.resolve({ error: 'No running child', steered: false, subagent_id: 'x' }))
+    const ctx = buildCtx({ gateway: { ...buildGateway(), gw: { ...buildGateway().gw, request } } })
+
+    createSlashHandler(ctx)('/agents steer x hi')
+    await vi.waitFor(() => expect(ctx.transcript.sys).toHaveBeenCalledWith('subagent x · not steered: No running child'))
+  })
+
+  it('shows usage for /agents steer without a message', () => {
+    const ctx = buildCtx()
+
+    createSlashHandler(ctx)('/agents steer sa-1')
+    expect(ctx.gateway.gw.request).not.toHaveBeenCalled()
+    expect(ctx.transcript.sys).toHaveBeenCalledWith('usage: /agents stop <id> · /agents steer <id> <message>')
+  })
+
   it('handles /redraw locally without slash worker fallback', () => {
     const ctx = buildCtx()
 

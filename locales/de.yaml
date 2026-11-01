@@ -53,6 +53,7 @@ gateway:
     none:                  "Keine aktiven Agenten oder laufenden Aufgaben."
     state_starting:        "startet"
     state_running:         "läuft"
+    subagent_controls_local: "Einen einzelnen Subagenten stoppen oder lenken geht in CLI und TUI. Hier unterbricht /stop den ganzen Durchlauf."
 
   approve:
     no_pending:            "Kein ausstehender Befehl zum Genehmigen."

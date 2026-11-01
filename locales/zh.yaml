@@ -53,6 +53,7 @@ gateway:
     none:                  "没有活跃的代理或运行中的任务。"
     state_starting:        "启动中"
     state_running:         "运行中"
+    subagent_controls_local: "停止或引导单个子代理可在 CLI 和 TUI 中使用。在这里，/stop 会中断整个回合。"
 
   approve:
     no_pending:            "没有待批准的命令。"

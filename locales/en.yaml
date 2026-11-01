@@ -68,6 +68,7 @@ gateway:
     none:                  "No active agents or running tasks."
     state_starting:        "starting"
     state_running:         "running"
+    subagent_controls_local: "Stopping or steering one subagent works in the CLI and TUI. Here, /stop interrupts the whole turn."
 
   approve:
     no_pending:            "No pending command to approve."

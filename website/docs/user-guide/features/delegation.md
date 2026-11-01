@@ -237,9 +237,17 @@ The TUI ships a `/agents` overlay (alias `/tasks`) that turns recursive `delegat
 - Live tree view of running and recently-finished subagents, grouped by parent
 - Per-branch cost, token, and file-touched rollups
 - Kill and pause controls — cancel a specific subagent mid-flight without interrupting its siblings
+- Steer — press `m` on a subagent to prefill `/agents steer <id> ` in the composer; the note reaches that child after its current tool call, without interrupting it
 - Post-hoc review: step through each subagent's turn-by-turn history even after they've returned to the parent
 
-The classic CLI just prints `/agents` as a text summary; the TUI is where the overlay shines. See [TUI — Slash commands](/user-guide/tui#slash-commands).
+The classic CLI prints `/agents` as a text summary: running subagents (id, elapsed time, tool count, goal, indented by depth), background processes and the agent state. Both surfaces accept the same direct controls:
+
+| Command | Effect |
+|---|---|
+| `/agents stop <id>` | Stop one subagent at its next step. Its siblings and the parent keep running; partial work is kept. |
+| `/agents steer <id> <message>` | Send a note to one running subagent. It sees it after its current tool call. |
+
+See [TUI — Slash commands](/user-guide/tui#slash-commands).
 
 ## Depth Limit and Nested Orchestration
 
