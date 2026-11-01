@@ -8482,6 +8482,10 @@ class JanusCLI:
         fallback — delivering the steer as a next-turn message instead of
         injecting it mid-run.  Dispatching inline on the UI thread calls
         agent.steer() directly, which is thread-safe (uses _pending_steer_lock).
+
+        /agents (alias /tasks) takes the same path: the subagents it lists,
+        stops and steers exist only while the parent turn is running, and the
+        delegate_tool registry it reads is guarded by its own lock.
         """
         if not text or has_images or not _looks_like_slash_command(text):
             return False
@@ -8491,7 +8495,7 @@ class JanusCLI:
             from janus_cli.commands import resolve_command
             base = text.split(None, 1)[0].lower().lstrip('/')
             cmd = resolve_command(base)
-            return bool(cmd and cmd.name == "steer")
+            return bool(cmd and cmd.name in ("steer", "agents"))
         except Exception:
             return False
 

@@ -96,6 +96,20 @@ class TestSteerInlineDetector:
         assert cli._should_handle_steer_command_inline("/stop") is False
         assert cli._should_handle_steer_command_inline("/help") is False
 
+    def test_agents_controls_dispatch_inline_while_running(self):
+        """/agents (and /tasks) must run mid-turn: the subagents they list,
+        stop and steer only exist while the parent turn is running."""
+        cli = _make_cli()
+        cli._agent_running = True
+        assert cli._should_handle_steer_command_inline("/agents") is True
+        assert cli._should_handle_steer_command_inline("/tasks steer sa-1 hurry") is True
+        assert cli._should_handle_steer_command_inline("/agents stop sa-1") is True
+
+    def test_agents_waits_for_the_queue_when_idle(self):
+        cli = _make_cli()
+        cli._agent_running = False
+        assert cli._should_handle_steer_command_inline("/agents") is False
+
     def test_ignores_steer_with_attached_images(self):
         """Image payloads take the normal path; steer doesn't accept images."""
         cli = _make_cli()
