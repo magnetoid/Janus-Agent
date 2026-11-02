@@ -127,6 +127,66 @@ def test_cap_evicts_a_leftover_checkout_and_keeps_its_work(repo):
     assert _git(repo, "show", f"{leftover.branch}:partial.txt") == "unsaved"
 
 
+def test_failing_commit_hooks_do_not_lose_the_childs_work(repo):
+    hook = repo / ".git" / "hooks" / "prepare-commit-msg"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    wt = dw.create(repo, "s1", max_checkouts=8)
+    (wt.path / "new.txt").write_text("child work\n", encoding="utf-8")
+
+    report = dw.finalize(wt, message="save")
+
+    assert report["commits"] == 1 and "error" not in report
+    assert _git(repo, "show", f"{wt.branch}:new.txt") == "child work"
+
+
+def test_checkout_is_kept_when_its_changes_cannot_be_committed(repo, monkeypatch):
+    wt = dw.create(repo, "s1", max_checkouts=8)
+    (wt.path / "new.txt").write_text("child work\n", encoding="utf-8")
+    monkeypatch.setattr(dw, "_commit_all", lambda path, message: False)
+
+    report = dw.finalize(wt, message="save")
+
+    assert report["kept_checkout"] == str(wt.path) and "error" in report
+    assert (wt.path / "new.txt").read_text(encoding="utf-8") == "child work\n"
+    assert wt.branch in _branches(repo)
+
+    # A later cap check retries the save and must not drop the work either.
+    with pytest.raises(dw.WorktreeError):
+        dw.create(repo, "s2", max_checkouts=1)
+    assert (wt.path / "new.txt").exists()
+
+
+def _own_checkout_by(path: Path, pid: int) -> None:
+    dw._owner_file(path).write_text(json.dumps({"pid": pid}), encoding="utf-8")
+    with dw._active_lock:
+        dw._active.clear()
+
+
+def test_checkout_of_another_live_process_is_never_evicted(repo):
+    other = subprocess.Popen(["sleep", "30"])
+    try:
+        theirs = dw.create(repo, "other", max_checkouts=1)
+        _own_checkout_by(theirs.path, other.pid)
+
+        with pytest.raises(dw.WorktreeError, match="max_checkouts"):
+            dw.create(repo, "mine", max_checkouts=1)
+        assert theirs.path.is_dir()
+    finally:
+        other.kill()
+        other.wait()
+
+
+def test_checkout_of_a_dead_process_is_evicted(repo):
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    theirs = dw.create(repo, "other", max_checkouts=1)
+    _own_checkout_by(theirs.path, gone.pid)
+
+    assert dw.create(repo, "mine", max_checkouts=1).path.is_dir()
+    assert not theirs.path.exists()
+
+
 # ---------------------------------------------------------------------------
 # delegate_task wiring
 # ---------------------------------------------------------------------------

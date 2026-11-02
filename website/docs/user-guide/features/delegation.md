@@ -330,9 +330,9 @@ The child's terminal, file tools and working directory all point at its checkout
  "worktree": {"branch": "janus/delegate/3f9a1c2e", "commits": 2}}
 ```
 
-`"branch": null` means the child changed nothing and its branch was deleted. Merging or discarding the branch is up to the parent or you: the parent's checkout is never touched.
+`"branch": null` means the child changed nothing and its branch was deleted. Merging or discarding the branch is up to the parent or you: the parent's checkout is never touched. If the changes cannot be committed, the checkout is kept instead and the result says so (`"kept_checkout": "<path>"` plus an `error`).
 
-The cap `max_checkouts` limits live checkouts across all sessions. A checkout left behind by a process that died is evicted to make room, oldest first, after its work is committed to its branch. If every slot belongs to a running child, the whole call is refused and nothing starts.
+The cap `max_checkouts` limits live checkouts across all sessions and every Janus process sharing the same Janus home. Each checkout records the process that owns it. A checkout whose process has died is evicted to make room, oldest first, after its work is committed to its branch; one whose work cannot be saved is left alone. Checkouts of running children, in this or another live process, are never evicted: if every slot is taken, the whole call is refused and nothing starts.
 
 It is **off by default**, and the `isolation` argument is only offered to the model once it is on:
 
