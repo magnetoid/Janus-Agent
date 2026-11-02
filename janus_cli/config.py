@@ -2088,6 +2088,17 @@ DEFAULT_CONFIG = {
             "enabled": False,
             "max_running": 3,
         },
+        # Per-child git worktrees: delegate_task(isolation="worktree") checks out
+        # the parent's HEAD for each child on its own branch under
+        # <janus_home>/worktrees/, runs the child there, commits what it left
+        # uncommitted, removes the checkout and returns the branch name. Local
+        # terminal backend only. max_checkouts caps live checkouts across all
+        # sessions; leftovers from a crashed process are evicted (work saved on
+        # their branch first). Off by default.
+        "worktree": {
+            "enabled": False,
+            "max_checkouts": 8,
+        },
         # Named subagent profiles, selected with delegate_task(profile="<name>").
         # Each may set provider/model/base_url/api_key/api_mode, toolsets,
         # max_iterations, budget_usd (per-child spend cap) and role. Explicit
