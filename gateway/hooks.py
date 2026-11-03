@@ -111,7 +111,7 @@ class HookRegistry:
             manifest_path = hook_dir / "HOOK.yaml"
             handler_path = hook_dir / "handler.py"
 
-            if not manifest_path.exists() or not handler_path.exists():
+            if not manifest_path.exists():
                 continue
 
             hook_name, events, policies = hook_dir.name, [], {}
@@ -127,6 +127,10 @@ class HookRegistry:
                 if not events:
                     print(f"[hooks] Skipping {hook_name}: no events declared", flush=True)
                     continue
+                # Load failures below raise, so an on_failure: block hook
+                # still denies its commands (see _register_load_failure_denials).
+                if not handler_path.exists():
+                    raise RuntimeError("handler.py is missing")
 
                 # Dynamically load the handler module.
                 # Register in sys.modules BEFORE exec_module so Pydantic /
@@ -140,8 +144,7 @@ class HookRegistry:
                     module_name, handler_path
                 )
                 if spec is None or spec.loader is None:
-                    print(f"[hooks] Skipping {hook_name}: could not load handler.py", flush=True)
-                    continue
+                    raise RuntimeError("could not load handler.py")
 
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
@@ -153,8 +156,7 @@ class HookRegistry:
 
                 handle_fn = getattr(module, "handle", None)
                 if handle_fn is None:
-                    print(f"[hooks] Skipping {hook_name}: no 'handle' function found", flush=True)
-                    continue
+                    raise RuntimeError("no 'handle' function found")
 
                 # Register the handler for each declared event
                 for event in events:

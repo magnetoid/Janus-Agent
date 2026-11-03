@@ -191,3 +191,24 @@ class TestGatewayHooks:
     async def test_hook_that_fails_to_load_is_skipped_by_default(self, tmp_path):
         _gateway_hook(tmp_path, "guard", "def handle(:\n")
         assert await _registry(tmp_path).emit_collect("command:reset", {}) == []
+
+    @pytest.mark.asyncio
+    async def test_missing_handler_denies_under_block(self, tmp_path):
+        _gateway_hook(tmp_path, "guard", "", on_failure="block")
+        (tmp_path / "guard" / "handler.py").unlink()
+        [denied] = await _registry(tmp_path).emit_collect("command:reset", {})
+        assert denied["decision"] == "deny"
+
+    @pytest.mark.asyncio
+    async def test_handler_without_handle_denies_under_block(self, tmp_path):
+        _gateway_hook(tmp_path, "guard", "x = 1\n", on_failure="block")
+        [denied] = await _registry(tmp_path).emit_collect("command:reset", {})
+        assert denied["decision"] == "deny"
+
+    @pytest.mark.asyncio
+    async def test_missing_handler_is_skipped_by_default(self, tmp_path):
+        _gateway_hook(tmp_path, "guard", "")
+        (tmp_path / "guard" / "handler.py").unlink()
+        reg = _registry(tmp_path)
+        assert await reg.emit_collect("command:reset", {}) == []
+        assert reg.loaded_hooks == []
