@@ -16,7 +16,9 @@ Events:
   - agent:end           -- Agent finishes processing
   - command:*           -- Any slash command executed (wildcard match)
 
-Errors in hooks are caught and logged but never block the main pipeline.
+Errors in hooks are caught and logged but never block the main pipeline,
+unless HOOK.yaml sets ``on_failure: block``: then a ``command:*`` hook that
+raises, or fails to load, denies the command instead of being skipped.
 """
 
 import asyncio
@@ -27,9 +29,35 @@ from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 from janus_cli.config import get_janus_home
+from janus_cli.plugins import parse_failure_policy
 
 
 HOOKS_DIR = get_janus_home() / "hooks"
+
+
+def _deny(hook_name: str, reason: str) -> Dict[str, str]:
+    return {
+        "decision": "deny",
+        "message": f"Command blocked: gateway hook '{hook_name}' failed ({reason}) and is set to on_failure: block.",
+    }
+
+
+def _fail_closed(hook_name: str, handle_fn: Callable) -> Callable:
+    """Wrap *handle_fn* so an exception on a ``command:*`` event denies it."""
+
+    async def _guarded(event_type: str, context: Dict[str, Any]) -> Any:
+        try:
+            result = handle_fn(event_type, context)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+        except Exception as e:
+            print(f"[hooks] Error in handler for '{event_type}': {e}", flush=True)
+            if event_type.startswith("command:"):
+                return _deny(hook_name, f"{type(e).__name__}: {e}")
+            return None
+
+    return _guarded
 
 
 class HookRegistry:
@@ -86,6 +114,7 @@ class HookRegistry:
             if not manifest_path.exists() or not handler_path.exists():
                 continue
 
+            hook_name, events, policies = hook_dir.name, [], {}
             try:
                 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
                 if not manifest or not isinstance(manifest, dict):
@@ -94,6 +123,7 @@ class HookRegistry:
 
                 hook_name = manifest.get("name", hook_dir.name)
                 events = manifest.get("events", [])
+                policies = parse_failure_policy(manifest.get("on_failure"), f"[hooks] {hook_name}")
                 if not events:
                     print(f"[hooks] Skipping {hook_name}: no events declared", flush=True)
                     continue
@@ -128,7 +158,10 @@ class HookRegistry:
 
                 # Register the handler for each declared event
                 for event in events:
-                    self._handlers.setdefault(event, []).append(handle_fn)
+                    fn = handle_fn
+                    if self._blocks(policies, event):
+                        fn = _fail_closed(hook_name, handle_fn)
+                    self._handlers.setdefault(event, []).append(fn)
 
                 self._loaded_hooks.append({
                     "name": hook_name,
@@ -141,6 +174,28 @@ class HookRegistry:
 
             except Exception as e:
                 print(f"[hooks] Error loading hook {hook_dir.name}: {e}", flush=True)
+                self._register_load_failure_denials(hook_name, events, policies, e)
+
+    @staticmethod
+    def _blocks(policies: Dict[str, str], event: str) -> bool:
+        return str(event).startswith("command:") and policies.get(event, policies.get("*")) == "block"
+
+    def _register_load_failure_denials(
+        self, hook_name: str, events: Any, policies: Dict[str, str], error: Exception
+    ) -> None:
+        """A broken ``on_failure: block`` hook denies the commands it guards."""
+        if not isinstance(events, list):
+            return
+        denial = _deny(hook_name, f"did not load: {error}")
+        for event in events:
+            if not self._blocks(policies, event):
+                continue
+
+            def _denied(event_type: str, context: Dict[str, Any]) -> Dict[str, str]:
+                return dict(denial)
+
+            self._handlers.setdefault(event, []).append(_denied)
+            print(f"[hooks] {hook_name} failed to load; {event} is denied (on_failure: block)", flush=True)
 
     def _resolve_handlers(self, event_type: str) -> List[Callable]:
         """Return all handlers that should fire for ``event_type``.

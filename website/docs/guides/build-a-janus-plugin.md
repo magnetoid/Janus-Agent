@@ -67,6 +67,7 @@ This tells Janus: "I'm a plugin called calculator, I provide tools and hooks." T
 Optional fields you could add:
 ```yaml
 author: Your Name
+on_failure: block      # a crashing pre_tool_call / pre_gateway_dispatch hook blocks instead of being skipped
 requires_env:          # gate loading on env vars; prompted during install
   - SOME_API_KEY       # simple format — plugin disabled if missing
   - name: OTHER_KEY    # rich format — shows description/url during install

@@ -111,6 +111,9 @@ class ShellHookSpec:
     command: str
     matcher: Optional[str] = None
     timeout: int = DEFAULT_TIMEOUT_SECONDS
+    # ``block``: a failed run (spawn error, timeout, non-zero exit) vetoes
+    # the event when it is a decision hook; ``warn`` only logs it.
+    on_failure: str = "warn"
     compiled_matcher: Optional[re.Pattern] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -346,11 +349,21 @@ def _parse_single_entry(
         )
         timeout = MAX_TIMEOUT_SECONDS
 
+    from janus_cli.plugins import BLOCKING_HOOKS, parse_failure_policy
+
+    on_failure = parse_failure_policy(raw.get("on_failure"), f"hooks.{event}[{index}]").get("*", "warn")
+    if on_failure == "block" and event not in BLOCKING_HOOKS:
+        logger.warning(
+            "hooks.%s[%d].on_failure: block has no effect — %s has nothing to veto",
+            event, index, event,
+        )
+
     return ShellHookSpec(
         event=event,
         command=command.strip(),
         matcher=matcher,
         timeout=timeout,
+        on_failure=on_failure,
     )
 
 
@@ -435,13 +448,13 @@ def _make_callback(spec: ShellHookSpec) -> Callable[..., Optional[Dict[str, Any]
                 "shell hook failed (event=%s command=%s): %s",
                 spec.event, spec.command, r["error"],
             )
-            return None
+            return _failure_result(spec, r["error"])
         if r["timed_out"]:
             logger.warning(
                 "shell hook timed out after %.2fs (event=%s command=%s)",
                 r["elapsed_seconds"], spec.event, spec.command,
             )
-            return None
+            return _failure_result(spec, f"timed out after {spec.timeout}s")
 
         stderr = r["stderr"].strip()
         if stderr:
@@ -456,11 +469,22 @@ def _make_callback(spec: ShellHookSpec) -> Callable[..., Optional[Dict[str, Any]
                 "shell hook exited %d (event=%s command=%s); stderr=%s",
                 r["returncode"], spec.event, spec.command, stderr[:400],
             )
-        return _parse_response(spec.event, r["stdout"])
+        parsed = _parse_response(spec.event, r["stdout"])
+        if parsed is None and r["returncode"] != 0:
+            return _failure_result(spec, f"exit {r['returncode']}")
+        return parsed
 
     _callback.__name__ = f"shell_hook[{spec.event}:{spec.command}]"
     _callback.__qualname__ = _callback.__name__
     return _callback
+
+
+def _failure_result(spec: ShellHookSpec, reason: str) -> Optional[Dict[str, Any]]:
+    if spec.on_failure != "block":
+        return None
+    from janus_cli.plugins import fail_closed_result
+
+    return fail_closed_result(spec.event, f"shell hook {spec.command}", reason)
 
 
 def _serialize_payload(event: str, kwargs: Dict[str, Any]) -> str:

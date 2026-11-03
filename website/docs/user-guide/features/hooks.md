@@ -14,7 +14,32 @@ Janus has three hook systems that run custom code at key lifecycle points:
 | **[Plugin hooks](#plugin-hooks)** | `ctx.register_hook()` in a [plugin](/user-guide/features/plugins) | CLI + Gateway | Tool interception, metrics, guardrails |
 | **[Shell hooks](#shell-hooks)** | `hooks:` block in `~/.janus/config.yaml` pointing at shell scripts | CLI + Gateway | Drop-in scripts for blocking, auto-formatting, context injection |
 
-All three systems are non-blocking — errors in any hook are caught and logged, never crashing the agent.
+All three systems are non-blocking by default — errors in any hook are caught and logged, never crashing the agent. A hook that enforces policy can opt into failing closed with [`on_failure: block`](#failing-closed-on_failure).
+
+## Failing closed (`on_failure`)
+
+By default a hook that fails is logged and skipped (`on_failure: warn`). For a guard, that means a crash quietly lets through whatever it was meant to stop. Set `on_failure: block` and a failure vetoes the event instead:
+
+| System | Where to set it | Counts as a failure | What `block` does |
+|--------|-----------------|---------------------|-------------------|
+| Plugin hooks | `on_failure:` in `plugin.yaml` | The callback raises; the plugin fails to load, has no `register()`, or is refused by the integrity check | `pre_tool_call`: the tool call is blocked and the model sees the reason. `pre_gateway_dispatch`: the message is dropped (logged, no reply) |
+| Shell hooks | `on_failure:` on the `hooks:` entry | The command cannot start, times out, or exits non-zero without printing a block directive | `pre_tool_call`: the tool call is blocked |
+| Gateway hooks | `on_failure:` in `HOOK.yaml` | The handler raises, or `handler.py` fails to load | `command:*`: the command is denied and the user sees the reason |
+
+`on_failure` takes `warn` or `block`. In `plugin.yaml` and `HOOK.yaml` it can also be a mapping from hook or event name to policy, for example `on_failure: {pre_tool_call: block}`. Anything else falls back to `warn` with a warning.
+
+Only decision hooks have something to veto. On observer hooks (`post_tool_call`, `on_session_start`, `agent:start`, …) `block` behaves like `warn`, and Janus logs that it has no effect.
+
+For a plugin that may fail to load, list its guarded hooks in `provides_hooks` (or name them in the `on_failure` mapping): Janus cannot see which hooks a plugin would have registered, so those are the ones it keeps blocked. A plugin that is disabled in config, and a shell hook you have not approved, are not failures; they do not run and do not block.
+
+Use `block` for security hooks: tool policy and approval gates (`pre_tool_call`), sender admission (`pre_gateway_dispatch`) and command policy (`command:*`). Keep it off for logging, metrics and alerts, where a broken hook should not stop work.
+
+```yaml
+# plugin.yaml
+name: tool-policy
+provides_hooks: [pre_tool_call]
+on_failure: block
+```
 
 ## Gateway Event Hooks
 
@@ -343,7 +368,7 @@ An earlier version of Janus shipped this as a built-in hook and silently spawned
 2. Each subdirectory with `HOOK.yaml` + `handler.py` is loaded dynamically
 3. Handlers are registered for their declared events
 4. At each lifecycle point, `hooks.emit()` fires all matching handlers
-5. Errors in any handler are caught and logged — a broken hook never crashes the agent
+5. Errors in any handler are caught and logged — a broken hook never crashes the agent. With [`on_failure: block`](#failing-closed-on_failure), a failing `command:*` hook denies the command instead
 
 :::info
 Gateway hooks only fire in the **gateway** (Telegram, Discord, Slack, WhatsApp, Teams). The CLI does not load gateway hooks. For hooks that work everywhere, use [plugin hooks](#plugin-hooks).
@@ -369,7 +394,7 @@ def register(ctx):
 **General rules for all hooks:**
 
 - Callbacks receive **keyword arguments**. Always accept `**kwargs` for forward compatibility — new parameters may be added in future versions without breaking your plugin.
-- If a callback **crashes**, it's logged and skipped. Other hooks and the agent continue normally. A misbehaving plugin can never break the agent.
+- If a callback **crashes**, it's logged and skipped. Other hooks and the agent continue normally. A misbehaving plugin can never break the agent. A guard plugin can set [`on_failure: block`](#failing-closed-on_failure) so a crash blocks instead.
 - Two hooks' return values affect behavior: [`pre_tool_call`](#pre_tool_call) can **block** the tool, and [`pre_llm_call`](#pre_llm_call) can **inject context** into the LLM call. All other hooks are fire-and-forget observers.
 - Observer callbacks receive `telemetry_schema_version` automatically. When present, `turn_id`, `api_request_id`, `task_id`, `session_id`, and `api_call_count` are separate correlation fields. Treat `api_request_id` as an opaque identifier; do not parse its string format.
 
@@ -1193,6 +1218,7 @@ hooks:
     - matcher: "<regex>"         # Optional; used for pre/post_tool_call only
       command: "<shell command>" # Required; runs via shlex.split, shell=False
       timeout: <seconds>         # Optional; default 60, capped at 300
+      on_failure: warn           # Optional; "block" vetoes pre_tool_call when the hook fails
 
 hooks_auto_accept: false         # See "Consent model" below
 ```
@@ -1231,7 +1257,7 @@ Each time the event fires, Janus spawns a subprocess for every matching hook (ma
 // Silent no-op — any empty / non-matching output is fine:
 ```
 
-Malformed JSON, non-zero exit codes, and timeouts log a warning but never abort the agent loop.
+Malformed JSON, non-zero exit codes, and timeouts log a warning but never abort the agent loop. With [`on_failure: block`](#failing-closed-on_failure), a failed run (the command cannot start, times out, or exits non-zero without a block directive) blocks the tool call instead.
 
 ### Worked examples
 

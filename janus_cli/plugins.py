@@ -173,9 +173,63 @@ VALID_HOOKS: Set[str] = {
     "post_approval_response",
 }
 
+# ``on_failure`` policies. ``warn`` (default) logs a failing hook and skips
+# it; ``block`` makes a failing decision hook veto what it guards. Only the
+# hooks below have something to veto; observers always behave like ``warn``.
+HOOK_FAILURE_POLICIES = ("warn", "block")
+BLOCKING_HOOKS: Set[str] = {"pre_tool_call", "pre_gateway_dispatch"}
+
 ENTRY_POINTS_GROUP = "janus_agent.plugins"
 
 _NS_PARENT = "janus_plugins"
+
+
+def parse_failure_policy(raw: Any, where: str) -> Dict[str, str]:
+    """Normalise an ``on_failure`` value into ``{hook_name | "*": policy}``.
+
+    Accepts a policy string (applies to every hook) or a mapping of hook name
+    to policy. Invalid entries are dropped with a warning, so they fall back
+    to ``warn``.
+    """
+    if raw is None:
+        return {}
+    items = raw.items() if isinstance(raw, dict) else [("*", raw)]
+    policies: Dict[str, str] = {}
+    for hook, value in items:
+        policy = value.strip().lower() if isinstance(value, str) else value
+        if policy in HOOK_FAILURE_POLICIES:
+            policies[str(hook)] = policy
+        else:
+            logger.warning(
+                "%s: on_failure %r is not one of %s; using 'warn'",
+                where, value, "|".join(HOOK_FAILURE_POLICIES),
+            )
+    return policies
+
+
+def fail_closed_result(hook_name: str, source: str, reason: str) -> Optional[Dict[str, Any]]:
+    """The veto a failed ``on_failure: block`` hook stands in for, if any."""
+    notice = f"{source} failed ({reason}) and is set to on_failure: block"
+    if hook_name == "pre_tool_call":
+        return {"action": "block", "message": f"Tool call blocked: {notice}."}
+    if hook_name == "pre_gateway_dispatch":
+        return {"action": "skip", "reason": f"message dropped: {notice}"}
+    return None
+
+
+def _fail_closed(hook_name: str, callback: Callable, source: str) -> Callable:
+    """Wrap *callback* so an exception becomes the hook's veto."""
+
+    def _guarded(**kwargs: Any) -> Any:
+        try:
+            return callback(**kwargs)
+        except Exception as exc:
+            logger.warning("Hook '%s' from %s raised: %s; blocking (on_failure: block)", hook_name, source, exc)
+            return fail_closed_result(hook_name, source, f"{type(exc).__name__}: {exc}")
+
+    _guarded.__name__ = getattr(callback, "__name__", "hook")
+    _guarded.__qualname__ = getattr(callback, "__qualname__", _guarded.__name__)
+    return _guarded
 
 
 def _env_enabled(name: str) -> bool:
@@ -271,6 +325,11 @@ class PluginManifest:
     # category plugin at ``plugins/image_gen/openai/`` the key is
     # ``image_gen/openai``. When empty, falls back to ``name``.
     key: str = ""
+    # ``on_failure`` from the manifest, as ``{hook_name | "*": policy}``.
+    on_failure: Dict[str, str] = field(default_factory=dict)
+
+    def failure_policy(self, hook_name: str) -> str:
+        return self.on_failure.get(hook_name, self.on_failure.get("*", "warn"))
 
 
 @dataclass
@@ -954,6 +1013,14 @@ class PluginContext:
                 hook_name,
                 ", ".join(sorted(VALID_HOOKS)),
             )
+        if self.manifest.failure_policy(hook_name) == "block":
+            if hook_name in BLOCKING_HOOKS:
+                callback = _fail_closed(hook_name, callback, f"plugin '{self.manifest.name}' {hook_name} hook")
+            else:
+                logger.warning(
+                    "Plugin '%s': on_failure: block has no effect on observer hook '%s'",
+                    self.manifest.name, hook_name,
+                )
         self._manager._hooks.setdefault(hook_name, []).append(callback)
         logger.debug("Plugin %s registered hook: %s", self.manifest.name, hook_name)
 
@@ -1392,6 +1459,7 @@ class PluginManager:
                 path=str(plugin_dir),
                 kind=kind,
                 key=key,
+                on_failure=parse_failure_policy(data.get("on_failure"), f"Plugin {key}"),
             )
         except Exception as exc:
             logger.warning(
@@ -1457,6 +1525,7 @@ class PluginManager:
                 if not allowed:
                     loaded.error = _integrity_msg or "blocked by integrity check"
                     self._plugins[manifest.key or manifest.name] = loaded
+                    self._register_load_failure_blocks(manifest, loaded.error)
                     return
 
             if manifest.source in {"user", "project", "bundled"}:
@@ -1471,6 +1540,7 @@ class PluginManager:
             if register_fn is None:
                 loaded.error = "no register() function"
                 logger.warning("Plugin '%s' has no register() function", manifest.name)
+                self._register_load_failure_blocks(manifest, loaded.error)
             else:
                 ctx = PluginContext(manifest, self)
                 register_fn(ctx)
@@ -1529,8 +1599,30 @@ class PluginManager:
                 "Failed to load plugin '%s': %s",
                 manifest.name, exc, exc_info=_PLUGINS_DEBUG,
             )
+            self._register_load_failure_blocks(manifest, loaded.error)
 
         self._plugins[manifest.key or manifest.name] = loaded
+
+    def _register_load_failure_blocks(self, manifest: PluginManifest, error: str) -> None:
+        """Keep an ``on_failure: block`` plugin's vetoes when it cannot load.
+
+        Covers the decision hooks the manifest names, in ``provides_hooks``
+        or its ``on_failure`` mapping, so a broken guard fails closed rather
+        than silently not running.
+        """
+        provided = manifest.provides_hooks if isinstance(manifest.provides_hooks, list) else []
+        named = {str(h) for h in provided} | set(manifest.on_failure)
+        for hook_name in sorted(BLOCKING_HOOKS & named):
+            if manifest.failure_policy(hook_name) != "block":
+                continue
+            veto = fail_closed_result(hook_name, f"plugin '{manifest.name}'", f"did not load: {error}")
+
+            def _blocked(*, _veto: Optional[Dict[str, Any]] = veto, **_kwargs: Any) -> Optional[Dict[str, Any]]:
+                return dict(_veto) if _veto else None
+
+            _blocked.__name__ = f"blocked[{manifest.name}:{hook_name}]"
+            self._hooks.setdefault(hook_name, []).append(_blocked)
+            logger.warning("Plugin '%s' failed to load; %s is blocked (on_failure: block)", manifest.name, hook_name)
 
     def _load_directory_module(self, manifest: PluginManifest) -> types.ModuleType:
         """Import a directory-based plugin as ``janus_plugins.<slug>``.
