@@ -536,6 +536,7 @@ export const sessionCommands: SlashCommand[] = [
         // even with zero API calls or on a resumed session. Render it whenever
         // present, before the token panel.
         const creditsLines = r?.credits_lines ?? []
+
         if (creditsLines.length) {
           ctx.transcript.panel('Nous credits', [{ text: creditsLines.join('\n') }])
         }
@@ -544,6 +545,7 @@ export const sessionCommands: SlashCommand[] = [
           if (!creditsLines.length) {
             ctx.transcript.sys('no API calls yet')
           }
+
           return
         }
 

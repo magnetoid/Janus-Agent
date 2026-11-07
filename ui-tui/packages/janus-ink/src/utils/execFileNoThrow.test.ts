@@ -32,6 +32,7 @@ let sleeperPids: number[]
 function trackSleeperPid(pidFile: string): void {
   try {
     const pid = parseInt(readFileSync(pidFile, 'utf8').trim(), 10)
+
     if (pid > 0) {
       sleeperPids.push(pid)
     }
@@ -63,6 +64,7 @@ afterEach(() => {
       // Already exited — fine.
     }
   }
+
   rmSync(scriptDir, { recursive: true, force: true })
 })
 
@@ -90,6 +92,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
       timeout: 2000,
       resolveOnExit: true
     })
+
     trackSleeperPid(pidFile)
 
     const elapsed = Date.now() - start
@@ -112,6 +115,7 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
       timeout: 2000,
       resolveOnExit: true
     })
+
     trackSleeperPid(pidFile)
 
     expect(result.code).toBe(7)
@@ -135,12 +139,14 @@ describe.skipIf(onWindows)('execFileNoThrow with daemon-style children', () => {
 
   it('does not double-resolve when both timer and exit fire', async () => {
     const pidFile = join(scriptDir, 'sleeper-race.pid')
+
     // Race: child happens to exit right around the timeout. The settled
     // guard ensures only the first resolution wins.
     const result = await execFileNoThrow('/bin/sh', [daemonScript, pidFile], {
       timeout: 50, // very tight
       resolveOnExit: true
     })
+
     trackSleeperPid(pidFile)
 
     // Either code=0 (exit beat timer) or code=124 (timer beat exit).
