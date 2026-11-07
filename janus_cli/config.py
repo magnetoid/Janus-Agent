@@ -805,6 +805,19 @@ DEFAULT_CONFIG = {
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["janus-cli"],
+    # Sections below are owned by their own tools/commands. Empty means
+    # "nothing configured" — every reader treats it exactly like a missing key.
+    # (Not `custom_providers`: the v11 migration folds it into `providers`.)
+    # MCP servers by name ({command, args, env} or {url, headers}); `janus mcp`
+    "mcp_servers": {},
+    # Per-platform toolset overrides ({platform: [toolset, ...]}); `janus tools`
+    "platform_toolsets": {},
+    # Plugin allow/deny lists ({enabled: [...], disabled: [...]}); `janus plugins`.
+    # No `enabled` key = the legacy "everything not disabled" behaviour.
+    "plugins": {},
+    # Image/video generation provider + model ({provider, model, ...}); `janus tools`
+    "image_gen": {},
+    "video_gen": {},
     "agent": {
         "max_turns": 90,
         # Inactivity timeout for gateway agent execution (seconds).
@@ -4594,13 +4607,10 @@ def check_config_version() -> Tuple[int, int]:
 # =============================================================================
 
 # Fields that are valid at root level of config.yaml
-_KNOWN_ROOT_KEYS = {
-    "_config_version", "model", "providers", "fallback_model",
-    "fallback_providers", "credential_pool_strategies", "toolsets",
-    "agent", "terminal", "display", "compression", "delegation",
-    "auxiliary", "custom_providers", "context", "memory", "gateway",
-    "sessions", "streaming", "updates",
-}
+# Every section DEFAULT_CONFIG defines, plus legacy keys still read for
+# backward compatibility (``fallback_model`` predates ``fallback_providers``;
+# ``custom_providers`` is migrated into ``providers``).
+_KNOWN_ROOT_KEYS = set(DEFAULT_CONFIG) | {"_config_version", "fallback_model", "custom_providers"}
 
 # Valid fields inside a custom_providers list entry
 _VALID_CUSTOM_PROVIDER_FIELDS = {
