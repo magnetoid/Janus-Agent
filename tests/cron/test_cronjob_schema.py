@@ -39,3 +39,20 @@ def test_cronjob_schema_required_array_unchanged():
     from tools.cronjob_tools import CRONJOB_SCHEMA
 
     assert CRONJOB_SCHEMA["parameters"]["required"] == ["action"]
+
+
+def test_trimmed_param_descriptions_keep_the_decision_guidance():
+    """The token-audit trim ([5]) shortened these; the guidance the model
+    acts on must survive."""
+    from tools.cronjob_tools import CRONJOB_SCHEMA
+
+    props = CRONJOB_SCHEMA["parameters"]["properties"]
+    deliver = props["deliver"]["description"]
+    for needed in ("Omit", "'origin'", "'local'", "'all'", ":thread_id", "origin,all"):
+        assert needed in deliver
+    no_agent = props["no_agent"]["description"]
+    for needed in ("script", "verbatim", "Empty stdout sends nothing", "error alert"):
+        assert needed in no_agent
+    for name in ("profile", "workdir"):
+        desc = props[name]["description"]
+        assert "clears on update" in desc and "sequentially" in desc

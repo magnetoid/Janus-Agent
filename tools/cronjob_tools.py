@@ -774,7 +774,7 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
             },
             "deliver": {
                 "type": "string",
-                "description": "Omit this parameter to auto-deliver back to the current chat and topic (recommended). Auto-detection preserves thread/topic context. Only set explicitly when the user asks to deliver somewhere OTHER than the current conversation. Values: 'origin' (same as omitting), 'local' (no delivery, save only), 'all' (fan out to every connected home channel), or platform:chat_id:thread_id for a specific destination. Combine with comma: 'origin,all' delivers to the origin plus every other connected channel. Examples: 'telegram:-1001234567890:17585', 'discord:#engineering', 'sms:+15551234567', 'all'. WARNING: 'platform:chat_id' without :thread_id loses topic targeting. 'all' resolves at fire time, so a job created before a channel was wired up will pick it up automatically once connected."
+                "description": "Omit to deliver back to the current chat and topic (recommended); set it only when the user wants a different destination. Values: 'origin' (current chat), 'local' (save only, no delivery), 'all' (every connected home channel, resolved at fire time), or 'platform:chat_id:thread_id' — keep the :thread_id or topic targeting is lost. Examples: 'telegram:-1001234567890:17585', 'discord:#engineering'. Comma-combine, e.g. 'origin,all'."
             },
             "skills": {
                 "type": "array",
@@ -804,11 +804,11 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                 "type": "boolean",
                 "default": False,
                 "description": (
-                    "Default False (LLM-driven: the agent runs the prompt each tick). "
-                    "True skips the LLM entirely — the scheduler runs ``script`` on schedule and delivers its stdout verbatim (no tokens, no agent loop, no model override). "
-                    "Requires ``script`` set (``prompt``/``skills`` ignored). "
-                    "Delivery when True: non-empty stdout is sent verbatim; EMPTY stdout = SILENT (nothing is sent — design the script to stay quiet when there's nothing to report, the watchdog pattern); non-zero exit/timeout sends an error alert so a broken watchdog can't fail silently. "
-                    "Use True for script-only pings whose output IS the message (watchdogs, threshold alerts, heartbeats, pollers with a fixed output shape); False for anything needing reasoning (summaries, briefings, conditional logic)."
+                    "Default False: the agent runs the prompt each tick. "
+                    "True: no LLM — the scheduler runs ``script`` (required; prompt/skills ignored) and sends its stdout verbatim. "
+                    "Empty stdout sends nothing; a non-zero exit or timeout sends an error alert. "
+                    "Use True for watchdogs, threshold alerts and heartbeats whose output is the message; "
+                    "False for anything that needs reasoning."
                 ),
             },
             "context_from": {
@@ -831,11 +831,11 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
             },
             "workdir": {
                 "type": "string",
-                "description": "Optional absolute path (must exist) to run the job from: injects that directory's AGENTS.md/CLAUDE.md/.cursorrules into the system prompt and points the terminal/file/code_exec tools at it — for running inside a specific project repo. Unset (default) = no project context files, tools use the scheduler's cwd. Empty string clears on update. Jobs with workdir run sequentially (not parallel) to keep per-job directories isolated."
+                "description": "Optional absolute path (must exist) to run the job in: its AGENTS.md/CLAUDE.md/.cursorrules join the system prompt, and terminal/file/code tools start there. Unset = no project context files, scheduler's cwd. Empty string clears on update. Jobs with a workdir run sequentially."
             },
             "profile": {
                 "type": "string",
-                "description": "Optional Janus profile name to run the job under: resolves the profile, applies a context-local Janus home override, loads its config/.env for the run (restored after the job exits), and bridges JANUS_HOME into subprocesses. Use 'default' for the root profile; named profiles must already exist. Unset (default) preserves the scheduler's existing profile. Empty string clears on update. Jobs with profile run sequentially (not parallel) to keep profile-scoped runtime state isolated."
+                "description": "Optional Janus profile to run the job under ('default' = root profile; named profiles must exist). The run uses that profile's config/.env through a context-local home override that subprocesses inherit. Unset keeps the scheduler's profile; empty string clears on update. Jobs with a profile run sequentially."
             },
             "skip_memory": {
                 "type": "boolean",
