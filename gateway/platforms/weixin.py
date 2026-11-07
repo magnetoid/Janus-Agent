@@ -56,7 +56,7 @@ except ImportError:  # pragma: no cover - dependency gate
     CRYPTO_AVAILABLE = False
 
 from gateway.config import Platform, PlatformConfig
-from gateway.platforms.helpers import MessageDeduplicator
+from gateway.platforms.helpers import MessageDeduplicator, split_table_row
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -657,13 +657,7 @@ def _mime_from_filename(filename: str) -> str:
     return mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
-def _split_table_row(line: str) -> List[str]:
-    row = line.strip()
-    if row.startswith("|"):
-        row = row[1:]
-    if row.endswith("|"):
-        row = row[:-1]
-    return [cell.strip() for cell in row.split("|")]
+_split_table_row = split_table_row
 
 
 def _normalize_markdown_blocks(content: str) -> str:
