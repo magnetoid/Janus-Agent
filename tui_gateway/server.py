@@ -1453,11 +1453,51 @@ def _persist_model_switch(result) -> None:
     save_config(cfg)
 
 
+def _apply_session_reasoning(session: dict, reasoning: dict, persist_global: bool) -> None:
+    """Apply a ``/model ... --reasoning`` choice to this session.
+
+    Reasoning effort is a per-request parameter, so the live agent takes it in
+    place.  Session-only choices are kept in ``session["reasoning_override"]``
+    so a rebuild (``/new``) keeps them, mirroring ``model_override``.
+    """
+    agent = session.get("agent")
+    if agent is not None:
+        agent.reasoning_config = reasoning
+    if not persist_global:
+        session["reasoning_override"] = reasoning
+        return
+    session.pop("reasoning_override", None)
+    from janus_cli.config import save_config
+
+    cfg = _load_cfg()
+    agent_cfg = cfg.get("agent")
+    if not isinstance(agent_cfg, dict):
+        agent_cfg = {}
+        cfg["agent"] = agent_cfg
+    agent_cfg["reasoning_effort"] = (
+        reasoning.get("effort", "medium")
+        if reasoning.get("enabled") is not False else "none"
+    )
+    save_config(cfg)
+
+
 def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
-    from janus_cli.model_switch import parse_model_flags, switch_model
+    from janus_cli.model_switch import extract_reasoning_flag, parse_model_flags, switch_model
     from janus_cli.runtime_provider import resolve_runtime_provider
 
+    # ValueError (unknown level) propagates like any other bad /model input.
+    raw_input, reasoning = extract_reasoning_flag(raw_input)
     model_input, explicit_provider, persist_global, _force_refresh = parse_model_flags(raw_input)
+
+    # /model --reasoning <level> with no model: change only the effort.
+    if reasoning is not None and not model_input and not explicit_provider:
+        _apply_session_reasoning(session, reasoning, persist_global)
+        agent = session.get("agent")
+        if agent is not None and sid:
+            _emit("session.info", sid, _session_info(agent, session))
+        current = getattr(agent, "model", "") if agent is not None else ""
+        return {"value": current or _resolve_model(), "warning": ""}
+
     if not model_input:
         raise ValueError("model value required")
 
@@ -1518,6 +1558,8 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
             base_url=result.base_url,
             api_mode=result.api_mode,
         )
+        if reasoning is not None:
+            _apply_session_reasoning(session, reasoning, persist_global)
         _restart_slash_worker(session)
         _emit("session.info", sid, _session_info(agent, session))
 
@@ -1542,6 +1584,8 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
             "api_key": result.api_key,
             "api_mode": result.api_mode,
         }
+    if reasoning is not None and not agent:
+        _apply_session_reasoning(session, reasoning, persist_global)
     if persist_global:
         _persist_model_switch(result)
     return {"value": result.new_model, "warning": result.warning_message or ""}
@@ -2560,6 +2604,7 @@ def _reset_session_agent(sid: str, session: dict) -> dict:
             # session set). See the cross-session-contamination note in
             # _apply_model_switch.
             model_override=session.get("model_override"),
+            reasoning_override=session.get("reasoning_override"),
         )
     finally:
         _clear_session_context(tokens)
@@ -2586,6 +2631,7 @@ def _make_agent(
     session_id: str | None = None,
     session_db=None,
     model_override: dict | None = None,
+    reasoning_override: dict | None = None,
 ):
     from run_agent import AIAgent
     from janus_cli.runtime_provider import resolve_runtime_provider
@@ -2665,7 +2711,10 @@ def _make_agent(
         # display detail).  See cli.py PR (decoupling fix) for the matching
         # change on the classic CLI side.
         verbose_logging=False,
-        reasoning_config=_load_reasoning_config(),
+        reasoning_config=(
+            reasoning_override if reasoning_override is not None
+            else _load_reasoning_config()
+        ),
         service_tier=_load_service_tier(),
         enabled_toolsets=_load_enabled_toolsets(),
         platform="tui",
@@ -5876,6 +5925,10 @@ def _(rid, params: dict) -> dict:
             if parsed is None:
                 return _err(rid, 4002, f"unknown reasoning value: {value}")
             _write_config_key("agent.reasoning_effort", arg)
+            if session:
+                # /reasoning is the newer, global choice: drop any
+                # session-only effort set earlier via /model --reasoning.
+                session.pop("reasoning_override", None)
             if session and session.get("agent") is not None:
                 session["agent"].reasoning_config = parsed
             return _ok(rid, {"key": key, "value": arg})

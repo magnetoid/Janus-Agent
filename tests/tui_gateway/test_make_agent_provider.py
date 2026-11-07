@@ -6,6 +6,7 @@ provider/base_url/api_key empty in AIAgent, causing HTTP 404.
 """
 
 import os
+import threading
 from unittest.mock import MagicMock, patch
 
 
@@ -370,3 +371,121 @@ def test_apply_model_switch_does_not_leak_process_env():
     # Sibling session is completely untouched.
     assert sess_a["model_override"] is None
     assert sess_a["agent"].model == "minimax/m3"
+
+
+def test_apply_model_switch_applies_reasoning_flag_to_live_agent():
+    """``/model X --reasoning high`` sets the effort on the switched agent."""
+    from tui_gateway import server
+
+    class _FakeResult:
+        success = True
+        error_message = ""
+        warning_message = ""
+        new_model = "zai/glm-5.1"
+        target_provider = "zai"
+        base_url = ""
+        api_key = ""
+        api_mode = "chat_completions"
+
+    class _FakeAgent:
+        model = "minimax/m3"
+        provider = "minimax"
+        base_url = ""
+        api_key = ""
+        reasoning_config = None
+
+        def switch_model(self, **kw):
+            self.model = kw["new_model"]
+
+    sess = {"agent": _FakeAgent(), "session_key": "k", "model_override": None}
+    with (
+        patch("janus_cli.model_switch.switch_model", return_value=_FakeResult()),
+        patch("tui_gateway.server._emit"),
+        patch("tui_gateway.server._restart_slash_worker"),
+        patch("tui_gateway.server._session_info", return_value={}),
+    ):
+        server._apply_model_switch("sid", sess, "glm-5.1 --reasoning high")
+
+    assert sess["agent"].model == "zai/glm-5.1"
+    assert sess["agent"].reasoning_config == {"enabled": True, "effort": "high"}
+
+
+def test_apply_model_switch_reasoning_only_keeps_model():
+    """``/model --reasoning low`` changes only the effort, never the model."""
+    from tui_gateway import server
+
+    class _FakeAgent:
+        model = "minimax/m3"
+        provider = "minimax"
+        reasoning_config = None
+
+        def switch_model(self, **kw):
+            raise AssertionError("no model switch expected")
+
+    sess = {"agent": _FakeAgent(), "session_key": "k", "model_override": None}
+    with (
+        patch("janus_cli.model_switch.switch_model", side_effect=AssertionError("no switch")),
+        patch("tui_gateway.server._emit"),
+        patch("tui_gateway.server._session_info", return_value={}),
+    ):
+        result = server._apply_model_switch("sid", sess, "--reasoning low")
+
+    assert result["value"] == "minimax/m3"
+    assert sess["agent"].reasoning_config == {"enabled": True, "effort": "low"}
+    assert sess["reasoning_override"] == {"enabled": True, "effort": "low"}
+
+
+def test_reset_session_agent_keeps_session_reasoning_override():
+    """A session-only effort chosen with /model survives /new like the model does."""
+    from tui_gateway import server
+
+    override = {"enabled": True, "effort": "high"}
+    sess = {
+        "session_key": "k",
+        "model_override": {"model": "zai/glm-5.1"},
+        "reasoning_override": override,
+        "history_lock": threading.Lock(),
+    }
+    with (
+        patch("tui_gateway.server._make_agent", return_value=MagicMock()) as make_agent,
+        patch("tui_gateway.server._set_session_context", return_value=None),
+        patch("tui_gateway.server._clear_session_context"),
+        patch("tui_gateway.server._emit"),
+        patch("tui_gateway.server._session_info", return_value={}),
+        patch("tui_gateway.server._restart_slash_worker"),
+        patch("tui_gateway.server._load_show_reasoning", return_value=False),
+        patch("tui_gateway.server._load_tool_progress_mode", return_value="all"),
+    ):
+        server._reset_session_agent("sid", sess)
+
+    assert make_agent.call_args.kwargs["reasoning_override"] == override
+
+
+def test_make_agent_prefers_session_reasoning_override():
+    """A per-session reasoning override beats agent.reasoning_effort in config."""
+    def echo_runtime(requested=None, target_model=None):
+        return {
+            "provider": requested or "prov",
+            "base_url": "url",
+            "api_key": "key",
+            "api_mode": "chat_completions",
+            "command": None,
+            "args": None,
+            "credential_pool": None,
+        }
+
+    override = {"enabled": True, "effort": "xhigh"}
+    with (
+        patch("tui_gateway.server._load_cfg", return_value={"agent": {"system_prompt": ""}}),
+        patch("tui_gateway.server._get_db", return_value=MagicMock()),
+        patch("tui_gateway.server._load_reasoning_config", return_value={"enabled": True, "effort": "low"}),
+        patch("tui_gateway.server._load_service_tier", return_value=None),
+        patch("tui_gateway.server._load_enabled_toolsets", return_value=None),
+        patch("janus_cli.runtime_provider.resolve_runtime_provider", side_effect=echo_runtime),
+        patch("run_agent.AIAgent") as mock_agent,
+    ):
+        from tui_gateway.server import _make_agent
+
+        _make_agent("sid", "key", model_override={"model": "m", "provider": "p"}, reasoning_override=override)
+
+    assert mock_agent.call_args.kwargs["reasoning_config"] == override

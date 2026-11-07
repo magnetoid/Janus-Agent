@@ -83,7 +83,7 @@ All fields are optional. Missing values inherit from the ``default`` skin.
 
     # Structures (increment-1 additions; all optional)
     symbols:                # override minimal symbols by name
-      activity: "▸"         # tool line marker (also: ok, fail, bullet, prompt, gutter, rule)
+      activity: "▸"         # tool line marker (also: ok, fail, bullet, prompt, gutter, rule, branch)
     layout: open            # open (minimal structures) | panel (legacy boxed structures)
     emoji_tools: false      # emoji verb icons in tool lines (classic: true)
 
@@ -145,7 +145,7 @@ class SkinConfig:
     tool_emojis: Dict[str, str] = field(default_factory=dict)  # per-tool emoji overrides
     banner_logo: str = ""    # Rich-markup ASCII art logo (replaces JANUS_AGENT_LOGO)
     banner_hero: str = ""    # Rich-markup hero art (replaces JANUS_CADUCEUS)
-    symbols: Dict[str, str] = field(default_factory=dict)  # symbol overrides (activity/ok/fail/bullet/prompt/gutter/rule)
+    symbols: Dict[str, str] = field(default_factory=dict)  # symbol overrides (activity/ok/fail/bullet/prompt/gutter/rule/branch)
     layout: str = "panel"        # "open" (minimal structures) | "panel" (legacy boxed structures)
     emoji_tools: bool = True     # emoji verb icons in tool lines
 
