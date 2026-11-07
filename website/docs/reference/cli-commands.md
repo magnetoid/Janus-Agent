@@ -81,6 +81,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
 | `janus sessions` | Browse, export, prune, rename, and delete sessions. |
 | `janus insights` | Show token/cost/activity analytics, including the recorded per-turn spend ledger (the figure the `budget.*` caps enforce) with unpriced turns called out. |
+| `janus usage` | Group the recorded spend ledger by model, platform, session, day or cron job. |
 | `janus claw` | OpenClaw migration helpers. |
 | `janus desktop` (alias `janus gui`) | Build and launch the Electron desktop app. See [Desktop](../user-guide/desktop.md). |
 | `janus learning` | Learning-loop metrics, knowledge gaps, the ACE playbook, the governor state, and the enable/disable preset. See [Self-learning commands](#self-learning-and-autonomy-commands). |
@@ -1355,6 +1356,26 @@ janus insights [--days N] [--source platform]
 |--------|-------------|
 | `--days <n>` | Analyze the last `n` days (default: 30). |
 | `--source <platform>` | Filter by source such as `cli`, `telegram`, or `discord`. |
+
+## `janus usage`
+
+```bash
+janus usage [--by model|platform|session|day|job] [--days N] [--source platform] [--limit N] [--json]
+```
+
+Shows the recorded spend from `learning/cost_ledger.jsonl`, the same rows the `budget.*` caps enforce, grouped one way at a time. Every grouping adds up to the same total.
+
+A turn the pricing layer couldn't value shows as `n/a`, never as $0. These turns include rows written before the `estimated` flag existed. The spend caps still count them at a conservative estimate, which the footer shows. Subscription-covered (`included`) turns are real $0.
+
+`--by job` groups cron runs by job name and puts everything else under `(interactive)`.
+
+| Option | Description |
+|--------|-------------|
+| `--by <group>` | `model` (default), `platform`, `session`, `day` or `job`. |
+| `--days <n>` | Trailing window in days (default: 30). |
+| `--source <platform>` | Only one platform, such as `cli`, `telegram` or `cron`. |
+| `--limit <n>` | Rows to show; `0` for all (default: 25). |
+| `--json` | Emit the grouped report as JSON. |
 
 ## `janus claw`
 
