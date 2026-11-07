@@ -609,6 +609,7 @@ def _build_child_system_prompt(
     role: str = "leaf",
     max_spawn_depth: int = 2,
     child_depth: int = 1,
+    worktree_branch: Optional[str] = None,
 ) -> str:
     """Build a focused system prompt for a child agent.
 
@@ -633,6 +634,12 @@ def _build_child_system_prompt(
             f"{workspace_path}\n"
             "Use this exact path for local repository/workdir operations unless the task explicitly says otherwise."
         )
+        if worktree_branch:
+            parts.append(
+                f"This is your own git worktree on branch {worktree_branch}. Work and commit only "
+                "here; never touch the parent's checkout. Uncommitted changes are committed to the "
+                "branch for you when you finish, and the branch is handed back to the parent."
+            )
     parts.append(
         "\nComplete this task using the tools available to you. "
         "When finished, provide a clear, concise summary of:\n"
@@ -925,6 +932,10 @@ def _build_child_agent(
     # 'leaf' (default) cannot; 'orchestrator' retains the delegation
     # toolset subject to depth/kill-switch bounds applied below.
     role: str = "leaf",
+    # isolation="worktree": the child's own checkout replaces the parent's
+    # workspace hint in its prompt.
+    workspace_path: Optional[str] = None,
+    worktree_branch: Optional[str] = None,
 ):
     """
     Build a child AIAgent on the main thread (thread-safe construction).
@@ -1004,7 +1015,7 @@ def _build_child_agent(
     if effective_role == "orchestrator" and "delegation" not in child_toolsets:
         child_toolsets.append("delegation")
 
-    workspace_hint = _resolve_workspace_hint(parent_agent)
+    workspace_hint = workspace_path or _resolve_workspace_hint(parent_agent)
     child_prompt = _build_child_system_prompt(
         goal,
         context,
@@ -1012,6 +1023,7 @@ def _build_child_agent(
         role=effective_role,
         max_spawn_depth=max_spawn,
         child_depth=child_depth,
+        worktree_branch=worktree_branch,
     )
     # Extract parent's API key so subagents inherit auth (e.g. Cloud Industry Portal).
     parent_api_key = getattr(parent_agent, "api_key", None)
@@ -1375,6 +1387,25 @@ def _dump_subagent_timeout_diagnostic(
         return None
 
 
+def _child_worktree(child):
+    from tools.delegation_worktree import ChildWorktree
+
+    worktree = getattr(child, "_delegate_worktree", None)
+    return worktree if isinstance(worktree, ChildWorktree) else None
+
+
+def _release_child_worktree(child, goal: str) -> Optional[Dict[str, Any]]:
+    """Hand a finished child's worktree back as a branch (see tools/delegation_worktree.py)."""
+    worktree = _child_worktree(child)
+    if worktree is None:
+        return None
+    from tools.delegation_worktree import finalize
+
+    child._delegate_worktree = None
+    sid = getattr(child, "_subagent_id", None) or "subagent"
+    return finalize(worktree, message=f"janus subagent {sid}: {' '.join(goal.split())[:60]}")
+
+
 def _run_single_child(
     task_index: int,
     goal: str,
@@ -1385,7 +1416,44 @@ def _run_single_child(
     """
     Run a pre-built child agent. Called from within a thread.
     Returns a structured result dict.
+
+    A child built with isolation="worktree" runs with its terminal, file
+    tools and agent cwd pinned to its own checkout; the result carries a
+    ``worktree`` entry naming the branch that holds its work.
     """
+    worktree = _child_worktree(child)
+    task_id = getattr(child, "_subagent_id", None)
+    if worktree is None or not isinstance(task_id, str):
+        return _run_child(task_index, goal, child, parent_agent)
+
+    from agent.runtime_cwd import _SESSION_CWD, set_session_cwd
+    from tools.terminal_tool import cleanup_vm, clear_task_env_overrides, register_task_env_overrides
+
+    # A registered cwd override also gives the child its own terminal
+    # environment instead of the parent's shared one.
+    register_task_env_overrides(task_id, {"cwd": str(worktree.path)})
+    token = set_session_cwd(str(worktree.path))
+    try:
+        entry = _run_child(task_index, goal, child, parent_agent)
+    finally:
+        _SESSION_CWD.reset(token)
+        try:
+            cleanup_vm(task_id)
+        except Exception:
+            logger.debug("Failed to clean up worktree terminal for %s", task_id, exc_info=True)
+        clear_task_env_overrides(task_id)
+        report = _release_child_worktree(child, goal)
+    entry["worktree"] = report
+    return entry
+
+
+def _run_child(
+    task_index: int,
+    goal: str,
+    child=None,
+    parent_agent=None,
+) -> Dict[str, Any]:
+    """Body of :func:`_run_single_child` (no worktree handling)."""
     child_start = time.monotonic()
 
     # Get the progress callback from the child agent
@@ -2035,6 +2103,7 @@ def _start_background_children(children, parent_agent, bg_cfg: Dict[str, Any]) -
                 child.close()
             except Exception:
                 pass
+            _release_child_worktree(child, goal)
             continue
         handles.append(handle)
 
@@ -2054,6 +2123,38 @@ def _start_background_children(children, parent_agent, bg_cfg: Dict[str, Any]) -
     return json.dumps(out, ensure_ascii=False)
 
 
+def _resolve_isolation(isolation, cfg, parent_agent, task_list, acp_command):
+    """``(repo_root, max_checkouts, error)`` for the ``isolation`` argument."""
+    mode = str(isolation or "").strip().lower()
+    if mode in ("", "none"):
+        return None, 0, None
+    if mode != "worktree":
+        return None, 0, f"Unknown isolation '{isolation}'. Use isolation='worktree' or leave it unset."
+    from tools.delegation_worktree import repo_root_for, settings
+    from tools.terminal_tool import _resolve_terminal_env
+
+    enabled, cap = settings(cfg)
+    if not enabled:
+        return None, 0, (
+            "isolation='worktree' is disabled. Set delegation.worktree.enabled: true in "
+            "config.yaml to give each subagent its own git worktree."
+        )
+    if acp_command or any(t.get("acp_command") for t in task_list):
+        return None, 0, "isolation='worktree' does not apply to ACP children (acp_command)."
+    backend = _resolve_terminal_env()
+    if backend != "local":
+        return None, 0, (
+            f"isolation='worktree' needs the local terminal backend; this session uses '{backend}'."
+        )
+    workspace = _resolve_workspace_hint(parent_agent) or os.getcwd()
+    repo = repo_root_for(workspace)
+    if repo is None:
+        return None, 0, (
+            f"isolation='worktree' needs the working directory ({workspace}) to be inside a git repository."
+        )
+    return repo, cap, None
+
+
 def delegate_task(
     goal: Optional[str] = None,
     context: Optional[str] = None,
@@ -2066,9 +2167,14 @@ def delegate_task(
     parent_agent=None,
     background: bool = False,
     profile: Optional[str] = None,
+    isolation: Optional[str] = None,
 ) -> str:
     """
     Spawn one or more child agents to handle delegated tasks.
+
+    ``isolation="worktree"`` (needs ``delegation.worktree.enabled``) gives
+    each child its own git worktree of the parent's repository and returns
+    the branch holding its work.
 
     With ``background=True`` the children are started on worker threads
     and this call returns their handles at once; each result is delivered
@@ -2201,6 +2307,12 @@ def delegate_task(
         if not task.get("goal", "").strip():
             return tool_error(f"Task {i} is missing a 'goal'.")
 
+    worktree_repo, worktree_cap, isolation_error = _resolve_isolation(
+        isolation, cfg, parent_agent, task_list, acp_command or creds.get("command")
+    )
+    if isolation_error:
+        return tool_error(isolation_error)
+
     # Named profiles (delegation.profiles.<name>) — resolve every one before
     # building anything so an unknown name never leaves half a batch running.
     task_profiles: Dict[int, Dict[str, Any]] = {}
@@ -2235,6 +2347,21 @@ def delegate_task(
 
     _parent_tool_names = list(_model_tools._last_resolved_tool_names)
 
+    # isolation="worktree": create every checkout before building anything,
+    # so a full cap refuses the whole batch instead of starting half of it.
+    worktrees: Dict[int, Any] = {}
+    if worktree_repo is not None:
+        from tools.delegation_worktree import WorktreeError, create, finalize
+
+        session = str(getattr(parent_agent, "session_id", "") or "session")
+        try:
+            for i in range(n_tasks):
+                worktrees[i] = create(worktree_repo, session, max_checkouts=worktree_cap)
+        except WorktreeError as exc:
+            for wt in worktrees.values():
+                finalize(wt, message="unused")
+            return tool_error(f"isolation='worktree': {exc}")
+
     # Build all child agents on the main thread (thread-safe construction)
     # Wrapped in try/finally so the global is always restored even if a
     # child build raises (otherwise _last_resolved_tool_names stays corrupted).
@@ -2262,6 +2389,10 @@ def delegate_task(
                 )
             if routing_info:
                 routing_by_index[i] = routing_info
+            wt = worktrees.get(i)
+            wt_kwargs = (
+                {"workspace_path": str(wt.path), "worktree_branch": wt.branch} if wt else {}
+            )
             child = _build_child_agent(
                 task_index=i,
                 goal=t["goal"],
@@ -2284,13 +2415,23 @@ def delegate_task(
                     else (acp_args if acp_args is not None else creds.get("args"))
                 ),
                 role=effective_role,
+                **wt_kwargs,
             )
+            if wt:
+                child._delegate_worktree = wt
             # Override with correct parent tool names (before child construction mutated global)
             child._delegate_saved_tool_names = _parent_tool_names
             budget = _profile_budget_usd(prof)
             if budget is not None:
                 child._session_cost_limit_usd_override = budget
             children.append((i, t, child))
+    except BaseException:
+        if worktrees:
+            from tools.delegation_worktree import finalize
+
+            for wt in worktrees.values():
+                finalize(wt, message="unused")
+        raise
     finally:
         # Authoritative restore: reset global to parent's tool names after all children built
         _model_tools._last_resolved_tool_names = _parent_tool_names
@@ -3012,10 +3153,32 @@ def _build_dynamic_schema_overrides() -> dict:
     }
     overrides_params["properties"]["tasks"]["description"] = _build_tasks_param_description()
     overrides_params["properties"]["role"]["description"] = _build_role_param_description()
+    # Offered only when enabled, so installs without it pay no schema tokens.
+    try:
+        from tools.delegation_worktree import settings
+
+        worktree_on = settings(_load_config())[0]
+    except Exception:
+        worktree_on = False
+    if worktree_on:
+        overrides_params["properties"]["isolation"] = dict(_ISOLATION_PARAM)
     return {
         "description": _build_top_level_description(),
         "parameters": overrides_params,
     }
+
+
+_ISOLATION_PARAM = {
+    "type": "string",
+    "enum": ["worktree"],
+    "description": (
+        "'worktree' gives each child its own git worktree of the current repository on a "
+        "new branch, so parallel children editing code cannot collide. Each result's "
+        "'worktree.branch' holds that child's work (uncommitted changes are committed for it); "
+        "null means it changed nothing. Merge or discard the branch yourself. Omit for "
+        "children that only read or research."
+    ),
+}
 
 
 DELEGATE_TASK_SCHEMA = {
@@ -3215,6 +3378,7 @@ registry.register(
         profile=args.get("profile"),
         parent_agent=kw.get("parent_agent"),
         background=bool(args.get("background", False)),
+        isolation=args.get("isolation"),
     ),
     check_fn=check_delegate_requirements,
     emoji="🔀",

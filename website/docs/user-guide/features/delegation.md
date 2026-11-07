@@ -315,6 +315,44 @@ janus delegations attach <id> [--follow]  # print the child's transcript as it g
 janus delegations stop <id>               # interrupt it, from any process
 ```
 
+## Worktree Isolation
+
+Parallel children that edit the same repository can overwrite each other. With `isolation="worktree"`, each child gets its own `git worktree` of the parent's current commit, on a new branch, under `<janus_home>/worktrees/<session>/`:
+
+```python
+delegate_task(
+    tasks=[{"goal": "Fix the retry bug in gateway/feishu.py"},
+           {"goal": "Add type hints to gateway/weixin.py"}],
+    isolation="worktree",
+)
+```
+
+The child's terminal, file tools and working directory all point at its checkout, and its prompt names the branch. When it finishes, whether it completed, failed or timed out, Janus:
+
+1. commits whatever the child left uncommitted to that branch (hooks and signing are skipped for this automatic commit),
+2. removes the checkout,
+3. keeps the branch only if it holds commits, and reports it in the result:
+
+```json
+{"task_index": 0, "status": "completed", "summary": "…",
+ "worktree": {"branch": "janus/delegate/3f9a1c2e", "commits": 2}}
+```
+
+`"branch": null` means the child changed nothing and its branch was deleted. Merging or discarding the branch is up to the parent or you: the parent's checkout is never touched. If the changes cannot be committed, the checkout is kept instead and the result says so (`"kept_checkout": "<path>"` plus an `error`).
+
+The cap `max_checkouts` limits live checkouts across all sessions and every Janus process sharing the same Janus home. Each checkout records the process that owns it. A checkout whose process has died is evicted to make room, oldest first, after its work is committed to its branch; one whose work cannot be saved is left alone. Checkouts of running children, in this or another live process, are never evicted: if every slot is taken, the whole call is refused and nothing starts.
+
+It is **off by default**, and the `isolation` argument is only offered to the model once it is on:
+
+```yaml
+delegation:
+  worktree:
+    enabled: true
+    max_checkouts: 8
+```
+
+Requirements: the parent's working directory must be inside a git repository with at least one commit, and the session must use the local terminal backend. ACP children (`acp_command`) are not supported. Gitignored files such as `.env` or `node_modules` are not copied into the checkout.
+
 ## Key Properties
 
 - Each subagent gets its **own terminal session** (separate from the parent)
