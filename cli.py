@@ -502,10 +502,15 @@ def load_cli_config() -> Dict[str, Any]:
     # Load from file if exists
     if config_path.exists():
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                from janus_cli.config import _normalize_root_model_keys
+            from janus_cli.config import _load_user_config_yaml, _normalize_root_model_keys
 
-                file_config = _normalize_root_model_keys(yaml.safe_load(f) or {})
+            if config_path == user_config_path:
+                # Falls back to config.yaml.last-good when the YAML is broken.
+                raw_file_config = _load_user_config_yaml(config_path)
+            else:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    raw_file_config = yaml.safe_load(f)
+            file_config = _normalize_root_model_keys(raw_file_config or {})
             
             _file_has_terminal_config = "terminal" in file_config
 

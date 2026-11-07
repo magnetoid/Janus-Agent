@@ -898,10 +898,8 @@ def _reload_runtime_env_preserving_config_authority() -> None:
     if not config_path.exists():
         return
     try:
-        import yaml as _yaml
-        with open(config_path, encoding="utf-8") as f:
-            cfg = _yaml.safe_load(f) or {}
-        from janus_cli.config import _expand_env_vars
+        from janus_cli.config import _expand_env_vars, _load_user_config_yaml
+        cfg = _load_user_config_yaml(config_path)
         cfg = _expand_env_vars(cfg)
     except Exception:
         return
@@ -919,11 +917,10 @@ _DOCKER_MEDIA_OUTPUT_CONTAINER_PATHS = {"/output", "/outputs"}
 _config_path = _janus_home / 'config.yaml'
 if _config_path.exists():
     try:
-        import yaml as _yaml
-        with open(_config_path, encoding="utf-8") as _f:
-            _cfg = _yaml.safe_load(_f) or {}
+        # Falls back to config.yaml.last-good when the YAML is broken.
+        from janus_cli.config import _expand_env_vars, _load_user_config_yaml
+        _cfg = _load_user_config_yaml(_config_path)
         # Expand ${ENV_VAR} references before bridging to env vars.
-        from janus_cli.config import _expand_env_vars
         _cfg = _expand_env_vars(_cfg)
         # Top-level simple values (fallback only — don't override .env)
         for _key, _val in _cfg.items():

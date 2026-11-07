@@ -113,6 +113,7 @@ janus model                Interactive model/provider picker
 janus config               View current config
 janus config edit          Open config.yaml in $EDITOR
 janus config set KEY VAL   Set a config value
+janus config get KEY       Print one value (secrets masked; --raw)
 janus config path          Print config.yaml path
 janus config env-path      Print .env path
 janus config check         Check for missing/outdated config

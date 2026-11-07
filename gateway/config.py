@@ -739,8 +739,11 @@ def load_gateway_config() -> GatewayConfig:
         import yaml
         config_yaml_path = _home / "config.yaml"
         if config_yaml_path.exists():
-            with open(config_yaml_path, encoding="utf-8") as f:
-                yaml_cfg = yaml.safe_load(f) or {}
+            # Falls back to config.yaml.last-good when the YAML is broken.
+            from janus_cli.config import _load_user_config_yaml
+            yaml_cfg = _load_user_config_yaml(config_yaml_path)
+            if not isinstance(yaml_cfg, dict):
+                yaml_cfg = {}
 
             # Map config.yaml keys → GatewayConfig.from_dict() schema.
             # Each key overwrites whatever gateway.json may have set.
