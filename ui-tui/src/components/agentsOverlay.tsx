@@ -691,7 +691,7 @@ function DiffView({
 
 // ── Main overlay ─────────────────────────────────────────────────────
 
-export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: AgentsOverlayProps) {
+export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, onSteer, t }: AgentsOverlayProps) {
   const liveSubagents = useTurnSelector(state => state.subagents)
   const delegation = useStore($delegationState)
   const history = useStore($spawnHistory)
@@ -878,6 +878,13 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
       return killOne(selected.item.id)
     }
 
+    if (ch === 'm' && selected && onSteer) {
+      return guardLive(() => {
+        clearDiffPair()
+        onSteer(selected.item.id)
+      })
+    }
+
     if (ch === 'X' && selected) {
       return killSubtree(selected)
     }
@@ -982,7 +989,7 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
 
   const controlsHint = replayMode
     ? ' · controls locked'
-    : ` · x kill · X subtree · p ${delegation.paused ? 'resume' : 'pause'}`
+    : ` · x kill · X subtree · m steer · p ${delegation.paused ? 'resume' : 'pause'}`
 
   // ── Rendering ──────────────────────────────────────────────────────
 
@@ -1066,6 +1073,8 @@ interface AgentsOverlayProps {
   gw: GatewayClient
   initialHistoryIndex?: number
   onClose: () => void
+  /** Steer the selected subagent: the pane closes the overlay and prefills `/agents steer <id> `. */
+  onSteer?: (subagentId: string) => void
   t: Theme
 }
 

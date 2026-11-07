@@ -53,6 +53,7 @@ gateway:
     none:                  "Nincsenek aktív ügynökök vagy futó feladatok."
     state_starting:        "indul"
     state_running:         "fut"
+    subagent_controls_local: "Egyetlen alügynök leállítása vagy irányítása a CLI-ben és a TUI-ban működik. Itt a /stop az egész kört megszakítja."
 
   approve:
     no_pending:            "Nincs jóváhagyásra váró parancs."

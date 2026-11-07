@@ -53,6 +53,7 @@ gateway:
     none:                  "활성 에이전트나 실행 중인 작업이 없습니다."
     state_starting:        "시작 중"
     state_running:         "실행 중"
+    subagent_controls_local: "하위 에이전트 하나를 중지하거나 조정하는 기능은 CLI와 TUI에서 사용할 수 있습니다. 여기서는 /stop이 전체 턴을 중단합니다."
 
   approve:
     no_pending:            "승인 대기 중인 명령이 없습니다."

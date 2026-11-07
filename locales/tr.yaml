@@ -53,6 +53,7 @@ gateway:
     none:                  "Aktif ajan veya çalışan görev yok."
     state_starting:        "başlatılıyor"
     state_running:         "çalışıyor"
+    subagent_controls_local: "Tek bir alt ajanı durdurmak veya yönlendirmek CLI ve TUI'de çalışır. Burada /stop tüm turu keser."
 
   approve:
     no_pending:            "Onaylanacak bekleyen komut yok."

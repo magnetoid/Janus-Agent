@@ -6041,9 +6041,28 @@ class JanusCLI:
         killed = process_registry.kill_all()
         print(f"  ✅ Stopped {killed} process(es).")
 
-    def _handle_agents_command(self):
-        """Handle /agents — show background processes and agent status."""
+    def _handle_agents_command(self, cmd_original: str = ""):
+        """Handle /agents — subagents, background processes and agent status.
+
+        ``/agents stop <id>`` and ``/agents steer <id> <message>`` act on one
+        running subagent instead of listing.
+        """
+        from janus_cli.subagent_controls import run_agents_action, subagent_rows
+        from tools.delegate_tool import list_active_subagents
         from tools.process_registry import format_uptime_short, process_registry
+
+        parts = (cmd_original or "").strip().split(None, 1)
+        message = run_agents_action(parts[1] if len(parts) > 1 else "")
+        if message is not None:
+            _cprint(f"  {message}")
+            return
+
+        subagents = list_active_subagents()
+        if subagents:
+            _cprint(f"  Subagents: {len(subagents)}")
+            for row in subagent_rows(subagents):
+                _cprint(f"    {row}")
+            _cprint(f"  {_DIM}/agents stop <id> · /agents steer <id> <message>{_RST}")
 
         processes = process_registry.list_sessions()
         running = [p for p in processes if p.get("status") == "running"]
@@ -8529,6 +8548,10 @@ class JanusCLI:
         fallback — delivering the steer as a next-turn message instead of
         injecting it mid-run.  Dispatching inline on the UI thread calls
         agent.steer() directly, which is thread-safe (uses _pending_steer_lock).
+
+        /agents (alias /tasks) takes the same path: the subagents it lists,
+        stops and steers exist only while the parent turn is running, and the
+        delegate_tool registry it reads is guarded by its own lock.
         """
         if not text or has_images or not _looks_like_slash_command(text):
             return False
@@ -8538,7 +8561,7 @@ class JanusCLI:
             from janus_cli.commands import resolve_command
             base = text.split(None, 1)[0].lower().lstrip('/')
             cmd = resolve_command(base)
-            return bool(cmd and cmd.name == "steer")
+            return bool(cmd and cmd.name in ("steer", "agents"))
         except Exception:
             return False
 
@@ -9347,7 +9370,7 @@ class JanusCLI:
         elif canonical == "stop":
             self._handle_stop_command()
         elif canonical == "agents":
-            self._handle_agents_command()
+            self._handle_agents_command(cmd_original)
         elif canonical == "background":
             self._handle_background_command(cmd_original)
         elif canonical == "plan":

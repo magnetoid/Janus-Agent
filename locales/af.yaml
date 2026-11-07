@@ -53,6 +53,7 @@ gateway:
     none:                  "Geen aktiewe agente of lopende take nie."
     state_starting:        "begin"
     state_running:         "loop"
+    subagent_controls_local: "Om een subagent te stop of te stuur werk in die CLI en TUI. Hier onderbreek /stop die hele beurt."
 
   approve:
     no_pending:            "Geen hangende opdrag om goed te keur nie."

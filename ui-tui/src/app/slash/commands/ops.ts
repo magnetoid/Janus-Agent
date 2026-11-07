@@ -11,6 +11,8 @@ import type {
   SlashExecResponse,
   SpawnTreeListResponse,
   SpawnTreeLoadResponse,
+  SubagentInterruptResponse,
+  SubagentSteerResponse,
   ToolsConfigureResponse
 } from '../../../gatewayTypes.js'
 import type { PanelSection } from '../../../types.js'
@@ -291,10 +293,39 @@ export const opsCommands: SlashCommand[] = [
 
   {
     aliases: ['tasks'],
-    help: 'open the spawn-tree dashboard (live audit + kill/pause controls)',
+    help: 'open the spawn-tree dashboard (live audit + kill/pause/steer) · `/agents stop|steer <id> [message]`',
     name: 'agents',
     run: (arg, ctx) => {
       const sub = arg.trim().toLowerCase()
+      const [action = '', id = '', ...rest] = arg.trim().split(/\s+/)
+      const verb = action.toLowerCase()
+
+      // Act on one running subagent: `/agents stop <id>`, `/agents steer <id> <message>`.
+      if (verb === 'stop' || verb === 'steer') {
+        const text = arg.trim().replace(/^\S+\s+\S+\s*/, '')
+
+        if (!id || (verb === 'steer' && !rest.length)) {
+          return ctx.transcript.sys('usage: /agents stop <id> · /agents steer <id> <message>')
+        }
+
+        if (verb === 'stop') {
+          ctx.gateway.gw
+            .request<SubagentInterruptResponse>('subagent.interrupt', { subagent_id: id })
+            .then(r => ctx.transcript.sys(r?.found ? `subagent ${id} · stopping` : `subagent ${id} · not running`))
+            .catch(ctx.guardedErr)
+
+          return
+        }
+
+        ctx.gateway.gw
+          .request<SubagentSteerResponse>('subagent.steer', { subagent_id: id, text })
+          .then(r =>
+            ctx.transcript.sys(r?.steered ? `subagent ${id} · steered` : `subagent ${id} · not steered: ${r?.error ?? 'unknown error'}`)
+          )
+          .catch(ctx.guardedErr)
+
+        return
+      }
 
       // Stay compatible with the gateway `/agents [pause|resume|status]` CLI —
       // explicit subcommands skip the overlay and act directly so scripts and

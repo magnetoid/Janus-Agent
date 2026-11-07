@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react'
 import { Fragment, memo, useMemo, useRef } from 'react'
 
 import { useGateway } from '../app/gatewayContext.js'
-import type { AppLayoutProps } from '../app/interfaces.js'
+import type { AppLayoutProps, StateSetter } from '../app/interfaces.js'
 import { $isBlocked, $overlayState, patchOverlayState } from '../app/overlayStore.js'
 import { $uiState } from '../app/uiStore.js'
 import { INLINE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
@@ -332,7 +332,7 @@ const ComposerPane = memo(function ComposerPane({
   )
 })
 
-const AgentsOverlayPane = memo(function AgentsOverlayPane() {
+const AgentsOverlayPane = memo(function AgentsOverlayPane({ updateInput }: { updateInput: StateSetter<string> }) {
   const { gw } = useGateway()
   const ui = useStore($uiState)
   const overlay = useStore($overlayState)
@@ -342,6 +342,10 @@ const AgentsOverlayPane = memo(function AgentsOverlayPane() {
       gw={gw}
       initialHistoryIndex={overlay.agentsInitialHistoryIndex}
       onClose={() => patchOverlayState({ agents: false, agentsInitialHistoryIndex: 0 })}
+      onSteer={id => {
+        patchOverlayState({ agents: false, agentsInitialHistoryIndex: 0 })
+        updateInput(`/agents steer ${id} `)
+      }}
       t={ui.theme}
     />
   )
@@ -408,7 +412,7 @@ export const AppLayout = memo(function AppLayout({
         <Box flexDirection="row" flexGrow={1}>
           {overlay.agents ? (
             <PerfPane id="agents">
-              <AgentsOverlayPane />
+              <AgentsOverlayPane updateInput={composer.updateInput} />
             </PerfPane>
           ) : (
             <PerfPane id="transcript">

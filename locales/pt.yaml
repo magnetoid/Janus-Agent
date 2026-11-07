@@ -53,6 +53,7 @@ gateway:
     none:                  "Não há agentes ativos nem tarefas em execução."
     state_starting:        "a iniciar"
     state_running:         "em execução"
+    subagent_controls_local: "Parar ou orientar um único subagente funciona na CLI e na TUI. Aqui, /stop interrompe o turno inteiro."
 
   approve:
     no_pending:            "Não há nenhum comando pendente para aprovar."

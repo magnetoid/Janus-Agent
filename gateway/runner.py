@@ -8886,6 +8886,11 @@ class GatewayRunner:
         """Handle /agents command - list active agents and running tasks."""
         from tools.process_registry import format_uptime_short, process_registry
 
+        # Per-subagent stop/steer is CLI/TUI only: the gateway registry is
+        # shared by every chat, so a chat must not reach another chat's child.
+        if (event.get_command_args() or "").strip().lower().split(None, 1)[:1] in (["stop"], ["steer"]):
+            return t("gateway.agents.subagent_controls_local")
+
         now = time.time()
         current_session_key = self._session_key_for_source(event.source)
 

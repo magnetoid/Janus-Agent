@@ -4171,6 +4171,20 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"found": ok, "subagent_id": subagent_id})
 
 
+@method("subagent.steer")
+def _(rid, params: dict) -> dict:
+    from tools.delegate_tool import steer_child
+
+    subagent_id = str(params.get("subagent_id") or "").strip()
+    text = str(params.get("text") or "").strip()
+    if not subagent_id or not text:
+        return _err(rid, 4000, "subagent_id and text required")
+    result = json.loads(steer_child(subagent_id, text))
+    if result.get("success"):
+        return _ok(rid, {"steered": True, "subagent_id": subagent_id})
+    return _ok(rid, {"steered": False, "subagent_id": subagent_id, "error": str(result.get("error") or "")})
+
+
 # ── Spawn-tree snapshots: TUI-written, disk-persisted ────────────────
 # The TUI is the source of truth for subagent state (it assembles payloads
 # from the event stream).  On turn-complete it posts the final tree here;

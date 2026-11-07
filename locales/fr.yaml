@@ -53,6 +53,7 @@ gateway:
     none:                  "Aucun agent actif ni tâche en cours."
     state_starting:        "démarrage"
     state_running:         "en cours"
+    subagent_controls_local: "Arrêter ou orienter un seul sous-agent fonctionne dans la CLI et la TUI. Ici, /stop interrompt tout le tour."
 
   approve:
     no_pending:            "Aucune commande en attente d'approbation."
