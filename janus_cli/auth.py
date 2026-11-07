@@ -6278,14 +6278,6 @@ def _save_model_choice(model_id: str) -> None:
     save_config(config)
 
 
-def login_command(args) -> None:
-    """Deprecated: use 'janus model' or 'janus setup' instead."""
-    print("The 'janus login' command has been removed.")
-    print("Use 'janus auth' to manage credentials,")
-    print("'janus model' to select a provider, or 'janus setup' for full setup.")
-    raise SystemExit(0)
-
-
 def _login_openai_codex(
     args,
     pconfig: ProviderConfig,

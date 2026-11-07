@@ -6582,13 +6582,6 @@ def _model_flow_anthropic(config, current_model=""):
         print("No change.")
 
 
-def cmd_login(args):
-    """Authenticate Janus CLI with a provider."""
-    from janus_cli.auth import login_command
-
-    login_command(args)
-
-
 def cmd_logout(args):
     """Clear provider authentication."""
     from janus_cli.auth import logout_command
@@ -11763,7 +11756,6 @@ def _coalesce_session_name_args(argv: list) -> list:
         "gateway",
         "setup",
         "whatsapp",
-        "login",
         "logout",
         "auth",
         "status",
@@ -12690,7 +12682,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "computer-use",
         "config", "consensus", "cron", "curator", "dashboard", "debug", "doctor",
         "dump", "evals", "fallback", "gateway", "hooks", "import", "insights", "usage",
-        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate",
+        "gui", "desktop", "kanban", "logout", "logs", "lsp", "mcp", "memory", "migrate",
         "model", "pairing", "plugins", "portal", "postinstall", "profile", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
@@ -13694,52 +13686,6 @@ def main():
     # =========================================================================
     from janus_cli.send_cmd import register_send_subparser
     register_send_subparser(subparsers)
-
-    # =========================================================================
-    # login command
-    # =========================================================================
-    login_parser = subparsers.add_parser(
-        "login",
-        help="Authenticate with an inference provider",
-        description="Run OAuth device authorization flow for Janus CLI",
-    )
-    login_parser.add_argument(
-        "--provider",
-        choices=["nous", "openai-codex", "xai-oauth"],
-        default=None,
-        help="Provider to authenticate with (default: nous)",
-    )
-    login_parser.add_argument(
-        "--portal-url", help="Portal base URL (default: production portal)"
-    )
-    login_parser.add_argument(
-        "--inference-url",
-        help="Inference API base URL (default: production inference API)",
-    )
-    login_parser.add_argument(
-        "--client-id", default=None, help="OAuth client id to use (default: janus-cli)"
-    )
-    login_parser.add_argument("--scope", default=None, help="OAuth scope to request")
-    login_parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="Do not attempt to open the browser automatically",
-    )
-    login_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=15.0,
-        help="HTTP request timeout in seconds (default: 15)",
-    )
-    login_parser.add_argument(
-        "--ca-bundle", help="Path to CA bundle PEM file for TLS verification"
-    )
-    login_parser.add_argument(
-        "--insecure",
-        action="store_true",
-        help="Disable TLS verification (testing only)",
-    )
-    login_parser.set_defaults(func=cmd_login)
 
     # =========================================================================
     # logout command

@@ -1586,7 +1586,6 @@ DEFAULT_CONFIG = {
         },
         "interim_assistant_messages": True,  # Gateway: show natural mid-turn assistant status messages
         "tool_progress_command": False,  # Enable /verbose command in messaging gateway
-        "tool_progress_overrides": {},  # DEPRECATED — use display.platforms instead
         "tool_preview_length": 0,  # Max chars for tool call previews (0 = no limit, show full paths/commands)
         # Auto-delete system-notice replies (e.g. "✨ New session started!",
         # "♻ Restarting gateway…", "⚡ Stopped…") after N seconds on platforms
@@ -4096,23 +4095,6 @@ OPTIONAL_ENV_VARS = {
         "prompt": "Sudo password",
         "url": None,
         "password": True,
-        "category": "setting",
-    },
-    # JANUS_TOOL_PROGRESS and JANUS_TOOL_PROGRESS_MODE are deprecated —
-    # now configured via display.tool_progress in config.yaml (off|new|all|verbose).
-    # Gateway falls back to these env vars for backward compatibility.
-    "JANUS_TOOL_PROGRESS": {
-        "description": "(deprecated) Use display.tool_progress in config.yaml instead",
-        "prompt": "Tool progress (deprecated — use config.yaml)",
-        "url": None,
-        "password": False,
-        "category": "setting",
-    },
-    "JANUS_TOOL_PROGRESS_MODE": {
-        "description": "(deprecated) Use display.tool_progress in config.yaml instead",
-        "prompt": "Progress mode (deprecated — use config.yaml)",
-        "url": None,
-        "password": False,
         "category": "setting",
     },
     "JANUS_PREFILL_MESSAGES_FILE": {

@@ -247,7 +247,7 @@ def _make_runner(adapter):
 
 @pytest.mark.asyncio
 async def test_run_agent_progress_stays_in_originating_topic(monkeypatch, tmp_path):
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -295,7 +295,7 @@ async def test_run_agent_progress_stays_in_originating_topic(monkeypatch, tmp_pa
 
 @pytest.mark.asyncio
 async def test_run_agent_progress_edits_keep_originating_topic_metadata(monkeypatch, tmp_path):
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -335,7 +335,7 @@ async def test_run_agent_progress_edits_keep_originating_topic_metadata(monkeypa
 @pytest.mark.asyncio
 async def test_run_agent_progress_does_not_use_event_message_id_for_telegram_dm(monkeypatch, tmp_path):
     """Telegram DM progress must not reuse event message id as thread metadata."""
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -378,7 +378,6 @@ async def test_run_agent_progress_does_not_use_event_message_id_for_telegram_dm(
 @pytest.mark.asyncio
 async def test_run_agent_progress_uses_event_message_id_for_slack_dm(monkeypatch, tmp_path):
     """Slack DM progress should keep event ts fallback threading."""
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
     # Since PR #8006, Slack's built-in display tier sets tool_progress="off"
     # by default. Override via config so this test still exercises the
     # progress-callback path the Slack DM event_message_id threading depends on.
@@ -429,7 +428,7 @@ async def test_run_agent_progress_uses_event_message_id_for_slack_dm(monkeypatch
 @pytest.mark.asyncio
 async def test_run_agent_feishu_progress_replies_inside_existing_thread(monkeypatch, tmp_path):
     """Feishu needs reply_to plus reply_in_thread metadata for topic-scoped progress."""
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -486,7 +485,7 @@ def _run_long_preview_helper(monkeypatch, tmp_path, preview_length=0):
     import asyncio
     import yaml
 
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS_MODE", "all")
+    (tmp_path / "config.yaml").write_text("display:\n  tool_progress: all\n", encoding="utf-8")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *args, **kwargs: None
@@ -497,7 +496,7 @@ def _run_long_preview_helper(monkeypatch, tmp_path, preview_length=0):
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
     # Write config.yaml so _run_agent picks up tool_preview_length
-    config = {"display": {"tool_preview_length": preview_length}}
+    config = {"display": {"tool_progress": "all", "tool_preview_length": preview_length}}
     (tmp_path / "config.yaml").write_text(yaml.dump(config), encoding="utf-8")
 
     adapter = ProgressCaptureAdapter()

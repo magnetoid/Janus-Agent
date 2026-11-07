@@ -229,12 +229,17 @@ gateway docs). Without a running gateway, `ready` tasks stay where they are
 until one comes up — `janus kanban create` warns about this at creation
 time.
 
-Running `janus kanban daemon` as a separate process is **deprecated**;
-use the gateway. If you truly cannot run the gateway (headless host
-policy forbids long-lived services, etc.) a `--force` escape hatch keeps
-the old standalone daemon alive for one release cycle, but running both
-a gateway-embedded dispatcher AND a standalone daemon against the same
-`kanban.db` causes claim races and is not supported.
+The standalone `janus kanban daemon` command has been removed; the
+dispatcher runs only inside the gateway. If you installed the old
+`janus-kanban-dispatcher.service` systemd unit, it can no longer start —
+disable it and run the gateway instead:
+
+```bash
+systemctl --user disable --now janus-kanban-dispatcher.service
+rm ~/.config/systemd/user/janus-kanban-dispatcher.service
+systemctl --user daemon-reload
+janus gateway start   # or your existing gateway service
+```
 
 ### Idempotent create (for automation / webhooks)
 
@@ -682,8 +687,6 @@ janus kanban runs <id> [--json]                       # attempt history (one row
 janus kanban assignees [--json]                       # profiles on disk + per-assignee task counts
 janus kanban dispatch [--dry-run] [--max N]           # one-shot pass
         [--failure-limit N] [--json]
-janus kanban daemon --force                           # DEPRECATED — standalone dispatcher (use `janus gateway start` instead)
-        [--failure-limit N] [--pidfile PATH] [-v]
 janus kanban stats [--json]                           # per-status + per-assignee counts
 janus kanban log <id> [--tail BYTES]                  # worker log from ~/.janus/kanban/logs/
 janus kanban notify-subscribe <id>                    # gateway bridge hook (used by /kanban in the gateway)

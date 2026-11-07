@@ -426,59 +426,6 @@ def test_detect_crashed_workers_reclaims(kanban_home):
 
 
 # ---------------------------------------------------------------------------
-# Daemon loop
-# ---------------------------------------------------------------------------
-
-def test_daemon_runs_and_stops(kanban_home):
-    """run_daemon should execute at least one tick and exit cleanly on
-    stop_event."""
-    ticks = []
-    stop = threading.Event()
-
-    def _runner():
-        kb.run_daemon(
-            interval=0.05,
-            stop_event=stop,
-            on_tick=lambda res: ticks.append(res),
-        )
-
-    t = threading.Thread(target=_runner, daemon=True)
-    t.start()
-    # Give it a few ticks.
-    time.sleep(0.3)
-    stop.set()
-    t.join(timeout=2.0)
-    assert not t.is_alive(), "daemon should exit on stop_event"
-    assert len(ticks) >= 1, "expected at least one tick"
-
-
-def test_daemon_keeps_going_after_tick_exception(kanban_home, monkeypatch):
-    """A tick that raises shouldn't kill the loop."""
-    calls = [0]
-    orig_dispatch = kb.dispatch_once
-
-    def _boom(conn, **kw):
-        calls[0] += 1
-        if calls[0] == 1:
-            raise RuntimeError("simulated tick failure")
-        return orig_dispatch(conn, **kw)
-
-    monkeypatch.setattr(kb, "dispatch_once", _boom)
-
-    stop = threading.Event()
-    def _runner():
-        kb.run_daemon(interval=0.05, stop_event=stop)
-
-    t = threading.Thread(target=_runner, daemon=True)
-    t.start()
-    time.sleep(0.3)
-    stop.set()
-    t.join(timeout=2.0)
-    # At minimum, second-tick+ should have run.
-    assert calls[0] >= 2
-
-
-# ---------------------------------------------------------------------------
 # Stats + age
 # ---------------------------------------------------------------------------
 
@@ -3498,52 +3445,19 @@ def test_cli_create_no_warn_unassigned(kanban_home, monkeypatch, capsys):
     assert "janus gateway start" not in err
 
 
-def test_cli_daemon_without_force_prints_deprecation_exits_2(kanban_home, capsys):
-    """`janus kanban daemon` (no --force) is a deprecation stub."""
-    from janus_cli import kanban as kb_cli
-    ns = argparse.Namespace(
-        force=False, interval=60.0, max=None, failure_limit=3,
-        pidfile=None, verbose=False,
-    )
-    rc = kb_cli._cmd_daemon(ns)
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "DEPRECATED" in err
-    assert "janus gateway start" in err
-
-
-def test_cli_daemon_help_marks_deprecated():
-    """The argparse help string on `daemon` mentions deprecation so users
-    scanning `--help` see the migration before running the stub."""
+def test_cli_has_no_standalone_daemon():
+    """The standalone dispatcher was retired; the gateway hosts the only one."""
     import argparse as _ap
     from janus_cli import kanban as kb_cli
     root = _ap.ArgumentParser()
     subs = root.add_subparsers()
-    kb_cli.build_parser(subs)
-    # Walk the subparser tree to find the daemon action.
-    daemon_help = None
-    for action in root._actions:
+    kanban_parser = kb_cli.build_parser(subs)
+    names = set()
+    for action in kanban_parser._actions:
         if isinstance(action, _ap._SubParsersAction):
-            for name, parser in action.choices.items():
-                if name == "kanban":
-                    for sub_action in parser._actions:
-                        if isinstance(sub_action, _ap._SubParsersAction):
-                            for sname, _ in sub_action.choices.items():
-                                if sname == "daemon":
-                                    daemon_help = sub_action._choices_actions
-                                    break
-    # _choices_actions is a list of _ChoicesPseudoAction-like objects with .help
-    found_deprecation = False
-    if daemon_help:
-        for act in daemon_help:
-            if getattr(act, "dest", "") == "daemon":
-                if "DEPRECATED" in (act.help or ""):
-                    found_deprecation = True
-                    break
-    assert found_deprecation, (
-        "daemon subparser help should be marked DEPRECATED so users see "
-        "the migration guidance in `janus kanban --help` output"
-    )
+            names.update(action.choices)
+    assert "dispatch" in names
+    assert "daemon" not in names
 
 
 # ---------------------------------------------------------------------------

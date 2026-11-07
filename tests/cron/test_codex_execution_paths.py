@@ -144,7 +144,6 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
             "api_key": "codex-token",
         },
     )
-    monkeypatch.setenv("JANUS_TOOL_PROGRESS", "false")
     monkeypatch.setenv("JANUS_MODEL", "gpt-5.3-codex")
 
     _Codex401ThenSuccessAgent.refresh_attempts = 0

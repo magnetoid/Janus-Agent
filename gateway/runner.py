@@ -3031,7 +3031,7 @@ class GatewayRunner:
 
         # Start background kanban dispatcher — spawns workers for ready
         # tasks. Gated by `kanban.dispatch_in_gateway` (default True).
-        # When false, users run `janus kanban daemon` externally or
+        # When false, users dispatch by hand (`janus kanban dispatch`) or
         # simply don't use kanban; this loop becomes a no-op.
         asyncio.create_task(self._kanban_dispatcher_watcher())
 
@@ -4018,8 +4018,8 @@ class GatewayRunner:
 
         Gated by `kanban.dispatch_in_gateway` in config.yaml (default True).
         When true, the gateway hosts the single dispatcher for this profile:
-        no separate `janus kanban daemon` process needed. When false, the
-        loop exits immediately and an external daemon is expected.
+        no separate process needed. When false, the loop exits immediately
+        and ready tasks wait for a manual `janus kanban dispatch`.
 
         Each tick calls :func:`kanban_db.dispatch_once` inside
         ``asyncio.to_thread`` so the SQLite WAL lock never blocks the
@@ -15704,29 +15704,8 @@ class GatewayRunner:
         except Exception:
             pass
 
-        # Tool progress mode — resolved per-platform with env var fallback
-        _resolved_tp = resolve_display_setting(user_config, platform_key, "tool_progress")
-        _env_tp = os.getenv("JANUS_TOOL_PROGRESS_MODE")
-        _display_cfg = display_config if isinstance(display_config, dict) else {}
-        _platforms_cfg = _display_cfg.get("platforms") or {}
-        _platform_cfg = _platforms_cfg.get(platform_key) or {}
-        _legacy_tp_overrides = _display_cfg.get("tool_progress_overrides") or {}
-        _tool_progress_configured = (
-            "tool_progress" in _display_cfg
-            or (
-                isinstance(_platform_cfg, dict)
-                and "tool_progress" in _platform_cfg
-            )
-            or (
-                isinstance(_legacy_tp_overrides, dict)
-                and platform_key in _legacy_tp_overrides
-            )
-        )
-        progress_mode = (
-            _env_tp
-            if _env_tp and not _tool_progress_configured
-            else (_resolved_tp or _env_tp or "all")
-        )
+        # Tool progress mode — resolved per-platform (display.platforms.<p>.tool_progress)
+        progress_mode = resolve_display_setting(user_config, platform_key, "tool_progress") or "all"
         # Disable tool progress for webhooks - they don't support message editing,
         # so each progress line would be sent as a separate message.
         from gateway.config import Platform

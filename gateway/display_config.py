@@ -13,10 +13,9 @@ Exception: ``display.streaming`` is CLI-only.  Gateway streaming follows the
 top-level ``streaming`` config unless ``display.platforms.<platform>.streaming``
 sets an explicit per-platform override.
 
-Backward compatibility: ``display.tool_progress_overrides`` is still read as a
-fallback for ``tool_progress`` when no ``display.platforms`` entry exists.  A
-config migration (version bump) automatically moves the old format into the new
-``display.platforms`` structure.
+The legacy ``display.tool_progress_overrides`` map is no longer read; the
+version 16 config migration (``janus doctor --fix`` / ``janus update``) moves it
+into ``display.platforms``.
 """
 
 from __future__ import annotations
@@ -174,14 +173,6 @@ def resolve_display_setting(
         val = plat_overrides.get(setting)
         if val is not None:
             return _normalise(setting, val)
-
-    # 1b. Backward compat: display.tool_progress_overrides.<platform>
-    if setting == "tool_progress":
-        legacy = display_cfg.get("tool_progress_overrides")
-        if isinstance(legacy, dict):
-            val = legacy.get(platform_key)
-            if val is not None:
-                return _normalise(setting, val)
 
     # 2. Global user setting (display.<key>).  Skip display.streaming because
     # that key controls only CLI terminal streaming; gateway token streaming is
