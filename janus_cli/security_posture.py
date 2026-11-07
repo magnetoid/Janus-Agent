@@ -38,6 +38,23 @@ SEVERITIES = ("INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL")
 _BUDGET_DEFAULTS = {"budget.daily_usd": 25, "budget.monthly_usd": 200}
 _BIND_KEYS = {"host", "bind", "bind_host", "listen", "listen_host"}
 _EXPOSED = {"0.0.0.0", "::", "[::]"}
+# Env vars the adapters read as their listen host (API_SERVER_HOST, LINE_HOST,
+# *_WEBHOOK_HOST, …). Client-side hosts (EMAIL_IMAP_HOST) share the suffix but
+# never hold an all-interfaces address, so the value test keeps them out.
+_ENV_BIND = re.compile(r"^[A-Z][A-Z0-9_]*_HOST$")
+# Env hosts that a platform's config.yaml ``extra`` key overrides, mirroring
+# each adapter's precedence: name → (platform, extra key, env vars that, when
+# all set, make gateway/config.py seed ``extra`` from the env instead).
+_ENV_BIND_CONFIG_OVERRIDES: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
+    "FEISHU_WEBHOOK_HOST": ("feishu", "webhook_host", ()),
+    "BLUEBUBBLES_WEBHOOK_HOST": ("bluebubbles", "webhook_host",
+                                 ("BLUEBUBBLES_SERVER_URL", "BLUEBUBBLES_PASSWORD")),
+    "API_SERVER_HOST": ("api_server", "host", ()),  # env seeding: see below
+}
+# Files under the home that hold secrets or tokens; dirs are scanned one level.
+_SECRET_FILES = (".env", "config.yaml", "auth.json", ".anthropic_oauth.json",
+                 "webhook_subscriptions.json")
+_SECRET_DIRS = ("auth", "mcp-tokens")
 _BROAD_CMD = re.compile(r"(^|\s)(rm\s|sudo\b|chmod\s+777|curl[^|]*\|\s*(ba)?sh\b|wget[^|]*\|\s*(ba)?sh\b)")
 
 
@@ -114,18 +131,59 @@ def _unattended_surfaces(raw: Mapping[str, Any], janus_home: Path) -> List[str]:
     return surfaces
 
 
-def _dotenv_has_truthy(janus_home: Path, name: str) -> bool:
+def _dotenv_values(janus_home: Path) -> Dict[str, str]:
+    out: Dict[str, str] = {}
     try:
         p = janus_home / ".env"
         if not p.is_file():
-            return False
+            return out
         for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
             s = line.strip()
-            if s.startswith(f"{name}="):
-                return _truthy(s.split("=", 1)[1].strip().strip("'\""))
+            if s.startswith("export "):
+                s = s[len("export "):].lstrip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            name, value = s.split("=", 1)
+            out.setdefault(name.strip(), value.strip().strip("'\""))
     except Exception:
         pass
-    return False
+    return out
+
+
+def _dotenv_has_truthy(janus_home: Path, name: str) -> bool:
+    return _truthy(_dotenv_values(janus_home).get(name, ""))
+
+
+def _config_overrides_env_host(name: str, raw: Mapping[str, Any], values: Mapping[str, str]) -> bool:
+    """True when config.yaml sets the host the adapter prefers over env var *name*."""
+    spec = _ENV_BIND_CONFIG_OVERRIDES.get(name)
+    if spec is None:
+        return False
+    platform, key, env_seed = spec
+    if name == "API_SERVER_HOST":
+        # gateway/config.py writes API_SERVER_HOST into extra.host whenever the
+        # env enables the server (API_SERVER_ENABLED or API_SERVER_KEY).
+        if _truthy(values.get("API_SERVER_ENABLED", "")) or values.get("API_SERVER_KEY"):
+            return False
+    elif env_seed and all(values.get(v) for v in env_seed):
+        return False
+    plats = raw.get("platforms") or _get(raw, "gateway", "platforms") or {}
+    pc = plats.get(platform) if isinstance(plats, Mapping) else None
+    if not isinstance(pc, Mapping):
+        return False
+    extra = pc.get("extra")
+    return bool((extra.get(key) if isinstance(extra, Mapping) else None) or pc.get(key))
+
+
+def _secret_files(janus_home: Path) -> Iterator[Path]:
+    for fname in _SECRET_FILES:
+        p = janus_home / fname
+        if p.is_file():
+            yield p
+    for dname in _SECRET_DIRS:
+        d = janus_home / dname
+        if d.is_dir():
+            yield from sorted(c for c in d.iterdir() if c.is_file())
 
 
 # ── checks ───────────────────────────────────────────────────────────────
@@ -291,6 +349,21 @@ def collect(
                     "of OpenClaw instances were found this way.",
                     key=dotted, current=v, safe_value="127.0.0.1", fixable=True,
                     fix_note=f"sets {dotted}: 127.0.0.1 (use a VPN/SSH tunnel for remote access)"))
+        # Adapters fall back to env vars when config is silent (API_SERVER_HOST…).
+        # The process env wins over .env, as it does when .env is loaded.
+        dotenv = _dotenv_values(janus_home)
+        sources = {**{k: ".env" for k in dotenv}, **{k: "environment" for k in env}}
+        values = {**dotenv, **dict(env)}
+        for name in sorted(sources):
+            if (_ENV_BIND.match(name) and str(values.get(name, "")).strip() in _EXPOSED
+                    and not _config_overrides_env_host(name, raw, values)):
+                res.append(PostureFinding(
+                    "network.exposed_bind", "HIGH", f"{name} binds to all interfaces",
+                    f"{name}={values[name]} (from {sources[name]}) exposes a Janus service "
+                    "beyond localhost.",
+                    current=values[name], safe_value="127.0.0.1", fixable=False,
+                    fix_note=f"set {name}=127.0.0.1 in {sources[name]} "
+                             "(use a VPN/SSH tunnel for remote access)"))
         return res
 
     def c_allowlist_empty():
@@ -319,15 +392,13 @@ def collect(
         res = []
         if os.name != "posix":
             return res
-        for fname in (".env", "config.yaml"):
-            p = janus_home / fname
-            if not p.is_file():
-                continue
+        for p in _secret_files(janus_home):
             mode = stat.S_IMODE(p.stat().st_mode)
             if mode & 0o077:
+                rel = p.relative_to(janus_home).as_posix()
                 res.append(PostureFinding(
-                    "files.permissions", "LOW", f"{fname} is readable by other users",
-                    f"{p} has mode {oct(mode)}; it holds secrets/config and should be 0600.",
+                    "files.permissions", "LOW", f"{rel} is readable by other users",
+                    f"{p} has mode {oct(mode)}; it holds secrets/tokens and should be 0600.",
                     current=p, safe_value="0600", fixable=True, fix_note=f"chmod 600 {p}"))
         return res
 

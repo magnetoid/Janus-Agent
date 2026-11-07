@@ -207,3 +207,106 @@ def test_gateway_approver_any_is_reported_and_fixable(tmp_path, monkeypatch):
     assert set(findings) == {"approvals.gateway_approver_any"}
     f = findings["approvals.gateway_approver_any"]
     assert f.fixable and f.safe_value == "requester"
+
+
+# ── secret files beyond .env/config.yaml, bind hosts from the environment ──
+
+
+@pytest.fixture()
+def quiet_home(tmp_path, monkeypatch):
+    """A home whose config is clean, so only the check under test can fire."""
+    monkeypatch.delenv("JANUS_YOLO_MODE", raising=False)
+    monkeypatch.setattr("agent.autonomy_guard.frozen", lambda config=None: False)
+    monkeypatch.setattr("janus_cli.kanban_db.kanban_db_path", lambda board=None: tmp_path / "nope.db", raising=False)
+    _write_cfg(tmp_path, _CLEAN, mode=0o600)
+    return tmp_path
+
+
+_CLEAN = {"approvals": {"mode": "manual"}, "terminal": {"backend": "local"}}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+@pytest.mark.parametrize("rel", ["auth.json", ".anthropic_oauth.json", "auth/google_oauth.json",
+                                 "mcp-tokens/github.json"])
+def test_credential_store_readable_by_others_is_reported_and_fixable(quiet_home, rel):
+    p = quiet_home / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("{}", encoding="utf-8")
+    os.chmod(p, 0o644)
+    perms = [f for f in sp.collect(_CLEAN, _CLEAN, quiet_home, {}) if f.check_id == "files.permissions"]
+    assert [Path(f.current) for f in perms] == [p]
+    applied = sp.apply_fixes(perms, config_path=quiet_home / "config.yaml")
+    assert applied == perms and stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert not [f for f in sp.collect(_CLEAN, _CLEAN, quiet_home, {}) if f.check_id == "files.permissions"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_private_credential_store_is_not_reported(quiet_home):
+    p = quiet_home / "auth.json"
+    p.write_text("{}", encoding="utf-8")
+    os.chmod(p, 0o600)
+    assert sp.collect(_CLEAN, _CLEAN, quiet_home, {}) == []
+
+
+def test_exposed_host_in_environment_is_reported_when_config_is_silent(quiet_home):
+    findings = sp.collect(_CLEAN, _CLEAN, quiet_home, {"API_SERVER_HOST": "0.0.0.0"})
+    exposed = [f for f in findings if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1
+    f = exposed[0]
+    assert "API_SERVER_HOST" in f.title
+    # .env and the environment are never edited by --fix
+    assert f.fixable is False and f.key is None
+
+
+def test_exposed_host_in_dotenv_is_reported(quiet_home):
+    (quiet_home / ".env").write_text("LINE_HOST='::'\nEMAIL_IMAP_HOST=imap.example.com\n", encoding="utf-8")
+    os.chmod(quiet_home / ".env", 0o600)
+    exposed = [f for f in sp.collect(_CLEAN, _CLEAN, quiet_home, {}) if f.check_id == "network.exposed_bind"]
+    assert ["LINE_HOST" in f.title for f in exposed] == [True]
+
+
+def test_host_in_both_environment_and_dotenv_is_reported_once(quiet_home):
+    (quiet_home / ".env").write_text("API_SERVER_HOST=0.0.0.0\n", encoding="utf-8")
+    os.chmod(quiet_home / ".env", 0o600)
+    exposed = [f for f in sp.collect(_CLEAN, _CLEAN, quiet_home, {"API_SERVER_HOST": "0.0.0.0"})
+               if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1
+
+
+def test_localhost_and_remote_hosts_in_environment_are_fine(quiet_home):
+    env = {"API_SERVER_HOST": "127.0.0.1", "EMAIL_SMTP_HOST": "smtp.example.com", "HOSTNAME": "0.0.0.0"}
+    assert sp.collect(_CLEAN, _CLEAN, quiet_home, env) == []
+
+
+@pytest.mark.parametrize("name,platform,key", [
+    ("FEISHU_WEBHOOK_HOST", "feishu", "webhook_host"),
+    ("BLUEBUBBLES_WEBHOOK_HOST", "bluebubbles", "webhook_host"),
+    ("API_SERVER_HOST", "api_server", "host"),
+])
+def test_config_host_that_overrides_the_env_var_suppresses_the_finding(quiet_home, name, platform, key):
+    cfg = {**_CLEAN, "platforms": {platform: {"extra": {key: "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {name: "0.0.0.0"})
+               if f.check_id == "network.exposed_bind"]
+    assert exposed == []
+
+
+@pytest.mark.parametrize("name,platform,key,seed", [
+    ("API_SERVER_HOST", "api_server", "host", {"API_SERVER_ENABLED": "true"}),
+    ("API_SERVER_HOST", "api_server", "host", {"API_SERVER_KEY": "k"}),
+    ("BLUEBUBBLES_WEBHOOK_HOST", "bluebubbles", "webhook_host",
+     {"BLUEBUBBLES_SERVER_URL": "http://bb", "BLUEBUBBLES_PASSWORD": "pw"}),
+])
+def test_env_seeded_platform_keeps_the_env_host_finding(quiet_home, name, platform, key, seed):
+    # gateway/config.py copies the env host over config extra in these cases.
+    cfg = {**_CLEAN, "platforms": {platform: {"extra": {key: "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {name: "0.0.0.0", **seed})
+               if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1
+
+
+def test_env_wins_hosts_are_reported_despite_config(quiet_home):
+    # LINE reads LINE_HOST before its config extra.
+    cfg = {**_CLEAN, "platforms": {"line": {"extra": {"host": "127.0.0.1"}}}}
+    exposed = [f for f in sp.collect(cfg, cfg, quiet_home, {"LINE_HOST": "0.0.0.0"})
+               if f.check_id == "network.exposed_bind"]
+    assert len(exposed) == 1
