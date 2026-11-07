@@ -1529,6 +1529,7 @@ janus completion fish > ~/.config/fish/completions/janus.fish
 
 ```bash
 janus update [--gateway] [--check] [--no-backup] [--backup] [--yes]
+             [--channel main|stable] [--allow-rollback]
 ```
 
 Pulls the latest `janus-agent` code and reinstalls dependencies in your venv, then re-runs the post-install hooks (MCP servers, skills sync, completion install). Safe to run on a live install.
@@ -1537,6 +1538,8 @@ Pulls the latest `janus-agent` code and reinstalls dependencies in your venv, th
 
 **git installs:** `janus update` pulls the configured update branch (default: `main`). If your checkout is on another branch, Janus may check out the update branch before pulling. Commit branch work before updating when you want to keep it outside the update autostash flow.
 
+**Release channels (git installs):** `updates.channel` picks what `janus update` follows. `main` (the default) is the tip of the main branch. `stable` is the newest published release tag (`vYYYY.M.D`), checked out as a detached HEAD, with a link to its release notes. `janus update --channel stable` switches and saves the choice; `--channel main` switches back. When the newest release is older than your checkout (for example right after switching from `main`), Janus stays put and says so; pass `--allow-rollback` to move back to that release. `--branch` tracks a branch for one run and cannot be combined with `--channel stable`. The startup "update available" notice and `--check` follow the same channel.
+
 | Option | Description |
 |--------|-------------|
 | `--gateway` | Internal mode used by the messaging `/update` command. Uses file-based IPC for prompts and progress streaming instead of reading from terminal stdin. Not a gateway restart flag. |
@@ -1544,6 +1547,8 @@ Pulls the latest `janus-agent` code and reinstalls dependencies in your venv, th
 | `--no-backup` | Skip the pre-update backup for this run, even if `updates.pre_update_backup` is enabled in `config.yaml`. |
 | `--backup` | Create a labeled pre-update snapshot of `JANUS_HOME` (config, auth, sessions, skills, pairing data) before pulling. Default is **off** — the previous always-backup behavior was adding minutes to every update on large homes. Flip it on permanently via `updates.pre_update_backup: true` in `config.yaml`. |
 | `--yes`, `-y` | Assume yes for interactive prompts such as config migration and stash restore. API-key entry is skipped; run `janus config migrate` separately for those. |
+| `--channel main\|stable` | Follow the tip of `main` or the newest published release, and save the choice as `updates.channel`. |
+| `--allow-rollback` | Stable channel: allow moving back to a release that is older than the current checkout. |
 
 Additional behavior:
 

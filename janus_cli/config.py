@@ -2912,6 +2912,14 @@ DEFAULT_CONFIG = {
         #               ignored paths — node_modules, venv, build outputs —
         #               are never touched.
         "non_interactive_local_changes": "stash",
+        # Which line of releases ``janus update`` follows on git installs.
+        #   "main"   — the tip of the main branch (every merged change).
+        #   "stable" — the newest published release tag, checked out as a
+        #              detached HEAD. Moving back to an older release needs
+        #              ``janus update --allow-rollback``.
+        # ``janus update --channel stable|main`` sets this. PyPI installs
+        # always follow published releases and ignore it.
+        "channel": "main",
     },
 
     # Language Server Protocol — semantic diagnostics from real

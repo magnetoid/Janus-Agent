@@ -166,6 +166,38 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
     return None
 
 
+def _check_release_via_local_git(repo_dir: Path) -> Optional[int]:
+    """Stable channel: commits between HEAD and a newer release, 0 when none is newer."""
+    from janus_cli import update_channel
+
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", "--tags", "--quiet"],
+            capture_output=True, timeout=10,
+            cwd=str(repo_dir),
+        )
+    except Exception:
+        pass  # Offline or timeout — use the tags we already have
+
+    try:
+        tag = update_channel.latest_release_tag(["git"], repo_dir)
+        if tag is None or update_channel.classify_move(["git"], repo_dir, tag) != "forward":
+            return 0
+        return update_channel.commits_between(["git"], repo_dir, "HEAD", tag) or UPDATE_AVAILABLE_NO_COUNT
+    except Exception:
+        return None
+
+
+def _configured_update_channel() -> str:
+    try:
+        from janus_cli.config import load_config
+        from janus_cli.update_channel import configured_channel
+
+        return configured_channel(load_config())
+    except Exception:
+        return "main"
+
+
 def _version_tuple(v: str) -> tuple[int, ...]:
     """Parse '0.13.0' into (0, 13, 0) for comparison. Non-numeric segments become 0."""
     parts = []
@@ -248,6 +280,7 @@ def check_for_updates() -> Optional[int]:
     # changes VERSION but leaves rev unchanged (both None), and without this
     # the stale "behind" count would survive the upgrade for up to 6h. See #34491.
     now = time.time()
+    channel = _configured_update_channel()
     try:
         if cache_file.exists():
             cached = json.loads(cache_file.read_text())
@@ -255,6 +288,7 @@ def check_for_updates() -> Optional[int]:
                 now - cached.get("ts", 0) < _UPDATE_CHECK_CACHE_SECONDS
                 and cached.get("rev") == embedded_rev
                 and cached.get("ver") == VERSION
+                and cached.get("channel", "main") == channel
             ):
                 return cached.get("behind")
     except Exception:
@@ -271,12 +305,17 @@ def check_for_updates() -> Optional[int]:
             repo_dir = janus_home / "janus-agent"
         if not (repo_dir / ".git").exists():
             behind = check_via_pypi()
+        elif channel == "stable":
+            behind = _check_release_via_local_git(repo_dir)
         else:
             behind = _check_via_local_git(repo_dir)
 
     try:
         cache_file.write_text(
-            json.dumps({"ts": now, "behind": behind, "rev": embedded_rev, "ver": VERSION})
+            json.dumps({
+                "ts": now, "behind": behind, "rev": embedded_rev, "ver": VERSION,
+                "channel": channel,
+            })
         )
     except Exception:
         pass

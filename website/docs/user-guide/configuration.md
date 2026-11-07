@@ -94,7 +94,10 @@ updates:
   pre_update_backup: false       # Create a full JANUS_HOME zip before every update
   backup_keep: 5                 # Keep this many pre-update backup zips
   non_interactive_local_changes: stash  # stash | discard
+  channel: main                  # main | stable (newest published release)
 ```
+
+`channel: stable` makes `janus update` move to the newest published release tag instead of the tip of `main`; set it with `janus update --channel stable`. See [`janus update`](../reference/cli-commands.md#janus-update) for rollbacks and how `--branch` interacts with it.
 
 For git installs, Janus auto-stashes dirty tracked files and untracked files before checking out the update branch or pulling. Interactive terminal updates prompt before restoring that stash. Non-interactive updates (desktop/chat app, gateway, or `--yes`) use `updates.non_interactive_local_changes`: `stash` restores local source edits after a successful pull, while `discard` drops the update-created stash after a successful pull. Use `discard` only on managed installs where local source edits are never meant to persist.
 
