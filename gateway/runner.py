@@ -2417,7 +2417,7 @@ class GatewayRunner:
     # .clean_shutdown marker).  All three mean "the agent was mid-turn and
     # we killed it" — eligible for startup auto-resume.
     _AUTO_RESUME_REASONS = frozenset(
-        {"restart_timeout", "shutdown_timeout", "restart_interrupted"}
+        {"restart_timeout", "shutdown_timeout", "restart_interrupted", TURN_IN_FLIGHT_REASON}
     )
 
     def _schedule_resume_pending_sessions(self, platform=None) -> int:
@@ -9417,12 +9417,18 @@ class GatewayRunner:
         import yaml
         from janus_cli.model_switch import (
             switch_model as _switch_model, parse_model_flags,
+            extract_reasoning_flag,
             list_authenticated_providers,
             list_picker_providers,
         )
         from janus_cli.providers import get_label
 
         raw_args = event.get_command_args().strip()
+
+        try:
+            raw_args, reasoning = extract_reasoning_flag(raw_args)
+        except ValueError:
+            return t("gateway.reasoning.unknown_arg", arg=raw_args)
 
         # Parse --provider, --global, and --refresh flags
         model_input, explicit_provider, persist_global, force_refresh = parse_model_flags(raw_args)
@@ -9469,6 +9475,12 @@ class GatewayRunner:
             current_provider = override.get("provider", current_provider)
             current_base_url = override.get("base_url", current_base_url)
             current_api_key = override.get("api_key", current_api_key)
+
+        # /model --reasoning <level> with no model: change only the effort.
+        if reasoning is not None and not model_input and not explicit_provider:
+            return self._apply_model_reasoning(
+                session_key, reasoning, persist_global=persist_global,
+            )
 
         # No args: show interactive picker (Telegram/Discord) or text list
         if not model_input and not explicit_provider:
@@ -9789,6 +9801,10 @@ class GatewayRunner:
         provider_label = result.provider_label or result.target_provider
         lines = [t("gateway.model.switched", model=result.new_model)]
         lines.append(t("gateway.model.provider_label", provider=provider_label))
+        if reasoning is not None:
+            lines.append(self._apply_model_reasoning(
+                session_key, reasoning, persist_global=persist_global,
+            ))
         # Gateway sessions are persistent, so a switch is almost always
         # mid-conversation — surface the cache-invalidation cost
         # (the provider prompt cache is model-keyed).
@@ -15074,6 +15090,50 @@ class GatewayRunner:
             return True
         return False
 
+    def _apply_model_reasoning(
+        self, session_key: str, reasoning: dict, *, persist_global: bool
+    ) -> str:
+        """Apply ``/model ... --reasoning <level>`` to this session.
+
+        Reasoning effort is a per-request parameter, so a cached agent takes
+        it in place and keeps its cache signature.  Returns the confirmation
+        line shown to the user.
+        """
+        effort = (
+            reasoning.get("effort", "medium")
+            if reasoning.get("enabled") is not False else "none"
+        )
+        self._reasoning_config = reasoning
+        self._set_session_reasoning_override(session_key, reasoning)
+        lock = getattr(self, "_agent_cache_lock", None)
+        cache = getattr(self, "_agent_cache", None)
+        if lock and cache is not None:
+            with lock:
+                cached = cache.get(session_key)
+            if cached and cached[0] is not None:
+                cached[0].reasoning_config = reasoning
+        if persist_global:
+            try:
+                import yaml
+                from janus_cli.config import save_config
+
+                config_path = _janus_home / "config.yaml"
+                cfg = {}
+                if config_path.exists():
+                    with open(config_path, encoding="utf-8") as f:
+                        cfg = yaml.safe_load(f) or {}
+                agent_cfg = cfg.get("agent")
+                if not isinstance(agent_cfg, dict):
+                    agent_cfg = {}
+                    cfg["agent"] = agent_cfg
+                agent_cfg["reasoning_effort"] = effort
+                save_config(cfg)
+                return t("gateway.reasoning.set_global", effort=effort)
+            except Exception as exc:
+                logger.warning("Failed to persist reasoning effort: %s", exc)
+                return t("gateway.reasoning.set_global_save_failed", effort=effort)
+        return t("gateway.reasoning.set_session", effort=effort)
+
     def _keep_cached_agent_after_model_switch(
         self, session_key: str, *, model: str, provider: str
     ) -> None:
@@ -16889,14 +16949,7 @@ class GatewayRunner:
             )
 
             if _is_resume_pending:
-                _reason = getattr(_resume_entry, "resume_reason", None) or "restart_timeout"
-                _reason_phrase = (
-                    "a gateway restart"
-                    if _reason == "restart_timeout"
-                    else "a gateway shutdown"
-                    if _reason == "shutdown_timeout"
-                    else "a gateway interruption"
-                )
+                _reason_phrase = resume_reason_phrase(getattr(_resume_entry, "resume_reason", None))
                 message = (
                     f"[System note: Your previous turn in this session was interrupted "
                     f"by {_reason_phrase}. The conversation history below is intact. "
@@ -16971,7 +17024,37 @@ class GatewayRunner:
                 }
                 if observed_group_context:
                     _conversation_kwargs["persist_user_message"] = message
-                result = agent.run_conversation(_api_run_message, **_conversation_kwargs)
+                # Durable "turn running" marker: if the process dies before
+                # it is cleared, startup auto-resume continues this turn.
+                _turn_token = None
+                _turn_heartbeat_stop = threading.Event()
+                if session_key:
+                    try:
+                        _turn_token = self.session_store.mark_turn_in_flight(session_key)
+                    except Exception as _e:
+                        logger.debug("mark_turn_in_flight failed for %s: %s", session_key, _e)
+                if _turn_token:
+                    _store, _key, _tok = self.session_store, session_key, _turn_token
+
+                    def _turn_heartbeat():
+                        while not _turn_heartbeat_stop.wait(TURN_IN_FLIGHT_HEARTBEAT_S):
+                            try:
+                                if not _store.touch_turn_in_flight(_key, _tok):
+                                    return
+                            except Exception:
+                                return
+
+                    threading.Thread(target=_turn_heartbeat, daemon=True,
+                                     name="turn-in-flight-heartbeat").start()
+                try:
+                    result = agent.run_conversation(_api_run_message, **_conversation_kwargs)
+                finally:
+                    _turn_heartbeat_stop.set()
+                    if _turn_token:
+                        try:
+                            self.session_store.end_turn_in_flight(session_key, _turn_token)
+                        except Exception as _e:
+                            logger.debug("end_turn_in_flight failed for %s: %s", session_key, _e)
             finally:
                 unregister_gateway_notify(_approval_session_key)
                 # Cancel any pending clarify entries so blocked agent

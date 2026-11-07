@@ -1226,6 +1226,8 @@ display:
   compact: false          # Compact output mode (less whitespace)
   resume_display: full    # full (show previous messages on resume) | minimal (one-liner only)
   bell_on_complete: false # Play terminal bell when agent finishes (great for long tasks)
+  notify_on_wait: false   # Bell + desktop notification while an approval/clarify prompt waits (no desktop popup over SSH)
+  status_bar_git_branch: false # Show the working directory's git branch in the CLI status bar (wide terminals)
   show_reasoning: false   # Show model reasoning/thinking above each response (toggle with /reasoning show|hide)
   streaming: false        # Stream tokens to terminal as they arrive (real-time output)
   show_cost: false        # Show estimated $ cost in the CLI status bar

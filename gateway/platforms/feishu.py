@@ -1925,6 +1925,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     "session_key": session_key,
                     "message_id": result.message_id or "",
                     "chat_id": chat_id,
+                    "request_id": (metadata or {}).get("approval_request_id"),
                 }
             return result
         except Exception as exc:
@@ -2612,6 +2613,18 @@ class FeishuAdapter(BasePlatformAdapter):
             )
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
 
+        # Scoped approvals: refuse here, before the card is replaced, so a
+        # click from someone other than the requester leaves the buttons up.
+        from tools.approval import gateway_approval_refusal
+        if gateway_approval_refusal(
+            state["session_key"],
+            approver=self._approval_approver_id(open_id, sender_id.user_id),
+            request_id=state.get("request_id"),
+        ):
+            logger.info("[Feishu] Approval click by %s refused (not the requester or stale)",
+                        open_id or "<unknown>")
+            return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+
         user_name = self._get_cached_sender_name(open_id) or open_id
 
         chat_context = getattr(event, "context", None)
@@ -2623,6 +2636,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 choice=choice,
                 user_name=user_name,
                 open_id=open_id,
+                user_id=sender_id.user_id,
                 chat_id=chat_id,
             ),
         ):
@@ -2695,6 +2709,15 @@ class FeishuAdapter(BasePlatformAdapter):
             response.card = card
         return response
 
+    @staticmethod
+    def _approval_approver_id(open_id: str, user_id: Optional[str]) -> Optional[str]:
+        """The clicker's id in the form recorded as the requester.
+
+        Mirrors :meth:`_resolve_sender_profile`: tenant-scoped ``user_id`` when
+        the app has that scope, otherwise the app-scoped ``open_id``.
+        """
+        return (user_id or open_id) or None
+
     async def _resolve_approval(
         self,
         approval_id: Any,
@@ -2702,6 +2725,7 @@ class FeishuAdapter(BasePlatformAdapter):
         user_name: str,
         *,
         open_id: str = "",
+        user_id: str = "",
         chat_id: str = "",
     ) -> None:
         """Pop approval state and unblock the waiting agent thread."""
@@ -2719,13 +2743,22 @@ class FeishuAdapter(BasePlatformAdapter):
                 approval_id, expected_chat_id, chat_id,
             )
             return
+        from tools.approval import gateway_approval_refusal, resolve_gateway_approval
+        approver = self._approval_approver_id(open_id, user_id)
+        request_id = state.get("request_id")
+        refusal = gateway_approval_refusal(state["session_key"], approver=approver,
+                                           request_id=request_id)
+        if refusal == "not_requester":
+            logger.info("[Feishu] Approval %s click by %s refused (not the requester)",
+                        approval_id, open_id or "<unknown>")
+            return
         state = self._approval_state.pop(approval_id, None)
         if not state:
             logger.debug("[Feishu] Approval %s already resolved while validating callback", approval_id)
             return
         try:
-            from tools.approval import resolve_gateway_approval
-            count = resolve_gateway_approval(state["session_key"], choice)
+            count = resolve_gateway_approval(state["session_key"], choice,
+                                             approver=approver, request_id=request_id)
             logger.info(
                 "Feishu button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                 count, state["session_key"], choice, user_name,

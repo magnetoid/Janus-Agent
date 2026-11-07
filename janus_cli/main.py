@@ -18,6 +18,7 @@ Usage:
     janus cron list           # List cron jobs
     janus cron status         # Check if cron scheduler is running
     janus doctor              # Check configuration and dependencies
+    # `janus honcho ...` exists only while the Honcho memory plugin is active:
     janus honcho setup                    # Configure Honcho AI memory integration
     janus honcho status                   # Show Honcho config and connection status
     janus honcho sessions                 # List directory → session name mappings
@@ -12680,7 +12681,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "acp", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
         "config", "consensus", "cron", "curator", "dashboard", "debug", "doctor",
-        "dump", "evals", "fallback", "gateway", "hooks", "import", "insights",
+        "dump", "evals", "fallback", "gateway", "hooks", "import", "insights", "usage",
         "gui", "desktop", "kanban", "logout", "logs", "lsp", "mcp", "memory", "migrate",
         "model", "pairing", "plugins", "portal", "postinstall", "profile", "proxy",
         "prompt-size",
@@ -14400,6 +14401,17 @@ Examples:
         "key", nargs="?", help="Configuration key (e.g., model, terminal.backend)"
     )
     config_set.add_argument("value", nargs="?", help="Value to set")
+
+    # config get
+    config_get = config_subparsers.add_parser(
+        "get", help="Print one configuration value (secrets masked)"
+    )
+    config_get.add_argument(
+        "key", nargs="?", help="Dotted config key (e.g., model.default) or .env variable"
+    )
+    config_get.add_argument(
+        "--raw", action="store_true", help="Print secrets unmasked"
+    )
 
     # config path
     config_subparsers.add_parser("path", help="Print config file path")
@@ -16978,6 +16990,28 @@ Examples:
             print(f"Error generating insights: {e}")
 
     insights_parser.set_defaults(func=cmd_insights)
+
+    # =========================================================================
+    # usage command
+    # =========================================================================
+    usage_parser = subparsers.add_parser(
+        "usage",
+        help="Show recorded spend from the cost ledger",
+        description="Group the cost ledger (the spend the budget caps enforce) by model, "
+                    "platform, session, day or cron job. Turns that couldn't be priced show as n/a.",
+    )
+    usage_parser.add_argument("--days", type=int, default=30, help="Trailing window in days (default: 30)")
+    usage_parser.add_argument("--by", choices=["model", "platform", "session", "day", "job"],
+                              default="model", help="Grouping (default: model)")
+    usage_parser.add_argument("--source", help="Only one platform (cli, telegram, cron, ...)")
+    usage_parser.add_argument("--limit", type=int, default=25, help="Rows to show; 0 for all (default: 25)")
+    usage_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON")
+
+    def cmd_usage(args):
+        from janus_cli.usage_report import cmd_usage as _cmd_usage
+        return _cmd_usage(args)
+
+    usage_parser.set_defaults(func=cmd_usage)
 
     # =========================================================================
     # claw command (OpenClaw migration)

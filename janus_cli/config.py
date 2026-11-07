@@ -92,7 +92,9 @@ def _backup_corrupt_config(config_path: Path) -> Optional[Path]:
         return None
 
 
-def _warn_config_parse_failure(config_path: Path, exc: Exception) -> None:
+def _warn_config_parse_failure(
+    config_path: Path, exc: Exception, last_good: Optional[Path] = None,
+) -> None:
     """Surface a config.yaml parse failure to user, log, and stderr.
 
     A YAML parse error in ``~/.janus/config.yaml`` causes ``load_config()``
@@ -121,12 +123,19 @@ def _warn_config_parse_failure(config_path: Path, exc: Exception) -> None:
 
     backup_path = _backup_corrupt_config(config_path)
 
-    msg = (
-        f"Failed to parse {config_path}: {exc}. "
-        f"Falling back to default config — every user override "
-        f"(auxiliary providers, fallback chain, model settings) is being IGNORED. "
-        f"Fix the YAML and restart."
-    )
+    if last_good is not None:
+        msg = (
+            f"Failed to parse {config_path}: {exc}. "
+            f"Using the last copy that parsed, {last_good} — edits made since "
+            f"then are IGNORED. Fix the YAML and restart."
+        )
+    else:
+        msg = (
+            f"Failed to parse {config_path}: {exc}. "
+            f"Falling back to default config — every user override "
+            f"(auxiliary providers, fallback chain, model settings) is being IGNORED. "
+            f"Fix the YAML and restart."
+        )
     if backup_path is not None:
         msg += f" A copy of the corrupted file was saved to {backup_path}."
     logger.warning(msg)
@@ -135,6 +144,59 @@ def _warn_config_parse_failure(config_path: Path, exc: Exception) -> None:
         sys.stderr.flush()
     except Exception:
         pass
+
+
+def _last_good_path(config_path: Path) -> Path:
+    return config_path.with_name(f"{config_path.name}.last-good")
+
+
+def _remember_last_good(config_path: Path, text: str) -> None:
+    """Keep a verbatim, private copy of a config.yaml that just parsed."""
+    last_good = _last_good_path(config_path)
+    try:
+        if last_good.is_symlink():
+            return
+        if last_good.is_file() and last_good.read_text(encoding="utf-8") == text:
+            return
+        from utils import atomic_text_write
+        atomic_text_write(last_good, text)
+        if os.name == "posix":
+            os.chmod(last_good, 0o600)
+    except Exception as exc:
+        logger.debug("could not keep %s: %s", last_good, exc)
+
+
+def _load_user_config_yaml(config_path: Path) -> Any:
+    """Parse the user's config.yaml, falling back to its last good copy.
+
+    A successful parse refreshes ``config.yaml.last-good``. A parse error is
+    warned about (see ``_warn_config_parse_failure``) and answered with that
+    copy, or ``{}`` when there is none — the broken file is never rewritten.
+    Read errors propagate so callers keep their own missing-file handling.
+    """
+    with open(config_path, encoding="utf-8") as f:
+        text = f.read()
+    try:
+        data = yaml.safe_load(text)
+    except Exception as exc:
+        last_good = _last_good_path(config_path)
+        fallback = None
+        try:
+            if last_good.is_file():
+                # An empty copy is a valid "all defaults" config.
+                fallback = yaml.safe_load(last_good.read_text(encoding="utf-8")) or {}
+        except Exception:
+            fallback = None
+        if not isinstance(fallback, dict):
+            fallback = None
+        _warn_config_parse_failure(config_path, exc, last_good if fallback is not None else None)
+        return fallback if fallback is not None else {}
+    if data is None:
+        data = {}   # empty or comments-only: a valid return to defaults
+    if isinstance(data, dict) and isinstance(text, str):
+        _remember_last_good(config_path, text)
+    return data
+
 
 _IS_WINDOWS = platform.system() == "Windows"
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -805,6 +867,19 @@ DEFAULT_CONFIG = {
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["janus-cli"],
+    # Sections below are owned by their own tools/commands. Empty means
+    # "nothing configured" — every reader treats it exactly like a missing key.
+    # (Not `custom_providers`: the v11 migration folds it into `providers`.)
+    # MCP servers by name ({command, args, env} or {url, headers}); `janus mcp`
+    "mcp_servers": {},
+    # Per-platform toolset overrides ({platform: [toolset, ...]}); `janus tools`
+    "platform_toolsets": {},
+    # Plugin allow/deny lists ({enabled: [...], disabled: [...]}); `janus plugins`.
+    # No `enabled` key = the legacy "everything not disabled" behaviour.
+    "plugins": {},
+    # Image/video generation provider + model ({provider, model, ...}); `janus tools`
+    "image_gen": {},
+    "video_gen": {},
     "agent": {
         "max_turns": 90,
         # Inactivity timeout for gateway agent execution (seconds).
@@ -1465,6 +1540,11 @@ DEFAULT_CONFIG = {
         # dashboard. Set false to suppress the hint.
         "tui_agents_nudge": True,
         "bell_on_complete": False,
+        # Ring the bell and post a desktop notification (local sessions only)
+        # when the CLI waits on an approval or clarify answer.
+        "notify_on_wait": False,
+        # Show the current git branch in the CLI status bar (wide terminals).
+        "status_bar_git_branch": False,
         "show_reasoning": False,
         "streaming": False,
         "timestamps": False,      # Show [HH:MM] on user and assistant labels
@@ -4576,13 +4656,10 @@ def check_config_version() -> Tuple[int, int]:
 # =============================================================================
 
 # Fields that are valid at root level of config.yaml
-_KNOWN_ROOT_KEYS = {
-    "_config_version", "model", "providers", "fallback_model",
-    "fallback_providers", "credential_pool_strategies", "toolsets",
-    "agent", "terminal", "display", "compression", "delegation",
-    "auxiliary", "custom_providers", "context", "memory", "gateway",
-    "sessions", "streaming", "updates",
-}
+# Every section DEFAULT_CONFIG defines, plus legacy keys still read for
+# backward compatibility (``fallback_model`` predates ``fallback_providers``;
+# ``custom_providers`` is migrated into ``providers``).
+_KNOWN_ROOT_KEYS = set(DEFAULT_CONFIG) | {"_config_version", "fallback_model", "custom_providers"}
 
 # Valid fields inside a custom_providers list entry
 _VALID_CUSTOM_PROVIDER_FIELDS = {
@@ -5670,8 +5747,7 @@ def read_raw_config() -> Dict[str, Any]:
             return copy.deepcopy(cached[2])
 
         try:
-            with open(config_path, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
+            data = _load_user_config_yaml(config_path)
         except Exception as e:
             _warn_config_parse_failure(config_path, e)
             return {}
@@ -5742,8 +5818,7 @@ def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
 
         if cache_key is not None:
             try:
-                with open(config_path, encoding="utf-8") as f:
-                    user_config = yaml.safe_load(f) or {}
+                user_config = _load_user_config_yaml(config_path)
 
                 if "max_turns" in user_config:
                     agent_user_config = dict(user_config.get("agent") or {})
@@ -6316,6 +6391,66 @@ def get_env_value(key: str) -> Optional[str]:
     return env_vars.get(key)
 
 
+_ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _shorten_for_display(value: str) -> str:
+    """Keep 4 leading and 4 trailing characters (``mask_secret``'s convention)."""
+    return "***" if len(value) < 12 else f"{value[:4]}...{value[-4:]}"
+
+
+def _mask_config_value(value: Any, name: str = "") -> Any:
+    """Mask string leaves whose key looks sensitive, and any embedded known token.
+
+    Uses the log redactor's patterns but its own shortening, so the printed
+    text never comes out of a secret-handling call."""
+    from agent.redact import _PREFIX_RE as token_re, _SECRET_ENV_NAMES as sensitive_names
+
+    if isinstance(value, dict):
+        return {k: _mask_config_value(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_config_value(v, name) for v in value]
+    if not isinstance(value, str) or not value:
+        return value
+    if re.search(sensitive_names, name.upper()):
+        return _shorten_for_display(value)
+    return token_re.sub(lambda m: _shorten_for_display(m.group(1)), value)
+
+
+def _lookup_dotted(config: Any, key: str) -> Any:
+    """Walk a dotted key; numeric parts index lists (as ``_set_nested`` writes them)."""
+    value = config
+    for part in key.split("."):
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            return None
+    return value
+
+
+def print_config_value(key: str, *, raw: bool = False) -> int:
+    """Print one config value (dotted path) or .env variable; 1 when unset.
+
+    Secrets are masked unless ``raw`` — same key-name heuristic the log
+    redactor uses, so ``config get`` output is safe to paste."""
+    if _ENV_KEY_RE.match(key):
+        value: Any = get_env_value(key)
+    else:
+        value = _lookup_dotted(load_config(), key)
+    if value is None:
+        print(f"{key} is not set")
+        return 1
+    if not raw:
+        value = _mask_config_value(value, key.rsplit(".", 1)[-1])
+    if isinstance(value, (dict, list)):
+        print(yaml.safe_dump(value, sort_keys=False, allow_unicode=True).rstrip())
+    else:
+        print(value)
+    return 0
+
+
 # =============================================================================
 # Config display
 # =============================================================================
@@ -6671,6 +6806,18 @@ def config_command(args):
             sys.exit(1)
         set_config_value(key, value)
     
+    elif subcmd == "get":
+        key = getattr(args, 'key', None)
+        if not key:
+            print("Usage: janus config get <key> [--raw]")
+            print()
+            print("Examples:")
+            print("  janus config get model.default")
+            print("  janus config get providers")
+            print("  janus config get OPENROUTER_API_KEY --raw")
+            sys.exit(1)
+        sys.exit(print_config_value(key, raw=bool(getattr(args, 'raw', False))))
+
     elif subcmd == "path":
         print(get_config_path())
     

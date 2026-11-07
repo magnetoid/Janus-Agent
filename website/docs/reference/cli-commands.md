@@ -81,7 +81,22 @@ janus [global-options] <command> [subcommand/options]
 | `janus computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
 | `janus sessions` | Browse, export, prune, rename, and delete sessions. |
 | `janus insights` | Show token/cost/activity analytics, including the recorded per-turn spend ledger (the figure the `budget.*` caps enforce) with unpriced turns called out. |
+| `janus usage` | Group the recorded spend ledger by model, platform, session, day or cron job. |
 | `janus claw` | OpenClaw migration helpers. |
+| `janus desktop` (alias `janus gui`) | Build and launch the Electron desktop app. See [Desktop](../user-guide/desktop.md). |
+| `janus learning` | Learning-loop metrics, knowledge gaps, the ACE playbook, the governor state, and the enable/disable preset. See [Self-learning commands](#self-learning-and-autonomy-commands). |
+| `janus sleep` | Run, preview, pause, or inspect sleep-time memory consolidation. |
+| `janus evals` | Run, trend, gate, and A/B the YAML eval suite. See [Evals](../user-guide/features/evals.md). |
+| `janus self-improve` | Review, approve, promote, reject, or roll back the agent's eval-gated proposals for its own skills and prompts. |
+| `janus consensus` | Inspect or exercise cost-tiered model routing. See [Consensus](../user-guide/features/consensus.md). |
+| `janus models` | Ranked models per task category, and web research to refresh the ranking. |
+| `janus persona` | Per-persona success rates and a recommendation. |
+| `janus autonomy` | Freeze or unfreeze all autonomous action, and show rolling spend against the caps. |
+| `janus aspire` | Long-running aspirations with a drafted roadmap and recurring check-ins. |
+| `janus interest` | Track a field; a recurring job researches it and proposes what to learn. |
+| `janus team` | Shared facts readable by every profile pointed at the same directory. |
+| `janus corpus` | Register and search local document corpora. |
+| `janus workflow` | List, show, mine, and run YAML step workflows. |
 | `janus dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
 | `janus profile` | Manage profiles — multiple isolated Janus instances. |
 | `janus completion` | Print shell completion scripts (bash/zsh/fish). |
@@ -995,10 +1010,13 @@ Subcommands:
 | `show` | Show current config values. |
 | `edit` | Open `config.yaml` in your editor. |
 | `set <key> <value>` | Set a config value. |
+| `get <key> [--raw]` | Print one value: a dotted config key (`model.default`, `providers`) or a `.env` variable. Secrets are masked unless `--raw`. |
 | `path` | Print the config file path. |
 | `env-path` | Print the `.env` file path. |
 | `check` | Check for missing or stale config. |
 | `migrate` | Add newly introduced options interactively. |
+
+Every time `config.yaml` parses, Janus keeps a verbatim copy beside it as `config.yaml.last-good` (mode 0600). If a later edit breaks the YAML, the CLI, gateway and every other loader use that copy instead of falling back to defaults, and print a warning that names the broken file. The broken file is never rewritten, and a snapshot of it is saved as `config.yaml.corrupt.<timestamp>.bak`.
 
 ## `janus pairing`
 
@@ -1337,6 +1355,26 @@ janus insights [--days N] [--source platform]
 | `--days <n>` | Analyze the last `n` days (default: 30). |
 | `--source <platform>` | Filter by source such as `cli`, `telegram`, or `discord`. |
 
+## `janus usage`
+
+```bash
+janus usage [--by model|platform|session|day|job] [--days N] [--source platform] [--limit N] [--json]
+```
+
+Shows the recorded spend from `learning/cost_ledger.jsonl`, the same rows the `budget.*` caps enforce, grouped one way at a time. Every grouping adds up to the same total.
+
+A turn the pricing layer couldn't value shows as `n/a`, never as $0. These turns include rows written before the `estimated` flag existed. The spend caps still count them at a conservative estimate, which the footer shows. Subscription-covered (`included`) turns are real $0.
+
+`--by job` groups cron runs by job name and puts everything else under `(interactive)`.
+
+| Option | Description |
+|--------|-------------|
+| `--by <group>` | `model` (default), `platform`, `session`, `day` or `job`. |
+| `--days <n>` | Trailing window in days (default: 30). |
+| `--source <platform>` | Only one platform, such as `cli`, `telegram` or `cron`. |
+| `--limit <n>` | Rows to show; `0` for all (default: 25). |
+| `--json` | Emit the grouped report as JSON. |
+
 ## `janus claw`
 
 ```bash
@@ -1515,6 +1553,113 @@ Additional behavior:
 - **Pairing data snapshot.** Even when `--backup` is off, `janus update` takes a lightweight snapshot of `~/.janus/pairing/` and the Feishu comment rules before `git pull`. You can roll it back with `janus backup restore --state pre-update` if a pull rewrites a file you were editing.
 - **Legacy `janus.service` warning.** If Janus detects a pre-rename `janus.service` systemd unit (instead of the current `janus-gateway.service`), it prints a one-time migration hint so you can avoid flap-loop issues.
 - **Exit codes.** `0` on success, `1` on pull/install/post-install errors, `2` on unexpected working-tree changes that block `git pull`.
+
+## `janus desktop`
+
+```bash
+janus desktop [--source] [--build-only] [--skip-build] [--force-build] [--cwd <dir>]
+```
+
+Build the current OS's unpacked Electron app (installing workspace Node dependencies first) and launch it. `janus gui` is an alias.
+
+| Option | Description |
+|--------|-------------|
+| `--source` | Launch `electron .` against `apps/desktop/dist` instead of the packaged app. |
+| `--build-only` | Build without launching (used by the installer's `--update` flow). |
+| `--skip-build` | Launch the existing unpacked app from `apps/desktop/release`. |
+| `--force-build` | Rebuild even if the content stamp matches. |
+| `--cwd <dir>` | Initial project directory for desktop chat sessions (`JANUS_DESKTOP_CWD`). |
+| `--janus-root <dir>` | Override the Janus source root the desktop app uses (`JANUS_DESKTOP_JANUS_ROOT`). |
+| `--ignore-existing` | Ignore any `janus` already on `PATH` when resolving the backend. |
+| `--fake-boot` | Deterministic boot delays, for validating the startup UI. |
+
+## Self-learning and autonomy commands
+
+These commands drive the learning loop described in the README: lessons, sleep-time consolidation, evals, and eval-gated self-improvement. Each one is off or read-only until you enable it.
+
+### `janus learning`
+
+| Subcommand | Description |
+|------------|-------------|
+| `stats` | Show learning metrics. |
+| `record` | Record the last session's outcome. |
+| `gaps` | Identify knowledge gaps from repeated failures. |
+| `playbook` | Show the ACE playbook, the guidance the loop applies to its own prompts. See [Playbook](../user-guide/features/playbook.md). |
+| `governor` | Show the self-improvement admission state (`OK` / `CAUTION` / `FROZEN`). |
+| `enable` / `disable` | Turn the closed learning loop's preset flags on or off. |
+
+### `janus sleep`
+
+```bash
+janus sleep [--now] [--dry-run] {status,pause,unpause}
+```
+
+Sleep-time consolidation of memory and lessons. `--now` runs a cycle immediately and `--dry-run` shows what a cycle would do without changing anything. `status` shows the last run and the schedule, and `pause` / `unpause` stop or resume the automatic schedule.
+
+### `janus evals`
+
+Eval specs are YAML files (a prompt plus deterministic checks against the response and tool usage) in `$JANUS_HOME/evals/`. See [Evals](../user-guide/features/evals.md).
+
+| Subcommand | Description |
+|------------|-------------|
+| `run` | Run eval specs and report pass/fail. |
+| `list` | List discovered specs. |
+| `init` | Scaffold an example spec. |
+| `results` | Show the most recent saved results. |
+| `trend` | Run the suite and record a learning-curve point. |
+| `gate` | Exit non-zero if the suite regressed (for CI or cron). |
+| `horizon` | METR-style time-horizon KPI over the trend points. |
+| `ab` | A/B a feature flag: suite pass-rate with it on vs. off. |
+
+### `janus self-improve`
+
+The agent can propose variants of its own artifacts (skill drafts, prompt fragments, lesson policies — never core code). Each proposal is eval-gated and needs your approval before it is applied. Enable with `learning.self_improve.enabled: true`.
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List proposals and their status. |
+| `show <id>` | Show one proposal with its lineage and diff. |
+| `approve <id>` | Approve an evaluated proposal. |
+| `promote <id>` | Apply an approved proposal that passed the gate. |
+| `reject <id>` | Reject a proposal. |
+| `rollback <id>` | Undo a promoted proposal (restores the backup). |
+| `doctor` | One-screen health check of the whole self-improvement loop. |
+
+### `janus consensus`
+
+Routes each task to the right-cost model: a cheap model for simple work, a strong one for hard work, and an ensemble (via `mixture_of_agents`) for the hardest. `status` shows the routing config, `route "<prompt>"` shows how a prompt would route without calling a model, and `run "<prompt>"` answers through consensus routing. See [Consensus](../user-guide/features/consensus.md).
+
+### `janus models`
+
+`rank <category>` shows ranked models for a task category, `research <task>` web-researches the best models for a task, and `tasks` lists the categories that have rankings.
+
+### `janus persona`
+
+`list` shows configured personas, `stats` their per-persona success rates, and `recommend` the best-performing one.
+
+### `janus autonomy`
+
+`status` shows the freeze state and rolling spend against the caps. `freeze` halts all autonomous action at once (cron, kanban, and delegate fan-out), and `unfreeze` releases it.
+
+### `janus aspire`
+
+An aspiration is a north star Janus holds across sessions (unlike `/goal`, which works one task). `set` drafts a milestone roadmap and schedules a recurring check-in. The other subcommands are `list`, `show`, `done`, `clear`, and `checkin` (run a check-in now).
+
+### `janus interest`
+
+Tell Janus about a field you care about. A recurring discovery job researches what is new in it and proposes what it found; nothing is absorbed into memory or skills without your agreement. Subcommands: `add`, `list`, `remove`, `discover` (research now).
+
+### `janus team`
+
+A shared knowledge layer. Facts added here are readable by every profile (or teammate) pointed at the same directory, while each assistant keeps its own private `MEMORY.md`. Subcommands: `set-dir`, `add`, `list`, `remove` (by substring). Point the directory at a synced folder, network share, or git repo to share across machines.
+
+### `janus corpus`
+
+Register local document directories and search them: `add`, `list`, `remove`, `search`.
+
+### `janus workflow`
+
+Run a YAML workflow of ordered steps from `~/.janus/workflows/<name>.yaml`. Each step can restrict its tools or model, run conditionally (`when:`), or loop (`for_each:`), and step outputs feed later steps. Subcommands: `list`, `show`, `mine` (draft a workflow from a successful past session), `run`.
 
 ## Maintenance commands
 

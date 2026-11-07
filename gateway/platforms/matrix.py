@@ -181,11 +181,13 @@ def _normalize_matrix_bang_command(text: str) -> str:
 class _MatrixApprovalPrompt:
     """Tracks a pending Matrix reaction-based exec approval prompt."""
 
-    def __init__(self, session_key: str, chat_id: str, message_id: str, resolved: bool = False):
+    def __init__(self, session_key: str, chat_id: str, message_id: str, resolved: bool = False,
+                 request_id: Optional[str] = None):
         self.session_key = session_key
         self.chat_id = chat_id
         self.message_id = message_id
         self.resolved = resolved
+        self.request_id = request_id
         self.bot_reaction_events: dict[str, str] = {}  # emoji -> event_id
 
 # Matrix message size limit (4000 chars practical, spec has no hard limit
@@ -1363,6 +1365,7 @@ class MatrixAdapter(BasePlatformAdapter):
             session_key=session_key,
             chat_id=chat_id,
             message_id=result.message_id,
+            request_id=(metadata or {}).get("approval_request_id"),
         )
         old_event = self._approval_prompt_by_session.get(session_key)
         if old_event:
@@ -2326,7 +2329,8 @@ class MatrixAdapter(BasePlatformAdapter):
                     from tools.approval import resolve_gateway_approval
 
                     count = resolve_gateway_approval(prompt.session_key, choice,
-                                                     approver=str(sender) or None)
+                                                     approver=str(sender) or None,
+                                                     request_id=prompt.request_id)
                     if count:
                         prompt.resolved = True
                         self._approval_prompts_by_event.pop(reacts_to, None)

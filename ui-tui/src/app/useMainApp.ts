@@ -741,7 +741,6 @@ export function useMainApp(gw: GatewayClient) {
     [
       appendMessage,
       bellOnComplete,
-      clearSelection,
       composerActions.setInput,
       gateway,
       panel,
@@ -848,6 +847,7 @@ export function useMainApp(gw: GatewayClient) {
       composerActions,
       composerRefs,
       die,
+      dieWithCode,
       gateway,
       hasSelection,
       maybeWarn,
@@ -1002,6 +1002,8 @@ export function useMainApp(gw: GatewayClient) {
       : state.activity.some(item => item.tone !== 'info')
   )
 
+  const { guardBusySessionSwitch, newLiveSession, resumeById } = session
+
   const appActions = useMemo(
     () => ({
       activateLiveSession: session.activateLiveSession,
@@ -1011,7 +1013,7 @@ export function useMainApp(gw: GatewayClient) {
       answerSecret,
       answerSudo,
       clearSelection,
-      newLiveSession: () => session.newLiveSession(),
+      newLiveSession: () => newLiveSession(),
       newPromptSession,
       onModelSelect,
       // Resuming a cold session from the overlay CLOSES the current one, so it
@@ -1019,11 +1021,11 @@ export function useMainApp(gw: GatewayClient) {
       // (Switching between live sessions and `+ new` keep the current session
       // running, so those stay unguarded — that's the orchestrator's purpose.)
       resumeById: (id: string) => {
-        if (session.guardBusySessionSwitch('switch sessions')) {
+        if (guardBusySessionSwitch('switch sessions')) {
           return
         }
 
-        session.resumeById(id)
+        resumeById(id)
       },
       setStickyPrompt
     }),
@@ -1036,10 +1038,10 @@ export function useMainApp(gw: GatewayClient) {
       closeLiveSession,
       newPromptSession,
       onModelSelect,
-      session.activateLiveSession,
-      session.guardBusySessionSwitch,
-      session.newLiveSession,
-      session.resumeById
+      guardBusySessionSwitch,
+      newLiveSession,
+      resumeById,
+      session.activateLiveSession
     ]
   )
 

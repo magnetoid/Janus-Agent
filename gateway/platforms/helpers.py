@@ -195,6 +195,20 @@ def strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def split_table_row(line: str) -> list[str]:
+    """Split a GFM table row into stripped cell values.
+
+    Leading/trailing pipes are optional. Replaces the identical splitters
+    previously duplicated in telegram.py and weixin.py.
+    """
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+    return [cell.strip() for cell in row.split("|")]
+
+
 # ─── Thread Participation Tracking ───────────────────────────────────────────
 
 

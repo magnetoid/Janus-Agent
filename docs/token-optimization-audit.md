@@ -45,6 +45,22 @@ finders' rough order-of-magnitude figures, not measured.
 | [30] | **`delegate_task` top-level description (~776 tok)** verbose WHEN-TO/IMPORTANT blocks. | `tools/delegate_tool.py:2592–2643` | ~200–350 tok/turn |
 | [10] | **`delegate_task` `acp_command`/`acp_args` descriptions** over-explain a rare transport. | `tools/delegate_tool.py:2811–2835` | ~200 tok/session |
 
+**Status (2026-10-30):**
+- **Done before this check:**
+  - [27]: `prefill_messages=None` for subagents.
+  - [28]: the goal appears only as the user message.
+  - [6]/[29]: one `_TOOLSET_LIST_STR`.
+  - [30]: the `delegate_task` description is now 153 chars.
+  - [25]: sleep mines only since the previous cycle's `last_run` and skips child sessions.
+- **Done now:** [5]. The four cronjob param descriptions were trimmed, taking the schema from 7,560 to 6,484 chars.
+- **Declined:**
+  - [22]: the skill-review prompt shapes learning behaviour, so trimming it is a behaviour change.
+  - [18]: truncating the previous summary loses the only record of earlier turns.
+- **Left open:**
+  - [52]: gating needs the session's toolsets plumbed into `build_session_context_prompt`; about 100 tok.
+  - [21]: red-team is opt-in.
+  - [10]: `acp_command` is 309 chars.
+
 ## Tier 3 — Cache-safe trims (low individual, batchable; best for gateway)
 
 System-prompt (all set once at session start → cache-safe):

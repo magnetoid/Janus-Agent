@@ -1323,8 +1323,11 @@ match a known requester. Adapters must call `can_resolve_gateway_approval`
 `approver` + `request_id` to resolve; the runner forwards `request_id` to
 `send_exec_approval` in `metadata["approval_request_id"]`. Pass no
 `approver` only when the platform cannot map the clicker to the same id
-space as `SessionSource.user_id` (QQ today). Default `approvals.mode` is
-`smart`; cron/headless keep their deny defaults.
+space as `SessionSource.user_id` (QQ today), or has no per-user principal
+at all (the API server's single bearer key, the single-user TUI) —
+`tests/gateway/test_approval_binding_adapters.py` fails for any other
+caller that leaves it out. Default `approvals.mode` is `smart`;
+cron/headless keep their deny defaults.
 
 ### The gateway has TWO message guards — both must bypass approval/control commands
 When an agent is running, messages pass through two sequential guards:

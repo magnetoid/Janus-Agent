@@ -378,6 +378,8 @@ export function GoodVibesHeart({ tick, t }: { tick: number; t: Theme }) {
     const id = setTimeout(() => setActive(false), 650)
 
     return () => clearTimeout(id)
+    // Fires on a new tick only; a theme change must not flash the heart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t.color.accent, tick])
 
   if (!active) {
@@ -464,6 +466,7 @@ export function StatusRule({
   // mid-segment, so status/model/context are never crushed.
   const SEP = stringWidth(' │ ')
   let tailBudget = Math.max(0, leftWidth - essentialWidth)
+
   const fits = (w: number) => {
     if (tailBudget >= w) {
       tailBudget -= w
@@ -477,6 +480,7 @@ export function StatusRule({
   const sessionCountText = liveSessionCount > 0 ? statusSessionCountLabel(liveSessionCount) : ''
   const compressions = typeof usage.compressions === 'number' ? usage.compressions : 0
   const costText = typeof usage.cost_usd === 'number' ? `$${usage.cost_usd.toFixed(4)}` : ''
+
   // Dev-only readout (JANUS_DEV_CREDITS). The server omits the key entirely unless the
   // flag is on, so this segment self-hides for normal users. micros→cents is allowed money
   // math (display formatting) — never parseFloat a *_usd. Signed: a mid-session top-up that
