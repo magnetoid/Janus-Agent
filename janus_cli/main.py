@@ -18,6 +18,7 @@ Usage:
     janus cron list           # List cron jobs
     janus cron status         # Check if cron scheduler is running
     janus doctor              # Check configuration and dependencies
+    # `janus honcho ...` exists only while the Honcho memory plugin is active:
     janus honcho setup                    # Configure Honcho AI memory integration
     janus honcho status                   # Show Honcho config and connection status
     janus honcho sessions                 # List directory → session name mappings
