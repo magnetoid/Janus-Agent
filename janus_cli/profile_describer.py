@@ -179,7 +179,7 @@ def describe_profile(
 
     try:
         if canon == "default":
-            from janus_constants import get_janus_home  # type: ignore
+            from janus_constants import get_janus_home
             profile_dir = Path(get_janus_home())
         else:
             profile_dir = profiles_mod.get_profile_dir(canon)
@@ -210,7 +210,7 @@ def describe_profile(
         model, provider = None, None
 
     try:
-        from agent.auxiliary_client import (  # type: ignore
+        from agent.auxiliary_client import (
             get_auxiliary_extra_body,
             get_text_auxiliary_client,
         )

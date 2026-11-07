@@ -2155,7 +2155,7 @@ def update_profile_description(profile_name: str, payload: DescribeBody):
         from janus_cli import profiles as profiles_mod
         canon = profiles_mod.normalize_profile_name(profile_name)
         if canon == "default":
-            from janus_constants import get_janus_home  # type: ignore
+            from janus_constants import get_janus_home
             from pathlib import Path as _Path
             profile_dir = _Path(get_janus_home())
         else:
