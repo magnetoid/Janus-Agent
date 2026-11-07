@@ -19,6 +19,13 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
+# ``resume_reason`` for a turn that was running when the process died; see
+# ``SessionStore.mark_turn_in_flight``.
+TURN_IN_FLIGHT_REASON = "turn_in_flight"
+# How often a running turn refreshes its marker, so auto-resume's freshness
+# window measures time since the process died, not since the turn began.
+TURN_IN_FLIGHT_HEARTBEAT_S = 300.0
+
 logger = logging.getLogger(__name__)
 
 
@@ -680,6 +687,9 @@ class SessionStore:
         self._entries: Dict[str, SessionEntry] = {}
         self._loaded = False
         self._lock = threading.Lock()
+        # session_key → token of the turn that owns the in-flight marker. In
+        # memory only: after a restart the marker has no owner, by design.
+        self._turn_tokens: Dict[str, str] = {}
         self._has_active_processes_fn = has_active_processes_fn
         
         # Initialize SQLite session database
@@ -1090,6 +1100,77 @@ class SessionStore:
                 len(removed_keys), max_age_days,
             )
         return len(removed_keys)
+
+    def mark_turn_in_flight(self, session_key: str) -> Optional[str]:
+        """Durably note that an agent turn is running for *session_key*.
+
+        Set right before ``run_conversation`` and cleared by
+        :meth:`end_turn_in_flight`. If the process dies in between (crash,
+        SIGKILL, OOM), the marker survives in sessions.json and startup
+        auto-resume continues the turn — unlike ``suspend_recently_active``,
+        this does not depend on the turn having started in the last 120 s.
+        :meth:`touch_turn_in_flight` keeps its timestamp fresh while it runs.
+
+        A session already ``resume_pending`` (this turn *is* a recovery) or
+        ``suspended`` is left untouched. Returns a token owning the marker,
+        or None when nothing was marked.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._entries.get(session_key)
+            if entry is None or entry.suspended or entry.resume_pending:
+                return None
+            entry.resume_pending = True
+            entry.resume_reason = TURN_IN_FLIGHT_REASON
+            entry.last_resume_marked_at = _now()
+            token = uuid.uuid4().hex
+            self._turn_tokens[session_key] = token
+            self._save()
+            return token
+
+    def _owns_turn_marker_locked(self, session_key: str, token: Optional[str]) -> Optional["SessionEntry"]:
+        entry = self._entries.get(session_key)
+        if (
+            not token
+            or entry is None
+            or not entry.resume_pending
+            or entry.resume_reason != TURN_IN_FLIGHT_REASON
+            or self._turn_tokens.get(session_key) != token
+        ):
+            return None
+        return entry
+
+    def touch_turn_in_flight(self, session_key: str, token: Optional[str]) -> bool:
+        """Heartbeat: move the marker's timestamp to now while the turn runs."""
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._owns_turn_marker_locked(session_key, token)
+            if entry is None:
+                return False
+            entry.last_resume_marked_at = _now()
+            self._save()
+            return True
+
+    def end_turn_in_flight(self, session_key: str, token: Optional[str]) -> bool:
+        """Clear the in-flight marker once the turn that set it has returned.
+
+        Only the owning turn (matching *token*) clears it, and only while it
+        still carries its own reason: a drain shutdown re-marks running
+        sessions ``restart_timeout``/``shutdown_timeout`` before interrupting
+        them, and a replacement turn (after ``/new``) owns its own marker.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._owns_turn_marker_locked(session_key, token)
+            if self._turn_tokens.get(session_key) == token:
+                self._turn_tokens.pop(session_key, None)
+            if entry is None:
+                return False
+            entry.resume_pending = False
+            entry.resume_reason = None
+            entry.last_resume_marked_at = None
+            self._save()
+            return True
 
     def suspend_recently_active(self, max_age_seconds: int = 120) -> int:
         """Mark recently-active sessions as resumable after an unexpected exit.
