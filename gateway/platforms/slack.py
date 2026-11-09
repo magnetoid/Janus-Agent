@@ -37,6 +37,7 @@ from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
+from gateway.session import SessionSource
 from gateway.platforms.helpers import MessageDeduplicator
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -1141,6 +1142,31 @@ class SlackAdapter(BasePlatformAdapter):
         except Exception as e:  # pragma: no cover - defensive logging
             logger.error("[Slack] Send error: %s", e, exc_info=True)
             return SendResult(success=False, error=str(e))
+
+    async def open_branch_thread(
+        self,
+        source: "SessionSource",
+        title: str,
+        intro: str,
+    ) -> Optional["SessionSource"]:
+        """Post *intro* as a new top-level message; its ``ts`` roots the branch thread.
+
+        Replies in that thread carry ``thread_ts == ts``, which is exactly the
+        thread id incoming messages are keyed by, and ``send()`` records the
+        ts as a bot message so replies there are answered without a mention.
+        """
+        result = await self.send(source.chat_id, intro)
+        if not result.success or not result.message_id:
+            logger.warning("[Slack] /branch could not post the thread root: %s", result.error)
+            return None
+        return self.build_source(
+            chat_id=source.chat_id,
+            chat_name=source.chat_name,
+            chat_type=source.chat_type,
+            user_id=source.user_id,
+            user_name=source.user_name,
+            thread_id=str(result.message_id),
+        )
 
     async def send_private_notice(
         self,

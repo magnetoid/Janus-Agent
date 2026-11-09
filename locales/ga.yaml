@@ -80,6 +80,9 @@ gateway:
     switch_failed:         "Cruthaíodh an brainse ach theip ar athrú chuige."
     branched_one:          "⑂ Brainseáilte go **{title}** ({count} teachtaireacht cóipeáilte)\nBunaidh: `{parent}`\nBrainse: `{new}`\nÚsáid `/resume` chun filleadh ar an mbunaidh."
     branched_many:         "⑂ Brainseáilte go **{title}** ({count} teachtaireacht cóipeáilte)\nBunaidh: `{parent}`\nBrainse: `{new}`\nÚsáid `/resume` chun filleadh ar an mbunaidh."
+    branched_thread:       "⑂ Brainseáilte go **{title}** i snáithe nua.\nFanann an comhrá seo ar `{parent}`; leanann an brainse (`{new}`) ar aghaidh sa snáithe."
+    thread_intro:          "⑂ Brainse **{title}**, scartha ó `{parent}`. Freagair anseo chun leanúint ar aghaidh."
+    thread_unavailable:    "(Níorbh fhéidir snáithe a oscailt anseo, mar sin cuireann an brainse seisiún an chomhrá seo in ionad.)"
 
   commands:
     usage:                 "Úsáid: `/commands [page]`"

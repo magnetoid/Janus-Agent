@@ -1315,6 +1315,43 @@ class SessionStore:
 
         return new_entry
 
+    def bind_session(self, source: SessionSource, session_id: str) -> SessionEntry:
+        """Point *source*'s session key at an existing session ID.
+
+        Used by ``/branch`` in thread mode: the new thread's key is bound to
+        the branched session without creating an empty one first.  A
+        different session already bound to that key is ended.
+        """
+        session_key = self._generate_session_key(source)
+        db_end_session_id = None
+        now = _now()
+        with self._lock:
+            self._ensure_loaded_locked()
+            old_entry = self._entries.get(session_key)
+            if old_entry is not None and old_entry.session_id == session_id:
+                return old_entry
+            if old_entry is not None:
+                db_end_session_id = old_entry.session_id
+            entry = SessionEntry(
+                session_key=session_key,
+                session_id=session_id,
+                created_at=now,
+                updated_at=now,
+                origin=source,
+                display_name=source.chat_name,
+                platform=source.platform,
+                chat_type=source.chat_type,
+            )
+            self._entries[session_key] = entry
+            self._save()
+
+        if self._db and db_end_session_id:
+            try:
+                self._db.end_session(db_end_session_id, "session_switch")
+            except Exception as e:
+                logger.debug("Session DB end_session failed: %s", e)
+        return entry
+
     def list_sessions(self, active_minutes: Optional[int] = None) -> List[SessionEntry]:
         """List all sessions, optionally filtered by activity."""
         with self._lock:

@@ -214,6 +214,7 @@ The messaging gateway supports the following built-in commands inside Telegram, 
 | `/topic [off\|help\|session-id]` | **Telegram DM only.** Manage user-managed multi-session topic mode. `/topic` enables it or shows status; `/topic off` disables it and clears bindings; `/topic help` shows usage; `/topic <session-id>` inside a topic restores a previous session. See [Multi-session DM mode](/user-guide/messaging/telegram#multi-session-dm-mode-topic). |
 | `/title [name]` | Set or show the session title. |
 | `/resume [name]` | Resume a previously named session. |
+| `/branch [--thread\|--here] [name]` (alias: `/fork`) | Copy the conversation into a new session. By default the branch replaces this chat's session; `--thread` opens it in a new thread instead (Discord thread, Telegram forum/DM topic, Slack or Matrix thread) and this chat keeps the original. Set `branch_in_thread: true` to make threads the default, then `--here` branches in place. Chats that can't hold a thread fall back to in place. See [Branching into a thread](../user-guide/sessions#branching-into-a-thread). |
 | `/usage` | Show token usage, estimated cost breakdown (input/output), context window state, session duration, and — when available from the active provider — an **Account limits** section with remaining quota / credits pulled live from the provider's API. |
 | `/insights [days]` | Show usage analytics. |
 | `/reasoning [level\|show\|hide]` | Change reasoning effort or toggle reasoning display. |
