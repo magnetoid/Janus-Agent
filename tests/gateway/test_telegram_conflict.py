@@ -309,3 +309,55 @@ async def test_disconnect_skips_inactive_updater_and_app(monkeypatch):
     app.stop.assert_not_awaited()
     app.shutdown.assert_awaited_once()
     warning.assert_not_called()
+
+
+async def _connect_with_polling(monkeypatch, extra=None):
+    adapter = TelegramAdapter(PlatformConfig(enabled=True, token="***", extra=extra or {}))
+    monkeypatch.setattr(
+        "gateway.status.acquire_scoped_lock",
+        lambda scope, identity, metadata=None: (True, None),
+    )
+    monkeypatch.setattr("gateway.status.release_scoped_lock", lambda scope, identity: None)
+    updater = SimpleNamespace(start_polling=AsyncMock(), stop=AsyncMock(), running=True)
+    bot = SimpleNamespace(delete_webhook=AsyncMock(), set_my_commands=AsyncMock())
+    app = SimpleNamespace(
+        bot=bot,
+        updater=updater,
+        add_handler=MagicMock(),
+        initialize=AsyncMock(),
+        start=AsyncMock(),
+    )
+    builder = MagicMock()
+    builder.token.return_value = builder
+    builder.request.return_value = builder
+    builder.get_updates_request.return_value = builder
+    builder.build.return_value = app
+    monkeypatch.setattr(
+        "gateway.platforms.telegram.Application",
+        SimpleNamespace(builder=MagicMock(return_value=builder)),
+    )
+    assert await adapter.connect() is True
+    return updater
+
+
+@pytest.mark.asyncio
+async def test_cold_boot_drops_backlog_by_default(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_DROP_PENDING_ON_COLD_BOOT", raising=False)
+    updater = await _connect_with_polling(monkeypatch)
+
+    assert updater.start_polling.await_args.kwargs["drop_pending_updates"] is True
+
+
+@pytest.mark.asyncio
+async def test_cold_boot_can_keep_messages_sent_while_offline(monkeypatch):
+    updater = await _connect_with_polling(monkeypatch, {"drop_pending_on_cold_boot": False})
+
+    assert updater.start_polling.await_args.kwargs["drop_pending_updates"] is False
+
+
+@pytest.mark.asyncio
+async def test_cold_boot_backlog_setting_reads_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_DROP_PENDING_ON_COLD_BOOT", "false")
+    updater = await _connect_with_polling(monkeypatch)
+
+    assert updater.start_polling.await_args.kwargs["drop_pending_updates"] is False

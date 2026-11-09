@@ -2445,6 +2445,10 @@ DEFAULT_CONFIG = {
         "reactions": False,            # Add 👀/✅/❌ reactions to messages during processing
         "channel_prompts": {},         # Per-chat/topic ephemeral system prompts (topics inherit from parent group)
         "allowed_chats": "",           # If set, bot ONLY responds in these group/supergroup chat IDs (whitelist)
+        # Unset sentinels (None): the TELEGRAM_* env var, then the built-in
+        # default, decides — so a saved config.yaml doesn't pin them.
+        "bots_require_mention": None,       # true: other bots must @mention us (stops bot-to-bot loops); default off
+        "drop_pending_on_cold_boot": None,  # false: deliver messages sent while the gateway was offline; default true
     },
 
     # Mattermost platform settings (gateway mode)
