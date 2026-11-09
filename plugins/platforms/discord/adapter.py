@@ -6313,6 +6313,102 @@ def _clean_discord_user_ids(raw: str) -> list:
     return cleaned
 
 
+_DISCORD_API_BASE = "https://discord.com/api/v10"
+# Application flags (https://discord.com/developers/docs/resources/application#application-object-application-flags).
+# Verified bots get the plain flag; bots in <100 servers get the *_LIMITED one.
+_APP_FLAG_GUILD_MEMBERS = 1 << 14
+_APP_FLAG_GUILD_MEMBERS_LIMITED = 1 << 15
+_APP_FLAG_MESSAGE_CONTENT = 1 << 18
+_APP_FLAG_MESSAGE_CONTENT_LIMITED = 1 << 19
+
+
+def verify_discord_token(token: str, *, timeout: float = 10.0, transport=None) -> dict:
+    """Check a bot token against Discord and read its privileged-intent flags.
+
+    Returns ``{"ok": True, "id", "name", "message_content", "members"}`` on
+    success.  On failure returns ``{"ok": False, "invalid": bool, "error"}``
+    where ``invalid`` is True only when Discord rejected the token (401/403),
+    so callers can tell a bad token from an unreachable API.
+    """
+    import httpx
+
+    client_kwargs: dict = {"timeout": timeout}
+    if transport is not None:
+        client_kwargs["transport"] = transport
+    else:
+        from gateway.platforms.base import resolve_proxy_url
+
+        proxy = resolve_proxy_url(platform_env_var="DISCORD_PROXY")
+        if proxy:
+            client_kwargs["proxy"] = proxy
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get(
+                f"{_DISCORD_API_BASE}/applications/@me",
+                headers={"Authorization": f"Bot {token.strip()}"},
+            )
+    except httpx.HTTPError as exc:
+        return {"ok": False, "invalid": False, "error": str(exc) or type(exc).__name__}
+    if resp.status_code in (401, 403):
+        return {"ok": False, "invalid": True, "error": f"HTTP {resp.status_code}"}
+    if resp.status_code != 200:
+        return {"ok": False, "invalid": False, "error": f"HTTP {resp.status_code}"}
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"ok": False, "invalid": False, "error": "unreadable response"}
+    flags = int(data.get("flags") or 0)
+    bot_user = data.get("bot") if isinstance(data.get("bot"), dict) else {}
+    return {
+        "ok": True,
+        "id": str(data.get("id") or ""),
+        "name": bot_user.get("username") or data.get("name") or "",
+        "message_content": bool(
+            flags & (_APP_FLAG_MESSAGE_CONTENT | _APP_FLAG_MESSAGE_CONTENT_LIMITED)
+        ),
+        "members": bool(flags & (_APP_FLAG_GUILD_MEMBERS | _APP_FLAG_GUILD_MEMBERS_LIMITED)),
+    }
+
+
+def discord_needs_members_intent(allowed_users: str, allowed_roles: str) -> bool:
+    """Mirror ``connect()``: usernames or role filters need the members intent."""
+    users = _clean_discord_user_ids(allowed_users or "")
+    roles = [r for r in (allowed_roles or "").replace(" ", "").split(",") if r]
+    return any(not entry.isdigit() for entry in users) or bool(roles)
+
+
+def discord_intent_problems(info: dict, *, needs_members: bool) -> list:
+    """Return human-readable problems with the intents enabled for this bot."""
+    problems = []
+    if not info.get("message_content"):
+        problems.append(
+            "Message Content Intent is off — Janus requests it, and Discord "
+            "refuses the gateway connection without it (close code 4014)."
+        )
+    if needs_members and not info.get("members"):
+        problems.append(
+            "Server Members Intent is off — it is needed because the allowlist "
+            "uses usernames or DISCORD_ALLOWED_ROLES."
+        )
+    return problems
+
+
+def _report_discord_intents(info: dict, needs_members: bool) -> None:
+    from janus_cli.cli_output import print_info, print_success, print_warning
+
+    problems = discord_intent_problems(info, needs_members=needs_members)
+    if not problems:
+        print_success("Discord privileged intents look good")
+        return
+    for problem in problems:
+        print_warning(problem)
+    app_id = info.get("id") or "<your-app>"
+    print_info(
+        f"   Fix: https://discord.com/developers/applications/{app_id}/bot → "
+        "Privileged Gateway Intents → enable it and save."
+    )
+
+
 def interactive_setup() -> None:
     """Guide the user through Discord bot setup.
 
@@ -6324,9 +6420,11 @@ def interactive_setup() -> None:
     from janus_cli.cli_output import (
         prompt,
         prompt_yes_no,
+        print_error,
         print_header,
         print_info,
         print_success,
+        print_warning,
     )
 
     print_header("Discord")
@@ -6334,6 +6432,17 @@ def interactive_setup() -> None:
     if existing:
         print_info("Discord: already configured")
         if not prompt_yes_no("Reconfigure Discord?", False):
+            info = verify_discord_token(existing)
+            if info.get("ok"):
+                _report_discord_intents(
+                    info,
+                    discord_needs_members_intent(
+                        get_env_value("DISCORD_ALLOWED_USERS") or "",
+                        get_env_value("DISCORD_ALLOWED_ROLES") or "",
+                    ),
+                )
+            elif info.get("invalid"):
+                print_warning("Discord rejected the saved bot token — choose Reconfigure to replace it.")
             if not get_env_value("DISCORD_ALLOWED_USERS"):
                 print_info("⚠️  Discord has no user allowlist - anyone can use your bot!")
                 if prompt_yes_no("Add allowed users now?", True):
@@ -6346,8 +6455,24 @@ def interactive_setup() -> None:
             return
 
     print_info("Create a bot at https://discord.com/developers/applications")
-    token = prompt("Discord bot token", password=True)
-    if not token:
+    info: dict = {}
+    for _attempt in range(3):
+        token = prompt("Discord bot token", password=True)
+        if not token:
+            return
+        info = verify_discord_token(token)
+        if info.get("ok"):
+            print_success(f"Token verified — bot: {info.get('name') or 'unknown'}")
+            break
+        if info.get("invalid"):
+            print_error("Discord rejected that token. Copy it again from the Bot page (Reset Token).")
+            continue
+        print_warning(
+            f"Couldn't reach Discord to verify the token ({info.get('error')}); saving it anyway."
+        )
+        break
+    else:
+        print_error("No valid token after 3 attempts — Discord was not configured.")
         return
     save_env_value("DISCORD_BOT_TOKEN", token)
     print_success("Discord token saved")
@@ -6369,6 +6494,15 @@ def interactive_setup() -> None:
         print_success("Discord allowlist configured")
     else:
         print_info("⚠️  No allowlist set - anyone in servers with your bot can use it!")
+
+    if info.get("ok"):
+        print()
+        _report_discord_intents(
+            info,
+            discord_needs_members_intent(
+                allowed_users or "", get_env_value("DISCORD_ALLOWED_ROLES") or ""
+            ),
+        )
 
     print()
     print_info("📬 Home Channel: where Janus delivers cron job results,")
