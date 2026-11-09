@@ -1233,3 +1233,18 @@ def test_config_bridges_bot_loop_and_cold_boot_keys(monkeypatch, tmp_path):
     assert tg_cfg is not None
     assert tg_cfg.extra.get("bots_require_mention") is True
     assert tg_cfg.extra.get("drop_pending_on_cold_boot") is False
+
+
+def test_new_telegram_keys_are_registered_with_unset_defaults(monkeypatch):
+    # None means "not set in config.yaml": the env var (or built-in default)
+    # still decides, even when a saved config.yaml carries every default.
+    from janus_cli.config import DEFAULT_CONFIG
+
+    for key in ("bots_require_mention", "drop_pending_on_cold_boot"):
+        assert key in DEFAULT_CONFIG["telegram"]
+        assert DEFAULT_CONFIG["telegram"][key] is None
+
+    monkeypatch.setenv("TELEGRAM_BOTS_REQUIRE_MENTION", "true")
+    adapter = _make_adapter(require_mention=False, bots_require_mention=None)
+    adapter.config.extra["bots_require_mention"] = None
+    assert adapter._telegram_bots_require_mention() is True
