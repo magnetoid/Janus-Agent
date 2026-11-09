@@ -1152,20 +1152,39 @@ class SlackAdapter(BasePlatformAdapter):
         """Post *intro* as a new top-level message; its ``ts`` roots the branch thread.
 
         Replies in that thread carry ``thread_ts == ts``, which is exactly the
-        thread id incoming messages are keyed by, and ``send()`` records the
-        ts as a bot message so replies there are answered without a mention.
+        thread id incoming messages are keyed by.  Posted straight through the
+        workspace client, not ``send()``: when ``/branch`` came in as a native
+        slash command, ``send()`` would consume the stashed ``response_url``
+        and answer ephemerally (no ts), and that context belongs to the
+        command's own confirmation reply.
         """
-        result = await self.send(source.chat_id, intro)
-        if not result.success or not result.message_id:
-            logger.warning("[Slack] /branch could not post the thread root: %s", result.error)
+        if not self._app:
             return None
+        try:
+            result = await self._get_client(source.chat_id).chat_postMessage(
+                channel=source.chat_id,
+                text=self.format_message(intro),
+                mrkdwn=True,
+            )
+        except Exception as e:
+            logger.warning("[Slack] /branch could not post the thread root: %s", e)
+            return None
+        ts = result.get("ts") if result else None
+        if not ts:
+            return None
+        # Bot-started thread: replies there are answered without a mention.
+        self._bot_message_ts.add(ts)
+        if len(self._bot_message_ts) > self._BOT_TS_MAX:
+            excess = len(self._bot_message_ts) - self._BOT_TS_MAX // 2
+            for old_ts in list(self._bot_message_ts)[:excess]:
+                self._bot_message_ts.discard(old_ts)
         return self.build_source(
             chat_id=source.chat_id,
             chat_name=source.chat_name,
             chat_type=source.chat_type,
             user_id=source.user_id,
             user_name=source.user_name,
-            thread_id=str(result.message_id),
+            thread_id=str(ts),
         )
 
     async def send_private_notice(

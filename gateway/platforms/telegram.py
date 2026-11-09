@@ -1201,10 +1201,24 @@ class TelegramAdapter(BasePlatformAdapter):
         if thread_id is None:
             return None
         thread_id_str = str(thread_id)
+        metadata: Dict[str, Any] = {"thread_id": thread_id_str}
+        if source.chat_type == "dm":
+            # A brand-new DM topic has no message to anchor a reply to; mark
+            # it as freshly created so send() doesn't refuse it.
+            metadata["telegram_dm_topic_created_for_send"] = True
         try:
-            await self.send(source.chat_id, intro, metadata={"thread_id": thread_id_str})
+            sent = await self.send(source.chat_id, intro, metadata=metadata)
+            error = None if sent.success else sent.error
         except Exception as e:
-            logger.warning("[%s] /branch topic intro failed: %s", self.name, e)
+            error = str(e)
+        if error is not None:
+            # Don't bind the branch to an empty topic nobody was told about.
+            logger.warning("[%s] /branch topic intro failed: %s", self.name, error)
+            try:
+                await self._bot.delete_forum_topic(chat_id=chat_id, message_thread_id=thread_id)
+            except Exception as e:
+                logger.debug("[%s] could not remove the empty /branch topic: %s", self.name, e)
+            return None
         return self.build_source(
             chat_id=source.chat_id,
             chat_name=source.chat_name,

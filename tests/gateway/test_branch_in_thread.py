@@ -173,27 +173,38 @@ class TestBaseAdapter:
 
 
 class TestSlackAndMatrix:
-    @pytest.mark.asyncio
-    async def test_slack_root_message_becomes_the_thread(self):
+    def _slack(self, post_result):
         from gateway.platforms.slack import SlackAdapter
 
         adapter = object.__new__(SlackAdapter)
         adapter.platform = Platform.SLACK
-        adapter.send = AsyncMock(return_value=SendResult(success=True, message_id="1700.01"))
+        adapter.config = PlatformConfig(enabled=True, token="***")
+        adapter._app = SimpleNamespace(client=None)
+        adapter._bot_message_ts = set()
+        adapter._BOT_TS_MAX = 5000
+        client = SimpleNamespace(chat_postMessage=AsyncMock(side_effect=post_result))
+        adapter._get_client = lambda chat_id: client
+        # send() would consume a pending slash-command response_url and answer
+        # ephemerally (no ts); the thread root must never go through it.
+        adapter.send = AsyncMock(side_effect=AssertionError("must not use send()"))
+        return adapter, client
+
+    @pytest.mark.asyncio
+    async def test_slack_root_message_becomes_the_thread(self):
+        adapter, client = self._slack([{"ts": "1700.01"}])
         src = _source(Platform.SLACK, chat_id="C1", thread_id="1600.00")
 
         thread = await adapter.open_branch_thread(src, "Idea", "⑂ intro")
 
-        adapter.send.assert_awaited_once_with("C1", "⑂ intro")
+        kwargs = client.chat_postMessage.await_args.kwargs
+        assert kwargs["channel"] == "C1"
+        assert "thread_ts" not in kwargs  # top-level message, not a reply
         assert (thread.chat_id, thread.chat_type, thread.thread_id) == ("C1", "group", "1700.01")
+        assert "1700.01" in adapter._bot_message_ts  # replies there get answered
 
     @pytest.mark.asyncio
-    async def test_slack_send_failure_returns_none(self):
-        from gateway.platforms.slack import SlackAdapter
-
-        adapter = object.__new__(SlackAdapter)
-        adapter.platform = Platform.SLACK
-        adapter.send = AsyncMock(return_value=SendResult(success=False, error="nope"))
+    async def test_slack_post_failure_returns_none(self):
+        adapter, _client = self._slack(RuntimeError("not_in_channel"))
 
         assert await adapter.open_branch_thread(_source(Platform.SLACK), "Idea", "x") is None
 
@@ -235,7 +246,34 @@ class TestTelegram:
 
         bot.create_forum_topic.assert_awaited_once_with(chat_id=-1001, name="Idea")
         assert (thread.chat_id, thread.chat_type, thread.thread_id) == ("-1001", "group", "77")
-        assert adapter.send.await_args.kwargs["metadata"] == {"thread_id": "77"}
+        assert adapter.send.await_args.kwargs["metadata"]["thread_id"] == "77"
+
+    @pytest.mark.asyncio
+    async def test_dm_topic_intro_is_sent_as_a_new_topic_message(self):
+        adapter = self._adapter(SimpleNamespace())
+        adapter._create_dm_topic = AsyncMock(return_value=88)
+
+        thread = await adapter.open_branch_thread(
+            _source(Platform.TELEGRAM, chat_type="dm", chat_id="555"), "Idea", "intro"
+        )
+
+        meta = adapter.send.await_args.kwargs["metadata"]
+        assert meta["thread_id"] == "88"
+        # Without this exemption send() refuses an un-anchored DM topic reply.
+        assert meta["telegram_dm_topic_created_for_send"] is True
+        assert (thread.chat_type, thread.thread_id) == ("dm", "88")
+
+    @pytest.mark.asyncio
+    async def test_failed_intro_does_not_bind_an_empty_topic(self):
+        bot = SimpleNamespace(
+            create_forum_topic=AsyncMock(return_value=SimpleNamespace(message_thread_id=77)),
+            delete_forum_topic=AsyncMock(),
+        )
+        adapter = self._adapter(bot)
+        adapter.send = AsyncMock(return_value=SendResult(success=False, error="refused"))
+
+        assert await adapter.open_branch_thread(_source(Platform.TELEGRAM, chat_id="-1001"), "Idea", "x") is None
+        bot.delete_forum_topic.assert_awaited_once_with(chat_id=-1001, message_thread_id=77)
 
     @pytest.mark.asyncio
     async def test_non_forum_group_returns_none(self):
