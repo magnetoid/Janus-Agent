@@ -21,6 +21,7 @@ def _make_adapter(
     group_allowed_chats=None,
     guest_mode=None,
     observe_unmentioned_group_messages=None,
+    bots_require_mention=None,
     bot_username="janus_bot",
 ):
     from gateway.platforms.telegram import TelegramAdapter
@@ -62,6 +63,8 @@ def _make_adapter(
         extra["guest_mode"] = guest_mode
     if observe_unmentioned_group_messages is not None:
         extra["observe_unmentioned_group_messages"] = observe_unmentioned_group_messages
+    if bots_require_mention is not None:
+        extra["bots_require_mention"] = bots_require_mention
 
     adapter = object.__new__(TelegramAdapter)
     adapter.platform = Platform.TELEGRAM
@@ -96,6 +99,7 @@ def _group_message(
     entities=None,
     caption=None,
     caption_entities=None,
+    from_bot=False,
 ):
     reply_to_message = None
     if reply_to_bot:
@@ -109,7 +113,12 @@ def _group_message(
         message_thread_id=thread_id,
         is_topic_message=thread_id is not None,
         chat=SimpleNamespace(id=chat_id, type="group", title="Test Group", is_forum=thread_id is not None),
-        from_user=SimpleNamespace(id=from_user_id, full_name=from_user_name, first_name=from_user_name.split()[0]),
+        from_user=SimpleNamespace(
+            id=from_user_id,
+            full_name=from_user_name,
+            first_name=from_user_name.split()[0],
+            is_bot=from_bot,
+        ),
         reply_to_message=reply_to_message,
         date=None,
     )
@@ -1162,3 +1171,65 @@ def test_unmentioned_unsupported_document_observed_without_caching(monkeypatch):
         assert "unsupported" in message["content"].lower()
 
     asyncio.run(_run())
+
+
+def test_bots_require_mention_ignores_unaddressed_bot_messages_in_open_groups():
+    adapter = _make_adapter(require_mention=False, bots_require_mention=True)
+
+    assert adapter._should_process_message(_group_message("hi", from_bot=True)) is False
+    # Humans in the same open group are unaffected.
+    assert adapter._should_process_message(_group_message("hi")) is True
+
+
+def test_bots_require_mention_accepts_a_direct_mention_from_a_bot():
+    text = "@janus_bot summarise this"
+    adapter = _make_adapter(require_mention=False, bots_require_mention=True)
+
+    msg = _group_message(text, from_bot=True, entities=[_mention_entity(text)])
+
+    assert adapter._should_process_message(msg) is True
+
+
+def test_bots_require_mention_replies_and_free_response_do_not_count_for_bots():
+    # A reply chain between two bots is exactly the loop this option stops.
+    adapter = _make_adapter(
+        require_mention=True,
+        free_response_chats=["-100"],
+        mention_patterns=[r"\bjanus\b"],
+        bots_require_mention=True,
+    )
+
+    assert adapter._should_process_message(_group_message("ok", from_bot=True, reply_to_bot=True)) is False
+    assert adapter._should_process_message(_group_message("janus, go", from_bot=True)) is False
+    assert adapter._should_process_message(_group_message("ok", reply_to_bot=True)) is True
+
+
+def test_bots_require_mention_is_off_by_default():
+    adapter = _make_adapter(require_mention=False)
+
+    assert adapter._should_process_message(_group_message("hi", from_bot=True)) is True
+
+
+def test_bots_require_mention_reads_env_when_config_is_silent(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOTS_REQUIRE_MENTION", "true")
+    adapter = _make_adapter(require_mention=False)
+
+    assert adapter._should_process_message(_group_message("hi", from_bot=True)) is False
+
+
+def test_config_bridges_bot_loop_and_cold_boot_keys(monkeypatch, tmp_path):
+    janus_home = tmp_path / ".janus"
+    janus_home.mkdir()
+    (janus_home / "config.yaml").write_text(
+        "telegram:\n"
+        "  bots_require_mention: true\n"
+        "  drop_pending_on_cold_boot: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("JANUS_HOME", str(janus_home))
+
+    tg_cfg = load_gateway_config().platforms.get(Platform.TELEGRAM)
+
+    assert tg_cfg is not None
+    assert tg_cfg.extra.get("bots_require_mention") is True
+    assert tg_cfg.extra.get("drop_pending_on_cold_boot") is False

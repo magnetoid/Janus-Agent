@@ -138,6 +138,15 @@ janus gateway
 
 The bot should come online within seconds. Send it a message on Telegram to verify.
 
+By default a cold start drops updates that queued up while the gateway was offline, so a restart never answers a stale backlog. To deliver those messages instead, set:
+
+```yaml
+telegram:
+  drop_pending_on_cold_boot: false
+```
+
+(or `TELEGRAM_DROP_PENDING_ON_COLD_BOOT=false`). Reconnects inside a running gateway never drop pending updates, whatever this is set to.
+
 ## Sending Generated Files from Docker-backed Terminals
 
 If your terminal backend is `docker`, keep in mind that Telegram attachments are
@@ -501,6 +510,17 @@ telegram:
 With this setup, a group message like `@research_bot @ops_bot summarize this` is processed by `research_bot` and `ops_bot` only. Other Janus bots in the group stay silent, even if the message is a reply to one of their earlier messages or would otherwise match a shared wake word.
 
 Set `exclusive_bot_mentions: false` only for legacy groups where explicit mentions should not override reply and wake-word triggers.
+
+#### Stopping bot-to-bot reply loops
+
+When bots in a group can see each other's messages, two bots that answer every reply will talk to each other forever. Turn on `bots_require_mention` so messages sent by **other bots** only reach Janus when they `@mention` it directly:
+
+```yaml
+telegram:
+  bots_require_mention: true
+```
+
+For bot senders, replies to Janus, `free_response_chats`, `mention_patterns` and `require_mention: false` no longer count as triggers; only an explicit `@yourbot` (or `/command@yourbot`) does. Human senders are unaffected. Off by default; the environment equivalent is `TELEGRAM_BOTS_REQUIRE_MENTION=true`.
 
 To operate several profiles, run the gateway command once per profile. For example:
 
