@@ -736,9 +736,19 @@ class WebhookAdapter(BasePlatformAdapter):
 
         job_id = job["id"]
 
-        async def _fire(_text: str = "", _batch_id: str = "") -> None:
-            await asyncio.to_thread(cron_jobs.trigger_job, job_id)
-            logger.info("[webhook] Route %s triggered cron job %s", route_name, job_id)
+        async def _fire(_text: str = "", _batch_id: str = "") -> bool:
+            # Re-check at fire time: a coalesced trigger runs after its
+            # window, and the job may have been paused meanwhile.
+            _job, fired = await asyncio.to_thread(cron_jobs.trigger_job_unless_paused, job_id)
+            if fired:
+                logger.info("[webhook] Route %s triggered cron job %s", route_name, job_id)
+            else:
+                logger.info(
+                    "[webhook] Route %s skipped cron job %s (paused or removed)",
+                    route_name,
+                    job_id,
+                )
+            return fired
 
         window = self._coalesce_window(route_config)
         if window:
@@ -759,7 +769,10 @@ class WebhookAdapter(BasePlatformAdapter):
                 status=202,
             )
 
-        await _fire()
+        if not await _fire():
+            return web.json_response(
+                {"error": f"Cron job is paused: {ref}", "job_id": job_id}, status=409
+            )
         return web.json_response(
             {
                 "status": "triggered",

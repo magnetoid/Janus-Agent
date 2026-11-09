@@ -371,6 +371,7 @@ routes:
 - The first event gets `202 status=accepted`; later ones get `202 status=coalesced` with `into` set to the first event's delivery ID.
 - `deliver_extra` is rendered from the **latest** event in the window — use `coalesce_key` when events for different subjects would otherwise share one window.
 - At most 50 events are included in the prompt; the rest are counted.
+- A coalesced `cron_job` trigger re-checks the job when the window closes: if it was paused in the meantime, nothing runs.
 - `deliver_only` routes are not coalesced. Windows still open when the gateway stops are dropped.
 
 ---

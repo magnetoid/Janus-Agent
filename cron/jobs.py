@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from janus_constants import get_janus_home
-from typing import Optional, Dict, List, Any, Union
+from typing import Optional, Dict, List, Any, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -876,6 +876,12 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
 
 def pause_job(job_id: str, reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Pause a job without deleting it. Accepts a job ID or name."""
+    # Held so a concurrent trigger_job_unless_paused() sees the pause.
+    with _jobs_file_lock:
+        return _pause_job_locked(job_id, reason)
+
+
+def _pause_job_locked(job_id: str, reason: Optional[str]) -> Optional[Dict[str, Any]]:
     job = resolve_job_ref(job_id)
     if not job:
         return None
@@ -924,6 +930,23 @@ def trigger_job(job_id: str) -> Optional[Dict[str, Any]]:
             "next_run_at": _janus_now().isoformat(),
         },
     )
+
+
+def trigger_job_unless_paused(job_id: str) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """Trigger a job like :func:`trigger_job`, but never un-pause it.
+
+    Returns ``(job, triggered)``: ``(None, False)`` for an unknown job,
+    ``(job, False)`` when it is paused or disabled.  The check and the
+    trigger happen under the jobs lock, so a pause in this process can't
+    land between them.  Used by event-driven triggers (webhook routes).
+    """
+    with _jobs_file_lock:
+        job = resolve_job_ref(job_id)
+        if not job:
+            return None, False
+        if job.get("enabled") is False or job.get("state") == "paused":
+            return job, False
+        return trigger_job(job["id"]), True
 
 
 def remove_job(job_id: str) -> bool:

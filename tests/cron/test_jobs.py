@@ -409,6 +409,29 @@ class TestResolveJobRef:
         assert result is not None
         assert result["id"] == job["id"]
 
+    def test_trigger_unless_paused_runs_active_jobs(self, tmp_cron_dir):
+        from cron.jobs import trigger_job_unless_paused
+
+        job = create_job(prompt="A", schedule="1h", name="alpha")
+        result, triggered = trigger_job_unless_paused("alpha")
+        assert triggered is True
+        assert result["id"] == job["id"]
+
+    def test_trigger_unless_paused_never_unpauses(self, tmp_cron_dir):
+        from cron.jobs import get_job, trigger_job_unless_paused
+
+        job = create_job(prompt="A", schedule="1h", name="alpha")
+        pause_job("alpha", reason="manual")
+        result, triggered = trigger_job_unless_paused("alpha")
+        assert triggered is False
+        assert result["id"] == job["id"]
+        assert get_job(job["id"])["state"] == "paused"
+
+    def test_trigger_unless_paused_unknown_job(self, tmp_cron_dir):
+        from cron.jobs import trigger_job_unless_paused
+
+        assert trigger_job_unless_paused("nope") == (None, False)
+
     def test_pause_by_name(self, tmp_cron_dir):
         job = create_job(prompt="A", schedule="1h", name="alpha")
         result = pause_job("alpha", reason="manual")

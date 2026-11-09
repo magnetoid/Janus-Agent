@@ -106,14 +106,35 @@ def cron_jobs(monkeypatch):
         "nightly": {"id": "abc123", "name": "nightly", "enabled": True, "state": "scheduled"},
         "held": {"id": "def456", "name": "held", "enabled": False, "state": "paused"},
     }
-    triggered = []
+    class _Triggered(list):
+        pass
+
+    triggered = _Triggered()
 
     import cron.jobs as cron_jobs_mod
 
     monkeypatch.setattr(cron_jobs_mod, "resolve_job_ref", lambda ref: jobs.get(ref))
-    monkeypatch.setattr(
-        cron_jobs_mod, "trigger_job", lambda ref: triggered.append(ref) or jobs.get(ref)
-    )
+    def _trigger_unless_paused(ref):
+        job = next((j for j in jobs.values() if ref in (j["id"], j["name"])), None)
+        if job is None:
+            return None, False
+        if job["enabled"] is False or job["state"] == "paused":
+            return job, False
+        triggered.append(job["id"])
+        return job, True
+
+    def _unconditional_trigger(ref):
+        # Mirrors cron.jobs.trigger_job: it un-pauses whatever it triggers.
+        job = next((j for j in jobs.values() if ref in (j["id"], j["name"])), None)
+        if job is None:
+            return None
+        job.update(enabled=True, state="scheduled")
+        triggered.append(job["id"])
+        return job
+
+    monkeypatch.setattr(cron_jobs_mod, "trigger_job", _unconditional_trigger)
+    monkeypatch.setattr(cron_jobs_mod, "trigger_job_unless_paused", _trigger_unless_paused)
+    triggered.jobs = jobs
     return triggered
 
 
@@ -239,6 +260,21 @@ class TestCoalesce:
             await asyncio.sleep(0.3)
 
         assert cron_jobs == ["abc123"]
+
+    @pytest.mark.asyncio
+    async def test_job_paused_during_the_window_is_not_triggered(self, cron_jobs):
+        adapter = _adapter(
+            {"deploy": {"secret": _INSECURE_NO_AUTH, "cron_job": "nightly", "coalesce_seconds": 0.2}}
+        )
+
+        async with TestClient(TestServer(_app(adapter))) as cli:
+            resp = await cli.post("/webhooks/deploy", json={})
+            assert resp.status == 202
+            cron_jobs.jobs["nightly"].update(enabled=False, state="paused")
+            await asyncio.sleep(0.5)
+
+        assert cron_jobs == []
+        assert cron_jobs.jobs["nightly"]["state"] == "paused"
 
     @pytest.mark.parametrize("value", [0, -1, "soon", None])
     def test_invalid_window_disables_coalescing(self, value):
