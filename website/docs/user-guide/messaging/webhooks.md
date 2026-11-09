@@ -85,6 +85,9 @@ Routes define how different webhook sources are handled. Each route is a named e
 | `deliver` | No | Where to send the response: `github_comment`, `telegram`, `discord`, `slack`, `signal`, `sms`, `whatsapp`, `matrix`, `mattermost`, `homeassistant`, `email`, `dingtalk`, `feishu`, `wecom`, `weixin`, `bluebubbles`, `qqbot`, or `log` (default). |
 | `deliver_extra` | No | Additional delivery config — keys depend on `deliver` type (e.g. `repo`, `pr_number`, `chat_id`). Values support the same `{dot.notation}` templates as `prompt`. |
 | `deliver_only` | No | If `true`, skip the agent entirely — the rendered `prompt` template becomes the literal message that gets delivered. Zero LLM cost, sub-second delivery. See [Direct Delivery Mode](#direct-delivery-mode) for use cases. Requires `deliver` to be a real target (not `log`). |
+| `cron_job` | No | ID or name of a cron job to run (on the next scheduler tick) when the event arrives, instead of running the agent on the payload. See [Triggering Cron Jobs](#cron-job-routes). |
+| `coalesce_seconds` | No | Collapse a burst of events into one run. See [Coalescing Bursts](#coalescing). Off by default. |
+| `coalesce_key` | No | Template (e.g. `{pull_request.number}`) so only events for the same subject share a coalescing window. Defaults to the whole route. |
 
 ### Full example
 
@@ -327,6 +330,51 @@ janus webhook subscribe antenna-matches \
 
 ---
 
+## Triggering Cron Jobs {#cron-job-routes}
+
+A route with `cron_job` runs an existing [scheduled job](../features/cron.md) when the event arrives, using the job's own prompt, skills and delivery target. The payload is not passed to the job; use this when an outside event (a deploy finished, a dataset landed) should kick off work you already scheduled.
+
+```yaml
+platforms:
+  webhook:
+    extra:
+      routes:
+        deploy-done:
+          secret: "your-secret"
+          events: ["deployment.succeeded"]
+          cron_job: "post-deploy-checks"   # job ID or name
+```
+
+| Status | Meaning |
+|--------|---------|
+| `202` `status=triggered` | The job will run on the next scheduler tick |
+| `404` | No job has that ID or name |
+| `409` | The job is paused (an event never un-pauses it), or the name matches several jobs |
+
+## Coalescing Bursts {#coalescing}
+
+Some sources send a burst of events for one change (CI status updates, alert storms). Set `coalesce_seconds` and the first event opens a window; every event that arrives on the route during the window is folded into **one** agent run whose prompt lists each rendered event. For `cron_job` routes, a burst triggers the job once.
+
+```yaml
+routes:
+  pr-activity:
+    secret: "your-secret"
+    prompt: "PR #{pull_request.number}: {action}"
+    coalesce_seconds: 30
+    coalesce_key: "{pull_request.number}"   # separate window per PR
+    deliver: github_comment
+    deliver_extra:
+      repo: "{repository.full_name}"
+      pr_number: "{pull_request.number}"
+```
+
+- The first event gets `202 status=accepted`; later ones get `202 status=coalesced` with `into` set to the first event's delivery ID.
+- `deliver_extra` is rendered from the **latest** event in the window — use `coalesce_key` when events for different subjects would otherwise share one window.
+- At most 50 events are included in the prompt; the rest are counted.
+- `deliver_only` routes are not coalesced. Windows still open when the gateway stops are dropped.
+
+---
+
 ## Dynamic Subscriptions (CLI) {#dynamic-subscriptions}
 
 In addition to static routes in `config.yaml`, you can create webhook subscriptions dynamically using the `janus webhook` CLI command. This is especially useful when the agent itself needs to set up event-driven triggers.
@@ -387,6 +435,8 @@ The adapter validates incoming webhook signatures using the appropriate method f
 
 - **GitHub**: `X-Hub-Signature-256` header — HMAC-SHA256 hex digest prefixed with `sha256=`
 - **GitLab**: `X-Gitlab-Token` header — plain secret string match
+- **Standard Webhooks** ([standardwebhooks.com](https://www.standardwebhooks.com/)): `webhook-id`, `webhook-timestamp` and `webhook-signature` headers — `v1,<base64 HMAC-SHA256>` over `id.timestamp.body`. Use the provider's `whsec_…` secret as the route `secret`. Timestamps older than 5 minutes are rejected, and any of several space-separated signatures may match (secret rotation).
+- **Svix** (AgentMail and other Svix senders): the same scheme under `svix-id` / `svix-timestamp` / `svix-signature`
 - **Generic**: `X-Webhook-Signature` header — raw HMAC-SHA256 hex digest
 
 If a secret is configured but no recognized signature header is present, the request is rejected.
@@ -412,7 +462,7 @@ Requests exceeding the limit receive a `429 Too Many Requests` response.
 
 ### Idempotency
 
-Delivery IDs (from `X-GitHub-Delivery`, `X-Request-ID`, or a timestamp fallback) are cached for **1 hour**. Duplicate deliveries (e.g. webhook retries) are silently skipped with a `200` response, preventing duplicate agent runs.
+Delivery IDs (from `X-GitHub-Delivery`, `svix-id`, `webhook-id`, `X-Request-ID`, or a timestamp fallback) are cached for **1 hour**. Duplicate deliveries (e.g. webhook retries) are silently skipped with a `200` response, preventing duplicate agent runs.
 
 ### Body size limits
 
