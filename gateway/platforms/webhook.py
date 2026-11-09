@@ -17,6 +17,13 @@ Each route defines:
     message that gets delivered.  Use for external push notifications
     (Supabase, monitoring alerts, inter-agent pings) where zero LLM cost
     and sub-second delivery matter more than agent reasoning.
+  - cron_job: id or name of a cron job to run when the event arrives,
+    instead of running the agent on the payload.  Paused jobs stay paused.
+  - coalesce_seconds: collapse a burst of events into one run.  The first
+    event opens a window; events arriving within it are folded into the
+    same agent prompt (or the same cron trigger).
+  - coalesce_key: optional template (``{pull_request.number}``) so only
+    events for the same subject share a window.
 
 Security:
   - HMAC secret is required per route (validated at startup)
@@ -24,6 +31,9 @@ Security:
   - Idempotency cache prevents duplicate agent runs on webhook retries
   - Body size limits checked before reading payload
   - Set secret to "INSECURE_NO_AUTH" to skip validation (testing only)
+  - Signatures: GitHub, GitLab, Svix, Standard Webhooks
+    (``webhook-id``/``webhook-timestamp``/``webhook-signature``) and a
+    generic ``X-Webhook-Signature`` HMAC-SHA256
 """
 
 import asyncio
@@ -67,6 +77,10 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
+# Upper bound on prompts folded into one coalesced run; later events in the
+# same window are counted but not included, so a flood can't build a
+# megabyte prompt.
+_COALESCE_MAX_EVENTS = 50
 
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
@@ -134,6 +148,9 @@ class WebhookAdapter(BasePlatformAdapter):
         # Rate limiting: per-route timestamps in a fixed window.
         self._rate_counts: Dict[str, List[float]] = {}
         self._rate_limit: int = int(config.extra.get("rate_limit", 30))  # per minute
+
+        # Open coalescing windows keyed by route (+ rendered coalesce_key).
+        self._coalesced: Dict[str, dict] = {}
 
         # Body size limit (auth-before-body pattern)
         self._max_body_bytes: int = int(
@@ -213,6 +230,12 @@ class WebhookAdapter(BasePlatformAdapter):
         return True
 
     async def disconnect(self) -> None:
+        if self._coalesced:
+            logger.warning(
+                "[webhook] Dropping %d open coalescing window(s) on disconnect",
+                len(self._coalesced),
+            )
+            self._coalesced.clear()
         if self._runner:
             await self._runner.cleanup()
             self._runner = None
@@ -496,12 +519,12 @@ class WebhookAdapter(BasePlatformAdapter):
                 logger.warning("[webhook] Skill loading failed: %s", e)
 
         # Build a unique delivery ID
-        delivery_id = request.headers.get(
-            "X-GitHub-Delivery",
-            request.headers.get(
-                "svix-id",
-                request.headers.get("X-Request-ID", str(int(time.time() * 1000))),
-            ),
+        delivery_id = (
+            request.headers.get("X-GitHub-Delivery")
+            or request.headers.get("svix-id")
+            or request.headers.get("webhook-id")
+            or request.headers.get("X-Request-ID")
+            or str(int(time.time() * 1000))
         )
 
         # ── Idempotency ─────────────────────────────────────────
@@ -522,6 +545,12 @@ class WebhookAdapter(BasePlatformAdapter):
                 status=200,
             )
         self._seen_deliveries[delivery_id] = now
+
+        # ── Cron trigger mode (cron_job) ────────────────────────
+        if route_config.get("cron_job"):
+            return await self._handle_cron_route(
+                route_name, route_config, payload, delivery_id
+            )
 
         # ── Direct delivery mode (deliver_only) ─────────────────
         # Skip the agent entirely — the rendered prompt IS the message we
@@ -581,6 +610,67 @@ class WebhookAdapter(BasePlatformAdapter):
                 status=502,
             )
 
+        logger.info(
+            "[webhook] %s event=%s route=%s prompt_len=%d delivery=%s",
+            request.method,
+            event_type,
+            route_name,
+            len(prompt),
+            delivery_id,
+        )
+
+        window = self._coalesce_window(route_config)
+        if window:
+            async def _flush(text: str, batch_id: str, _payload=payload) -> None:
+                await self.handle_message(
+                    self._agent_event(route_name, route_config, text, _payload, batch_id)
+                )
+
+            joined = self._coalesce(
+                self._coalesce_bucket(route_name, route_config, payload),
+                window,
+                prompt,
+                delivery_id,
+                _flush,
+            )
+            if joined:
+                return web.json_response(
+                    {
+                        "status": "coalesced",
+                        "route": route_name,
+                        "event": event_type,
+                        "delivery_id": delivery_id,
+                        "into": joined,
+                    },
+                    status=202,
+                )
+        else:
+            event = self._agent_event(route_name, route_config, prompt, payload, delivery_id)
+            # Non-blocking — return 202 Accepted immediately
+            task = asyncio.create_task(self.handle_message(event))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        return web.json_response(
+            {
+                "status": "accepted",
+                "route": route_name,
+                "event": event_type,
+                "delivery_id": delivery_id,
+            },
+            status=202,
+        )
+
+    def _agent_event(
+        self,
+        route_name: str,
+        route_config: dict,
+        prompt: str,
+        payload: dict,
+        delivery_id: str,
+    ) -> MessageEvent:
+        """Register delivery info and build the agent event for one run."""
+        now = time.time()
         # Use delivery_id in session key so concurrent webhooks on the
         # same route get independent agent runs (not queued/interrupted).
         session_chat_id = f"webhook:{route_name}:{delivery_id}"
@@ -599,7 +689,6 @@ class WebhookAdapter(BasePlatformAdapter):
         self._delivery_info_created[session_chat_id] = now
         self._prune_delivery_info(now)
 
-        # Build source and event
         source = self.build_source(
             chat_id=session_chat_id,
             chat_name=f"webhook/{route_name}",
@@ -607,7 +696,7 @@ class WebhookAdapter(BasePlatformAdapter):
             user_id=f"webhook:{route_name}",
             user_name=route_name,
         )
-        event = MessageEvent(
+        return MessageEvent(
             text=prompt,
             message_type=MessageType.TEXT,
             source=source,
@@ -615,29 +704,158 @@ class WebhookAdapter(BasePlatformAdapter):
             message_id=delivery_id,
         )
 
-        logger.info(
-            "[webhook] %s event=%s route=%s prompt_len=%d delivery=%s",
-            request.method,
-            event_type,
-            route_name,
-            len(prompt),
-            delivery_id,
-        )
+    # ------------------------------------------------------------------
+    # Cron trigger routes
+    # ------------------------------------------------------------------
 
-        # Non-blocking — return 202 Accepted immediately
-        task = asyncio.create_task(self.handle_message(event))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+    async def _handle_cron_route(
+        self,
+        route_name: str,
+        route_config: dict,
+        payload: dict,
+        delivery_id: str,
+    ) -> "web.Response":
+        """Run the route's ``cron_job`` on the next scheduler tick."""
+        from cron import jobs as cron_jobs
 
+        ref = str(route_config.get("cron_job"))
+        try:
+            job = await asyncio.to_thread(cron_jobs.resolve_job_ref, ref)
+        except cron_jobs.AmbiguousJobReference:
+            return web.json_response(
+                {"error": f"Cron job reference is ambiguous: {ref}"}, status=409
+            )
+        if not job:
+            logger.warning("[webhook] Route %s names unknown cron job %r", route_name, ref)
+            return web.json_response({"error": f"Unknown cron job: {ref}"}, status=404)
+        # trigger_job() re-enables a job; an event must not undo a pause.
+        if job.get("enabled") is False or job.get("state") == "paused":
+            return web.json_response(
+                {"error": f"Cron job is paused: {ref}", "job_id": job["id"]}, status=409
+            )
+
+        job_id = job["id"]
+
+        async def _fire(_text: str = "", _batch_id: str = "") -> bool:
+            # Re-check at fire time: a coalesced trigger runs after its
+            # window, and the job may have been paused meanwhile.
+            _job, fired = await asyncio.to_thread(cron_jobs.trigger_job_unless_paused, job_id)
+            if fired:
+                logger.info("[webhook] Route %s triggered cron job %s", route_name, job_id)
+            else:
+                logger.info(
+                    "[webhook] Route %s skipped cron job %s (paused or removed)",
+                    route_name,
+                    job_id,
+                )
+            return fired
+
+        window = self._coalesce_window(route_config)
+        if window:
+            joined = self._coalesce(
+                self._coalesce_bucket(route_name, route_config, payload),
+                window,
+                "",
+                delivery_id,
+                _fire,
+            )
+            return web.json_response(
+                {
+                    "status": "coalesced" if joined else "accepted",
+                    "route": route_name,
+                    "job_id": job_id,
+                    "delivery_id": delivery_id,
+                },
+                status=202,
+            )
+
+        if not await _fire():
+            return web.json_response(
+                {"error": f"Cron job is paused: {ref}", "job_id": job_id}, status=409
+            )
         return web.json_response(
             {
-                "status": "accepted",
+                "status": "triggered",
                 "route": route_name,
-                "event": event_type,
+                "job_id": job_id,
                 "delivery_id": delivery_id,
             },
             status=202,
         )
+
+    # ------------------------------------------------------------------
+    # Coalescing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _coalesce_window(route_config: dict) -> float:
+        """Return the route's coalescing window in seconds (0 = off)."""
+        raw = route_config.get("coalesce_seconds")
+        if raw is None or isinstance(raw, bool):
+            return 0.0
+        try:
+            window = float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+        return window if window > 0 else 0.0
+
+    def _coalesce_bucket(self, route_name: str, route_config: dict, payload: dict) -> str:
+        template = route_config.get("coalesce_key")
+        if not template:
+            return route_name
+        key = self._render_prompt(str(template), payload, "", route_name, fence=False)
+        return f"{route_name}\x00{key}"
+
+    def _coalesce(self, bucket, window, prompt, delivery_id, flush) -> Optional[str]:
+        """Fold an event into its bucket's open window.
+
+        Returns the delivery id of the batch the event joined, or ``None``
+        when this event opened a new window (it then runs when the window
+        closes).  The most recent event's *flush* wins, so delivery targets
+        rendered from the payload follow the latest event.
+        """
+        batch = self._coalesced.get(bucket)
+        if batch is not None:
+            if len(batch["prompts"]) < _COALESCE_MAX_EVENTS:
+                batch["prompts"].append(prompt)
+            else:
+                batch["overflow"] += 1
+            batch["flush"] = flush
+            return batch["id"]
+
+        self._coalesced[bucket] = {
+            "id": delivery_id,
+            "prompts": [prompt],
+            "overflow": 0,
+            "flush": flush,
+        }
+        task = asyncio.create_task(self._close_window(bucket, window))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return None
+
+    async def _close_window(self, bucket: str, window: float) -> None:
+        await asyncio.sleep(window)
+        batch = self._coalesced.pop(bucket, None)
+        if batch is None:
+            return
+        prompts = batch["prompts"]
+        total = len(prompts) + batch["overflow"]
+        if total == 1:
+            text = prompts[0]
+        else:
+            parts = [
+                f"{total} webhook events arrived within {window:g}s and were "
+                "coalesced into this one run. Handle them together."
+            ]
+            parts += [f"--- Event {i} ---\n{p}" for i, p in enumerate(prompts, 1)]
+            if batch["overflow"]:
+                parts.append(f"({batch['overflow']} more event(s) not shown.)")
+            text = "\n\n".join(parts)
+        try:
+            await batch["flush"](text, batch["id"])
+        except Exception:
+            logger.exception("[webhook] Coalesced run failed for batch %s", batch["id"])
 
     # ------------------------------------------------------------------
     # Signature validation
@@ -646,7 +864,7 @@ class WebhookAdapter(BasePlatformAdapter):
     def _validate_signature(
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
-        """Validate webhook signature (GitHub, GitLab, Svix, generic HMAC-SHA256)."""
+        """Validate webhook signature (GitHub, GitLab, Svix, Standard Webhooks, generic HMAC-SHA256)."""
         def _header(name: str) -> str:
             return (
                 request.headers.get(name, "")
@@ -670,6 +888,21 @@ class WebhookAdapter(BasePlatformAdapter):
                 msg_id=svix_id,
                 timestamp=svix_timestamp,
                 signature_header=svix_signature,
+            )
+
+        # Standard Webhooks (standardwebhooks.com) — the Svix scheme under
+        # vendor-neutral header names:
+        #   webhook-id / webhook-timestamp / webhook-signature: v1,<base64>
+        std_id = _header("webhook-id")
+        std_timestamp = _header("webhook-timestamp")
+        std_signature = _header("webhook-signature")
+        if std_id or std_timestamp or std_signature:
+            return self._validate_svix_signature(
+                body=body,
+                secret=secret,
+                msg_id=std_id,
+                timestamp=std_timestamp,
+                signature_header=std_signature,
             )
 
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
@@ -708,7 +941,7 @@ class WebhookAdapter(BasePlatformAdapter):
         signature_header: str,
         tolerance_seconds: int = 300,
     ) -> bool:
-        """Validate Svix-compatible signatures used by AgentMail webhooks."""
+        """Validate Svix-compatible signatures (AgentMail, Standard Webhooks)."""
         if not (msg_id and timestamp and signature_header and secret):
             return False
 
