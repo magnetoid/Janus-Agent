@@ -155,3 +155,18 @@ class TestInteractiveSetup:
         warnings = " ".join(text for kind, text in out if kind == "print_warning")
         assert "Message Content" in warnings
         assert "Privileged Gateway Intents" in " ".join(text for _k, text in out)
+
+    def test_kept_username_allowlist_still_needs_the_members_intent(self, wizard, monkeypatch):
+        env, answers, out = wizard
+        env["DISCORD_ALLOWED_USERS"] = "alice"  # saved earlier; prompt left empty keeps it
+        monkeypatch.setattr(
+            discord_adapter,
+            "verify_discord_token",
+            lambda token, **_kw: {"ok": True, "id": "42", "name": "Bot", "message_content": True, "members": False},
+        )
+        answers.extend(["tok", "", ""])
+
+        discord_adapter.interactive_setup()
+
+        warnings = " ".join(text for kind, text in out if kind == "print_warning")
+        assert "Server Members" in warnings

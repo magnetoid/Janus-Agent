@@ -6497,10 +6497,13 @@ def interactive_setup() -> None:
 
     if info.get("ok"):
         print()
+        # Read the saved value: an empty answer keeps an earlier allowlist,
+        # and connect() requests intents from what is saved.
         _report_discord_intents(
             info,
             discord_needs_members_intent(
-                allowed_users or "", get_env_value("DISCORD_ALLOWED_ROLES") or ""
+                get_env_value("DISCORD_ALLOWED_USERS") or "",
+                get_env_value("DISCORD_ALLOWED_ROLES") or "",
             ),
         )
 
