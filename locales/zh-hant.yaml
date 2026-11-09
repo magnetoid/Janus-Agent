@@ -76,6 +76,9 @@ gateway:
     switch_failed:         "分支已建立，但無法切換到該分支。"
     branched_one:          "⑂ 已分支至 **{title}**（已複製 {count} 則訊息）\n原始：`{parent}`\n分支：`{new}`\n使用 `/resume` 切換回原始工作階段。"
     branched_many:         "⑂ 已分支至 **{title}**（已複製 {count} 則訊息）\n原始：`{parent}`\n分支：`{new}`\n使用 `/resume` 切換回原始工作階段。"
+    branched_thread:       "⑂ 已在新討論串中分支到 **{title}**。\n此聊天仍使用 `{parent}`；分支（`{new}`）在討論串中繼續。"
+    thread_intro:          "⑂ 分支 **{title}**，自 `{parent}` 分出。在此回覆即可繼續。"
+    thread_unavailable:    "（此處無法開啟討論串，因此分支會取代此聊天的工作階段。）"
 
   commands:
     usage:                 "用法：`/commands [page]`"

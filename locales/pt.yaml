@@ -76,6 +76,9 @@ gateway:
     switch_failed:         "Ramo criado, mas não foi possível mudar para ele."
     branched_one:          "⑂ Ramificado para **{title}** ({count} mensagem copiada)\nOriginal: `{parent}`\nRamo: `{new}`\nUsa `/resume` para voltar ao original."
     branched_many:         "⑂ Ramificado para **{title}** ({count} mensagens copiadas)\nOriginal: `{parent}`\nRamo: `{new}`\nUsa `/resume` para voltar ao original."
+    branched_thread:       "⑂ Ramificado para **{title}** numa nova thread.\nEste chat continua em `{parent}`; o ramo (`{new}`) segue na thread."
+    thread_intro:          "⑂ Ramo **{title}**, derivado de `{parent}`. Responda aqui para continuar."
+    thread_unavailable:    "(Não foi possível abrir uma thread aqui, por isso o ramo substitui a sessão deste chat.)"
 
   commands:
     usage:                 "Uso: `/commands [page]`"

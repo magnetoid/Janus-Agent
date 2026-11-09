@@ -471,6 +471,31 @@ group_sessions_per_user: false
 
 That reverts groups/channels to a single shared session per room, which preserves shared conversational context but also shares token costs, interrupt state, and context growth.
 
+### Branching into a thread
+
+`/branch` copies the conversation into a new session. In messaging platforms it can put the copy in a **new thread** so both lines of work stay visible side by side:
+
+```text
+/branch --thread try-redis
+```
+
+| Platform | Where the branch opens |
+|----------|------------------------|
+| Discord | A public thread in the same channel (a sibling thread when run inside a thread; a new post in forum channels) |
+| Telegram | A new forum topic in forum supergroups, or a DM topic when topics are enabled for the bot |
+| Slack | A new top-level message whose replies form the branch thread |
+| Matrix | A new room event used as the `m.thread` root |
+
+The thread gets an intro message naming the branch, the bot follows it without needing an @mention, and the original chat keeps its session. Where a thread can't be opened (DMs on Discord, ordinary Telegram groups, other platforms), the branch replaces the current chat's session as before and the reply says so.
+
+To make thread branching the default, set this in `config.yaml`:
+
+```yaml
+branch_in_thread: true
+```
+
+`/branch --here` then branches in place.
+
 ### Session Reset Policies
 
 Gateway sessions are automatically reset based on configurable policies:

@@ -4673,6 +4673,22 @@ class BasePlatformAdapter(ABC):
         """Get and clear any pending message for a session."""
         return self._pending_messages.pop(session_key, None)
     
+    async def open_branch_thread(
+        self,
+        source: SessionSource,
+        title: str,
+        intro: str,
+    ) -> Optional[SessionSource]:
+        """Open a new thread beside *source*'s conversation for ``/branch``.
+
+        Post *intro* as the thread's first message and return the
+        :class:`SessionSource` that messages posted in that thread will carry,
+        so the runner can bind the branched session to it.  Return ``None``
+        when this chat can't hold a new thread (DMs, non-forum groups,
+        platforms without threads); the runner then branches in place.
+        """
+        return None
+
     def build_source(
         self,
         chat_id: str,

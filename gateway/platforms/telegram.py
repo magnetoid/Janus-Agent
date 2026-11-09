@@ -65,6 +65,7 @@ from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
+from gateway.session import SessionSource
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -1167,6 +1168,66 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, stop_error, exc_info=True,
             )
         await self._notify_fatal_error()
+
+    async def open_branch_thread(
+        self,
+        source: "SessionSource",
+        title: str,
+        intro: str,
+    ) -> Optional["SessionSource"]:
+        """Open a forum topic (forum supergroups, or DMs with topics) for ``/branch``.
+
+        Ordinary groups can't hold topics; Telegram rejects the call and the
+        runner branches in place instead.
+        """
+        if not self._bot:
+            return None
+        name = (title or "Branch").strip()[:128] or "Branch"
+        try:
+            chat_id = int(source.chat_id)
+        except (TypeError, ValueError):
+            return None
+        if source.chat_type == "dm":
+            thread_id = await self._create_dm_topic(chat_id, name)
+        elif source.chat_type in ("group", "forum"):
+            try:
+                topic = await self._bot.create_forum_topic(chat_id=chat_id, name=name)
+                thread_id = topic.message_thread_id
+            except Exception as e:
+                logger.info("[%s] /branch could not open a topic in %s: %s", self.name, chat_id, e)
+                return None
+        else:
+            return None
+        if thread_id is None:
+            return None
+        thread_id_str = str(thread_id)
+        metadata: Dict[str, Any] = {"thread_id": thread_id_str}
+        if source.chat_type == "dm":
+            # A brand-new DM topic has no message to anchor a reply to; mark
+            # it as freshly created so send() doesn't refuse it.
+            metadata["telegram_dm_topic_created_for_send"] = True
+        try:
+            sent = await self.send(source.chat_id, intro, metadata=metadata)
+            error = None if sent.success else sent.error
+        except Exception as e:
+            error = str(e)
+        if error is not None:
+            # Don't bind the branch to an empty topic nobody was told about.
+            logger.warning("[%s] /branch topic intro failed: %s", self.name, error)
+            try:
+                await self._bot.delete_forum_topic(chat_id=chat_id, message_thread_id=thread_id)
+            except Exception as e:
+                logger.debug("[%s] could not remove the empty /branch topic: %s", self.name, e)
+            return None
+        return self.build_source(
+            chat_id=source.chat_id,
+            chat_name=source.chat_name,
+            chat_type="group" if source.chat_type == "forum" else source.chat_type,
+            user_id=source.user_id,
+            user_name=source.user_name,
+            thread_id=thread_id_str,
+            chat_topic=name,
+        )
 
     async def _create_dm_topic(
         self,

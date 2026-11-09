@@ -76,6 +76,9 @@ gateway:
     switch_failed:         "Ramo creato ma il passaggio ad esso non è riuscito."
     branched_one:          "⑂ Diramato in **{title}** ({count} messaggio copiato)\nOriginale: `{parent}`\nRamo: `{new}`\nUsa `/resume` per tornare all'originale."
     branched_many:         "⑂ Diramato in **{title}** ({count} messaggi copiati)\nOriginale: `{parent}`\nRamo: `{new}`\nUsa `/resume` per tornare all'originale."
+    branched_thread:       "⑂ Ramificato in **{title}** in un nuovo thread.\nQuesta chat resta su `{parent}`; il ramo (`{new}`) continua nel thread."
+    thread_intro:          "⑂ Ramo **{title}**, derivato da `{parent}`. Rispondi qui per continuarlo."
+    thread_unavailable:    "(Impossibile aprire un thread qui, quindi il ramo sostituisce la sessione di questa chat.)"
 
   commands:
     usage:                 "Uso: `/commands [page]`"

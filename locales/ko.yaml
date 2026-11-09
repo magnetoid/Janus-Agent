@@ -76,6 +76,9 @@ gateway:
     switch_failed:         "분기는 생성되었으나 전환에 실패했습니다."
     branched_one:          "⑂ **{title}**(으)로 분기했습니다 (메시지 {count}개 복사됨)\n원본: `{parent}`\n분기: `{new}`\n원본으로 돌아가려면 `/resume`을 사용하세요."
     branched_many:         "⑂ **{title}**(으)로 분기했습니다 (메시지 {count}개 복사됨)\n원본: `{parent}`\n분기: `{new}`\n원본으로 돌아가려면 `/resume`을 사용하세요."
+    branched_thread:       "⑂ 새 스레드에서 **{title}**(으)로 분기했습니다.\n이 채팅은 `{parent}`에 그대로 있으며, 분기(`{new}`)는 스레드에서 이어집니다."
+    thread_intro:          "⑂ **{title}** 분기, `{parent}`에서 갈라짐. 계속하려면 여기에 답장하세요."
+    thread_unavailable:    "(여기서는 스레드를 열 수 없어 분기가 이 채팅의 세션을 대체합니다.)"
 
   commands:
     usage:                 "사용법: `/commands [page]`"
