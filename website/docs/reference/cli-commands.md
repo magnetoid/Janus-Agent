@@ -193,13 +193,13 @@ After you pick a model, `janus model`, `/model` in the CLI and `/model` in messa
 
 | Line | Providers |
 |---|---|
-| stays on this machine | any `localhost` / `127.0.0.1` endpoint (Ollama, llama.cpp, LM Studio) |
+| sent to an endpoint on this machine; local only if that server runs the model itself | a `localhost` / `127.0.0.1` endpoint for a provider not listed below (Ollama, llama.cpp, LM Studio, or a proxy such as LiteLLM, which forwards to its upstream) |
 | API inputs are not used for training by default | Anthropic, OpenAI API, Azure AI Foundry, Bedrock, xAI API |
 | free-tier inputs may be used for training; paid usage is not | Gemini API |
 | depends on your plan and account settings | Codex (ChatGPT plans), Grok OAuth, Gemini CLI, Copilot |
 | the provider's terms do not rule out training | DeepSeek |
 | depends on the upstream provider | OpenRouter, Kilo Code |
-| not classified | everything else; check the provider's terms |
+| not classified | everything else, including self-hosted servers on another machine; check the provider's terms |
 
 The table is built in (`janus_cli/model_switch.py`, checked November 2026) and makes no network call. Providers change their terms, so treat it as a prompt to check, not a guarantee.
 

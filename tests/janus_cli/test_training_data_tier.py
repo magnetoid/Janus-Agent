@@ -32,18 +32,32 @@ class TestTierTable:
         "base_url",
         ["http://localhost:11434/v1", "http://127.0.0.1:1234/v1", "http://[::1]:8080/v1"],
     )
-    def test_loopback_endpoint_is_local_whatever_the_provider(self, base_url):
-        assert ms.training_data_tier("custom", base_url)[0] == "local"
-        assert ms.training_data_tier("openrouter", base_url)[0] == "local"
+    def test_loopback_endpoint_of_an_unclassified_provider_is_a_local_endpoint(self, base_url):
+        assert ms.training_data_tier("custom", base_url)[0] == "local_endpoint"
+        assert ms.training_data_tier("lmstudio", base_url)[0] == "local_endpoint"
 
-    def test_remote_custom_endpoint_is_not_called_local(self):
-        assert ms.training_data_tier("custom", "https://llm.example.com/v1")[0] != "local"
+    def test_local_endpoint_never_promises_the_data_stays_put(self):
+        # A loopback URL is only the first hop: a LiteLLM proxy on
+        # localhost:4000 forwards to cloud providers.
+        note = ms.training_data_tier("custom", "http://localhost:4000/v1")[1]
+
+        assert "stays on this machine" not in note
+        assert "proxy" in note
+
+    def test_classified_provider_behind_a_local_proxy_keeps_its_tier(self):
+        assert ms.training_data_tier("openrouter", "http://127.0.0.1:4000/v1")[0] == "routed"
+
+    @pytest.mark.parametrize("provider", ["custom", "lmstudio"])
+    def test_remote_self_hosted_endpoint_is_not_called_local(self, provider):
+        tier = ms.training_data_tier(provider, "http://lmstudio.remote:4321/v1")[0]
+
+        assert tier == "unknown"
 
     def test_line_carries_the_note(self):
         line = ms.training_data_line("custom", "http://localhost:11434/v1")
 
         assert line.startswith("Training data: ")
-        assert ms._TIER_NOTES["local"] in line
+        assert ms._TIER_NOTES["local_endpoint"] in line
 
 
 class TestCliModelSwitch:
@@ -72,7 +86,7 @@ class TestCliModelSwitch:
 
         cli_obj._handle_model_switch("/model llama3")
 
-        assert any(ms._TIER_NOTES["local"] in line for line in printed)
+        assert any(ms._TIER_NOTES["local_endpoint"] in line for line in printed)
 
 
 class TestGatewayModelSwitch:
@@ -141,7 +155,7 @@ class TestJanusModelCommand:
         self._run(monkeypatch, {"default": "llama3", "provider": "custom",
                                 "base_url": "http://localhost:11434/v1"})
 
-        assert ms._TIER_NOTES["local"] in capsys.readouterr().out
+        assert ms._TIER_NOTES["local_endpoint"] in capsys.readouterr().out
 
     def test_cancelled_pick_prints_nothing(self, monkeypatch, capsys):
         self._run(monkeypatch, None)
