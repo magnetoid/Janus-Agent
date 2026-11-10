@@ -7,6 +7,7 @@ tests run fully offline and the curator module doesn't need real credentials.
 from __future__ import annotations
 
 import importlib
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,7 +38,13 @@ def curator_env(tmp_path, monkeypatch):
     # directly). Tests opt in with _enable_prune_builtins(...).
     monkeypatch.setattr(usage, "_prune_builtins_enabled", lambda: False)
 
-    return {"home": home, "curator": curator, "usage": usage}
+    yield {"home": home, "curator": curator, "usage": usage}
+
+    # A background review thread that outlives its test would save state
+    # into the NEXT test's JANUS_HOME (the env var is read at call time).
+    for t in threading.enumerate():
+        if t.name == "curator-review" and t is not threading.current_thread():
+            t.join(timeout=10)
 
 
 def _write_skill(skills_dir: Path, name: str):
