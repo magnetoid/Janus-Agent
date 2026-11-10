@@ -194,6 +194,13 @@ def wizard(monkeypatch):
     monkeypatch.setattr("getpass.getpass", lambda *a, **k: secrets.pop(0) if secrets else "")
     monkeypatch.setattr("janus_cli.main._require_tty", lambda name: None)
 
+    def fake_curses(question, choices, default=0, description=None):
+        # The menu answer is the next queued "1".."N"; blank keeps the default.
+        answer = answers.pop(0) if answers else ""
+        return int(answer) - 1 if answer else default
+
+    monkeypatch.setattr("janus_cli.setup._curses_prompt_choice", fake_curses)
+
     def chain():
         return yaml.safe_load(cfg.read_text(encoding="utf-8")).get("fallback_providers") or []
 
@@ -274,6 +281,21 @@ class TestAddFree:
 
         assert wizard.chain() == []
 
+    def test_menu_goes_through_the_curses_picker_with_cancel_as_default(self, wizard, monkeypatch):
+        seen = {}
+
+        def fake_curses(question, choices, default=0, description=None):
+            seen.update(choices=choices, default=default)
+            return default
+
+        monkeypatch.setattr("janus_cli.setup._curses_prompt_choice", fake_curses)
+
+        _add_free()
+
+        assert seen["choices"][seen["default"]] == "Cancel"
+        assert len(seen["choices"]) == len(ff.FREE_FALLBACK_PRESETS) + 1
+        assert wizard.chain() == []
+
     def test_same_preset_twice_is_skipped(self, wizard):
         preset = _preset("no")
         wizard.env[preset.key_env] = "k"
@@ -296,3 +318,58 @@ class TestAddFree:
         main()
 
         assert seen["free"] is True
+
+
+# ── Startup (primary has no credentials, AIAgent.__init__ picks a fallback) ─
+
+
+def _startup_agent(fallback_model, status_callback=None):
+    from run_agent import AIAgent
+
+    fb_client = MagicMock()
+    fb_client.api_key = "fb-key-1234567890"
+    fb_client.base_url = "https://fb.example.com/v1"
+    fb_client._default_headers = None
+    resolved = []
+
+    def fake_resolve(provider, model=None, raw_codex=False,
+                     explicit_base_url=None, explicit_api_key=None):
+        if provider == "alibaba-coding-plan":
+            return None, None  # primary has no key
+        resolved.append(provider)
+        return fb_client, model
+
+    with patch("agent.auxiliary_client.resolve_provider_client", side_effect=fake_resolve), \
+         patch("run_agent.get_tool_definitions", return_value=[]), \
+         patch("run_agent.check_toolset_requirements", return_value={}), \
+         patch("run_agent.OpenAI", return_value=MagicMock()):
+        agent = AIAgent(
+            provider="alibaba-coding-plan", model="qwen3.6-plus", api_key=None, base_url=None,
+            quiet_mode=True, skip_context_files=True, skip_memory=True,
+            fallback_model=fallback_model, status_callback=status_callback,
+        )
+    return agent, resolved
+
+
+class TestStartup:
+    def test_unconsented_training_free_tier_is_not_used_at_startup(self):
+        free = ff.preset_entry(_preset("yes"))
+
+        agent, resolved = _startup_agent([free, {"provider": "openai", "model": "gpt-4o"}])
+
+        assert resolved == ["openai"]
+        assert agent.provider == "openai"
+
+    def test_unconsented_training_free_tier_alone_still_fails_closed(self):
+        with pytest.raises(RuntimeError, match="no API key was found"):
+            _startup_agent([ff.preset_entry(_preset("yes"))])
+
+    def test_consented_free_tier_at_startup_warns(self):
+        preset = _preset("yes")
+        events = []
+
+        agent, _ = _startup_agent([ff.preset_entry(preset, allow_training=True)],
+                                  status_callback=lambda kind, msg: events.append((kind, msg)))
+
+        assert agent.model == preset.model
+        assert any(kind == "warn" and preset.data_note in msg for kind, msg in events)

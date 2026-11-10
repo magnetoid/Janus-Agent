@@ -1037,13 +1037,8 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
     # (janus_cli/free_fallback.py). Entries the user picked themselves are
     # never affected.
     if fb.get("free_preset"):
-        from janus_cli.free_fallback import (
-            allow_training_providers_enabled,
-            blocked_by_training_guard,
-        )
-        if blocked_by_training_guard(
-            fb, allow_training_providers=allow_training_providers_enabled()
-        ):
+        from janus_cli.free_fallback import free_entry_allowed
+        if not free_entry_allowed(fb):
             logger.info(
                 "Fallback skip: free tier %s/%s may train on inputs and was not allowed",
                 fb_provider, fb_model,

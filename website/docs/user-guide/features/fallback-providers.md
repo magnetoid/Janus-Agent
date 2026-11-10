@@ -117,7 +117,7 @@ It offers a short, hand-checked list of official free tiers that can handle tool
 
 The command asks for the free API key when it isn't set yet (saved to `.env`) and lets you change the model, since free model names change often. The table was checked in November 2026; check the provider's terms if they matter to you.
 
-**Free tiers that may train need your yes.** If a fallback fires, the whole conversation goes to that provider, including memory, file contents and tool output. So for a tier that may train, `janus fallback add --free` explains that and adds it only if you answer yes, recording `allow_training: true` on the entry. A preset entry without that consent is skipped when the chain runs. To allow every such preset without asking:
+**Free tiers that may train need your yes.** If a fallback fires, the whole conversation goes to that provider, including memory, file contents and tool output. So for a tier that may train, `janus fallback add --free` explains that and adds it only if you answer yes, recording `allow_training: true` on the entry. A preset entry without that consent is skipped when the chain runs, and also at startup when Janus picks a fallback because the primary provider has no credentials. To allow every such preset without asking:
 
 ```yaml
 fallback:

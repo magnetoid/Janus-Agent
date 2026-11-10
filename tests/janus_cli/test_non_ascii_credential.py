@@ -34,7 +34,11 @@ class TestCheckNonAsciiCredential:
         result = _check_non_ascii_credential("OPENAI_API_KEY", key)
         assert result == "sk-proj-abcd"
         captured = capsys.readouterr()
-        assert "U+028B" in captured.err  # reports the char
+        assert "OPENAI_API_KEY" in captured.err and "re-copy" in captured.err.lower()
+        # Nothing derived from the secret is printed: not the stripped
+        # characters, not their code points, not the rest of the key.
+        for leaked in ("ʋ", "é", "U+028B", "U+00E9", "sk-proj"):
+            assert leaked not in captured.err
 
     def test_empty_key(self):
         result = _check_non_ascii_credential("TEST_KEY", "")

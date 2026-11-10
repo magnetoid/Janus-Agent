@@ -149,6 +149,19 @@ def allow_training_providers_enabled() -> bool:
         return False
 
 
+def free_entry_allowed(entry: Dict[str, Any]) -> bool:
+    """Whether a fallback entry may be used now (the guard, with live config).
+
+    Every place that activates a fallback entry calls this: the mid-turn
+    chain and the startup path that picks a fallback when the primary has
+    no credentials.
+    """
+    if not entry.get("free_preset"):
+        return True
+    return not blocked_by_training_guard(
+        entry, allow_training_providers=allow_training_providers_enabled())
+
+
 def switch_warning(entry: Dict[str, Any]) -> Optional[str]:
     """User-visible line for a switch to a free-preset fallback, else None."""
     if not entry.get("free_preset"):
@@ -179,10 +192,18 @@ def cmd_add_free() -> None:
     print("  Free-tier fallbacks. Used only when every provider before them fails.")
     print("  Free tiers have tight limits, and several of them train on what you send.")
     print()
-    choices = [f"{p.label:<28} {p.limits}\n       data: {_trains_label(p)}"
-               for p in FREE_FALLBACK_PRESETS]
-    idx = _numbered_pick("  Pick a free tier:", choices)
-    if idx is None:
+    choices = [f"{p.label} — {p.limits} — {_trains_label(p)}" for p in FREE_FALLBACK_PRESETS]
+    choices.append("Cancel")
+    cancel = len(choices) - 1
+    # Same pattern as `janus fallback remove`: the curses picker, with the
+    # numbered list only when curses is unavailable. Cancel is the default,
+    # so a stray Enter adds nothing.
+    try:
+        from janus_cli.setup import _curses_prompt_choice
+        idx = _curses_prompt_choice("Pick a free tier:", choices, cancel)
+    except Exception:
+        idx = _numbered_pick("  Pick a free tier:", choices)
+    if idx is None or idx < 0 or idx >= len(FREE_FALLBACK_PRESETS):
         print("\n  No fallback added.")
         return
     preset = FREE_FALLBACK_PRESETS[idx]
