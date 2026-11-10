@@ -42,6 +42,7 @@ gateway:
     error_prefix:           "Error: {error}"
     switched:               "Model switched to `{model}`"
     provider_label:         "Provider: {provider}"
+    training_data_label:    "Training data: {note}"
     cache_switch_warning:   "Same chat continues on the new model. Prompt cache is model-keyed, so the next turn re-bills the full context at fresh-token rates."
     context_label:          "Context: {tokens} tokens"
     max_output_label:       "Max output: {tokens} tokens"

@@ -9607,6 +9607,9 @@ class GatewayRunner:
                         plabel = result.provider_label or result.target_provider
                         lines = [t("gateway.model.switched", model=result.new_model)]
                         lines.append(t("gateway.model.provider_label", provider=plabel))
+                        from janus_cli.model_switch import training_data_tier
+                        lines.append(t("gateway.model.training_data_label",
+                                     note=training_data_tier(result.target_provider, result.base_url or "")[1]))
                         # Gateway sessions are persistent, so a switch is
                         # almost always mid-conversation — surface the
                         # cache-invalidation cost (model-keyed prompt cache).
@@ -9806,6 +9809,9 @@ class GatewayRunner:
         provider_label = result.provider_label or result.target_provider
         lines = [t("gateway.model.switched", model=result.new_model)]
         lines.append(t("gateway.model.provider_label", provider=provider_label))
+        from janus_cli.model_switch import training_data_tier
+        lines.append(t("gateway.model.training_data_label",
+                     note=training_data_tier(result.target_provider, result.base_url or "")[1]))
         if reasoning is not None:
             lines.append(self._apply_model_reasoning(
                 session_key, reasoning, persist_global=persist_global,
