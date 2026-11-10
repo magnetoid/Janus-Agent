@@ -87,7 +87,7 @@ def _fail(message: str) -> str:
                       ensure_ascii=False)
 
 
-def _mark_password_field(bt, task_id: Optional[str]):
+def _mark_login_field(bt, task_id: Optional[str]):
     """Mark the password field; return ``(count, token)`` or an error string."""
     token = uuid.uuid4().hex
     raw = bt._browser_eval(_MARK_JS % token, task_id)
@@ -133,7 +133,7 @@ def _check_page(bt, task_id: Optional[str], session: str):
     """Mark the field, then read the URL: ``(href, host, token)`` or an error string."""
     from agent.secret_sources import logins
 
-    marked = _mark_password_field(bt, task_id)
+    marked = _mark_login_field(bt, task_id)
     if isinstance(marked, str):
         return marked
     count, token = marked
