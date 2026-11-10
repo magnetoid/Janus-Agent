@@ -281,6 +281,75 @@ class ModelSwitchResult:
     model_info: Optional[ModelInfo] = None
     is_global: bool = False
 # ---------------------------------------------------------------------------
+# Training-data tier (privacy signal shown when a model is chosen)
+# ---------------------------------------------------------------------------
+
+# Whether a provider may train on what you send it, from its published API /
+# data-use terms (checked 2026-11). Static on purpose: no network call, and the
+# line names a tier, not a guarantee. Terms change; unclassified providers say
+# so rather than staying silent, since silence would read as "safe".
+_TRAINING_TIERS: dict[str, str] = {
+    "anthropic": "no_training",
+    "openai-api": "no_training",
+    "azure-foundry": "no_training",
+    "bedrock": "no_training",
+    "xai": "no_training",
+    "gemini": "tier_dependent",
+    "openai-codex": "account_setting",
+    "xai-oauth": "account_setting",
+    "google-gemini-cli": "account_setting",
+    "copilot": "account_setting",
+    "copilot-acp": "account_setting",
+    "deepseek": "may_train",
+    "openrouter": "routed",
+    "kilocode": "routed",
+    "lmstudio": "local",
+}
+
+_TIER_NOTES: dict[str, str] = {
+    "local": "stays on this machine (local endpoint)",
+    "no_training": "API inputs are not used for training by default",
+    "tier_dependent": "free-tier inputs may be used for training and human review; paid usage is not",
+    "account_setting": "depends on your plan and account settings (consumer plans may train unless you opt out)",
+    "may_train": "the provider's terms do not rule out training on your inputs",
+    "routed": "depends on the upstream provider each request is routed to",
+    "unknown": "not classified; check the provider's data-use terms",
+}
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _is_loopback_url(base_url: str) -> bool:
+    if not base_url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(base_url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in _LOOPBACK_HOSTS or host.endswith(".localhost")
+
+
+def training_data_tier(provider: str, base_url: str = "") -> tuple[str, str]:
+    """``(tier, note)`` for a provider; a loopback endpoint is always local."""
+    if _is_loopback_url(base_url):
+        return "local", _TIER_NOTES["local"]
+    slug = (provider or "").strip().lower()
+    try:
+        from janus_cli.models import normalize_provider
+        slug = normalize_provider(slug) or slug
+    except Exception:
+        pass
+    tier = _TRAINING_TIERS.get(slug, "unknown")
+    return tier, _TIER_NOTES[tier]
+
+
+def training_data_line(provider: str, base_url: str = "") -> str:
+    """The one-line display form: ``Training data: <note>``."""
+    return f"Training data: {training_data_tier(provider, base_url)[1]}"
+
+
+# ---------------------------------------------------------------------------
 # Flag parsing
 # ---------------------------------------------------------------------------
 
