@@ -13290,9 +13290,13 @@ def main():
         aliases=["ls"],
         help="Show the current fallback chain (default when no subcommand)",
     )
-    fallback_subparsers.add_parser(
+    _fallback_add = fallback_subparsers.add_parser(
         "add",
         help="Pick a provider + model (same picker as `janus model`) and append to the chain",
+    )
+    _fallback_add.add_argument(
+        "--free", action="store_true",
+        help="Pick from curated free-tier providers (Groq, Gemini free quota, ...) instead",
     )
     fallback_subparsers.add_parser(
         "remove",

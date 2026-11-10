@@ -9,6 +9,8 @@ Subcommands:
   janus fallback [list]   Show the current fallback chain (default when no subcommand)
   janus fallback add      Pick provider + model via the same picker as `janus model`,
                            then append the selection to the chain
+  janus fallback add --free
+                          Pick a curated free tier (janus_cli/free_fallback.py)
   janus fallback remove   Pick an entry to delete from the chain
   janus fallback clear    Remove all fallback entries
 
@@ -342,6 +344,12 @@ def cmd_fallback(args) -> None:
     sub = getattr(args, "fallback_command", None)
     if sub in {None, "", "list", "ls"}:
         cmd_fallback_list(args)
+    elif sub == "add" and getattr(args, "free", False):
+        from janus_cli.free_fallback import cmd_add_free
+        from janus_cli.main import _require_tty
+
+        _require_tty("fallback add --free")
+        cmd_add_free()
     elif sub == "add":
         cmd_fallback_add(args)
     elif sub in {"remove", "rm"}:

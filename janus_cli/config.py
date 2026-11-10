@@ -865,6 +865,12 @@ DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
     "fallback_providers": [],
+    # Free-tier presets (`janus fallback add --free`) whose tier may train on
+    # your conversations are skipped at fallback time unless you said yes
+    # when adding them; true allows every such preset without asking.
+    "fallback": {
+        "allow_training_providers": False,
+    },
     "credential_pool_strategies": {},
     "toolsets": ["janus-cli"],
     # Sections below are owned by their own tools/commands. Empty means
@@ -3141,6 +3147,14 @@ OPTIONAL_ENV_VARS = {
         "prompt": "xAI base URL (leave empty for default)",
         "url": None,
         "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
+    "GROQ_API_KEY": {
+        "description": "Groq API key (free-tier fallback via `janus fallback add --free`)",
+        "prompt": "Groq API key",
+        "url": "https://console.groq.com/keys",
+        "password": True,
         "category": "provider",
         "advanced": True,
     },
