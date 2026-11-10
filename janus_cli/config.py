@@ -1883,6 +1883,10 @@ DEFAULT_CONFIG = {
         # prompt-injection persistence vector. Widen deliberately, e.g.
         # ["cli", "telegram"], only for surfaces whose senders you trust.
         "graduate_sources": ["cli"],
+        # Append a human-readable summary of each completed cycle (what was
+        # graduated, retired, forgotten, synthesized) to memories/DREAMS.md.
+        # Read it with `janus memory log --digest`. Never loaded into prompts.
+        "dreams_digest": True,
     },
 
     # Spend budget (agent/cost_ledger.py). Every API turn is appended to a

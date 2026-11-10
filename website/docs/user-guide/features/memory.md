@@ -225,6 +225,24 @@ memory:
 - It writes files only. The memory block in the current session's prompt does not change mid-session, so prompt caching is unaffected; the new facts appear from the next session.
 - A failure, for example the auxiliary model being down, is logged and compaction goes ahead as normal. It is skipped while autonomy is frozen.
 
+## Sleep Digest (DREAMS.md)
+
+While Janus is idle, a sleep cycle consolidates memory: it graduates facts and skill drafts from recent sessions, retires contradicted entries, forgets low-salience ones and synthesizes lessons that span several sessions. Run one by hand with `janus sleep --now` (or preview it with `--dry-run`).
+
+Each completed cycle appends a short, readable summary of what it changed to `~/.janus/memories/DREAMS.md`: the entries it retired or forgot, the lessons it wrote, the drafts it promoted and the skill improvements waiting for your review. A cycle that found nothing to do still gets a line, so you can tell it ran.
+
+```bash
+janus memory log --digest            # the last 5 cycles, newest first
+janus memory log --digest --cycles 0 # every cycle
+```
+
+The file is for you, not the model: it is never loaded into a prompt, and you can edit or delete it. Dry runs write nothing. To stop writing it:
+
+```yaml
+sleep:
+  dreams_digest: false   # default true
+```
+
 ## Provenance and Lint
 
 Turn on provenance to record where each memory entry came from:
