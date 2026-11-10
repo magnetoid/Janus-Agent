@@ -70,6 +70,122 @@ def _append_sleep_log(report: Dict[str, Any]) -> None:
         logger.debug("sleep-log append failed: %s", exc)
 
 
+# --- DREAMS.md: the human-readable digest ----------------------------------
+
+_DIGEST_HEADER = (
+    "# Dreams\n\n"
+    "What each sleep cycle consolidated, newest at the bottom. Written by Janus;\n"
+    "safe to read, edit or delete. Turn off with `sleep.dreams_digest: false`.\n"
+)
+_DIGEST_ITEM_CHARS = 160   # one memory entry / lesson, collapsed to one line
+_DIGEST_LIST_ITEMS = 15    # per section; the rest are counted, not listed
+
+
+def dreams_path() -> Path:
+    from tools.memory_tool import get_memory_dir
+    return get_memory_dir() / "DREAMS.md"
+
+
+def _one_line(text: Any) -> str:
+    flat = " ".join(str(text).split())
+    if len(flat) > _DIGEST_ITEM_CHARS:
+        flat = flat[: _DIGEST_ITEM_CHARS - 1].rstrip() + "…"
+    return flat
+
+
+def _name_of(item: Any) -> str:
+    if isinstance(item, dict):
+        return str(item.get("name") or item.get("id") or item.get("path") or item)
+    return str(item)
+
+
+def _digest_list(title: str, items: List[Any]) -> List[str]:
+    items = [i for i in items if str(i).strip()]
+    if not items:
+        return []
+    lines = [f"- {title} ({len(items)}):"]
+    lines += [f"  - {_one_line(i)}" for i in items[:_DIGEST_LIST_ITEMS]]
+    if len(items) > _DIGEST_LIST_ITEMS:
+        lines.append(f"  - …and {len(items) - _DIGEST_LIST_ITEMS} more")
+    return lines
+
+
+def render_dream_digest(report: Dict[str, Any], *, ts: str = "") -> str:
+    """One markdown section describing what a cycle changed, in words."""
+    when = (ts or "unknown time")[:16].replace("T", " ")
+    lines: List[str] = []
+
+    facts = int(report.get("graduated_facts", 0) or 0)
+    skills = int(report.get("graduated_skills", 0) or 0)
+    if facts or skills:
+        lines.append(f"- Graduated {facts} fact(s) and {skills} skill draft(s) from recent sessions.")
+
+    promote = report.get("promote")
+    if isinstance(promote, dict):
+        lines += _digest_list("Draft skills promoted", [_name_of(i) for i in promote.get("promoted") or []])
+    lines += _digest_list("Retired as contradicted", list(report.get("reconciled") or []))
+    lines += _digest_list("Forgotten as low-salience", list(report.get("pruned") or []))
+    lines += _digest_list("Lessons synthesized across sessions", list(report.get("lessons") or []))
+
+    playbook = report.get("playbook")
+    if isinstance(playbook, dict) and (playbook.get("added") or playbook.get("revised")):
+        lines.append(f"- Playbook: {int(playbook.get('added') or 0)} added, "
+                     f"{int(playbook.get('revised') or 0)} revised.")
+
+    challenge = report.get("self_challenge")
+    if isinstance(challenge, dict) and challenge.get("attempted"):
+        drafted = challenge.get("drafted") or []
+        lines.append(f"- Practice: attempted {int(challenge.get('attempted') or 0)}, "
+                     f"passed {int(challenge.get('passed') or 0)}, "
+                     f"drafted {len(drafted)} quarantined skill(s).")
+
+    lines += _digest_list("Skill improvements proposed (awaiting your review)",
+                          [_name_of(i) for i in report.get("proposed") or []])
+    lines += _digest_list("Proposals vetoed by the reviewer core",
+                          [_name_of(i) for i in report.get("vetoed") or []])
+
+    if not lines:
+        lines = ["- Nothing to consolidate."]
+    return f"## {when}\n\n" + "\n".join(lines) + "\n"
+
+
+def _append_dream_digest(report: Dict[str, Any]) -> None:
+    """Append this cycle's section to DREAMS.md. Guarded; never raises."""
+    try:
+        if not bool(_config("sleep", "dreams_digest", True)):
+            return
+        p = dreams_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fresh = not p.exists()
+        with p.open("a", encoding="utf-8") as fh:
+            if fresh:
+                fh.write(_DIGEST_HEADER)
+            fh.write("\n" + render_dream_digest(report, ts=_now_iso()))
+    except Exception as exc:  # never break the cycle over the digest
+        logger.debug("dreams digest append failed: %s", exc)
+
+
+def read_dream_digest(cycles: int = 5) -> List[str]:
+    """The digest sections, newest first; ``cycles`` <= 0 returns all."""
+    try:
+        text = dreams_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    sections: List[str] = []
+    current: List[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current:
+                sections.append("\n".join(current).strip())
+            current = [line]
+        elif current:
+            current.append(line)
+    if current:
+        sections.append("\n".join(current).strip())
+    sections.reverse()
+    return sections if cycles <= 0 else sections[:cycles]
+
+
 def load_sleep_state() -> Dict[str, Any]:
     path = get_sleep_state_path()
     if not path.is_file():
@@ -415,6 +531,7 @@ def run_sleep_cycle(
                                     for k, v in report.items() if k != "error"}
             save_sleep_state(state)
             _append_sleep_log(report)
+            _append_dream_digest(report)
     except Exception as exc:  # a consolidation failure must never break anything
         logger.debug("sleep cycle failed: %s", exc)
         report["error"] = str(exc)
