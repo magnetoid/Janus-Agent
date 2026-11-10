@@ -848,6 +848,15 @@ def _emit_post_tool_call_hook(
         logger.debug("post_tool_call hook error: %s", _hook_err)
 
 
+def _redact_filled_values(result: Any) -> Any:
+    """Mask passwords browser_fill_credential filled (no-op until one is)."""
+    try:
+        from agent.secret_sources.logins import redact_filled_values
+        return redact_filled_values(result)
+    except Exception:
+        return result
+
+
 def handle_function_call(
     function_name: str,
     function_args: Dict[str, Any],
@@ -1120,6 +1129,11 @@ def handle_function_call(
                     pass
         duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
 
+        # A password browser_fill_credential typed into a page now sits in
+        # its DOM, where an eval, console read or snapshot could carry it
+        # back. Mask it before any hook, plugin or the model sees the result.
+        result = _redact_filled_values(result)
+
         _emit_post_tool_call_hook(
             function_name=function_name,
             function_args=function_args,
@@ -1180,7 +1194,7 @@ def handle_function_call(
         return result
 
     except Exception as e:
-        error_msg = f"Error executing {function_name}: {str(e)}"
+        error_msg = _redact_filled_values(f"Error executing {function_name}: {str(e)}")
         logger.exception(error_msg)
         return json.dumps({"error": _sanitize_tool_error(error_msg)}, ensure_ascii=False)
 

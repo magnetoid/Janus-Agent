@@ -413,6 +413,32 @@ def collect(
                     current=s, fixable=False, fix_note="narrow or remove the entry"))
         return res
 
+    def c_credential_fill():
+        cf = _get(config, "browser", "credential_fill", default={}) or {}
+        if not isinstance(cf, Mapping) or cf.get("enabled") is not True:
+            return None
+        res = []
+        if cf.get("allow_cloud_browser") is True:
+            res.append(PostureFinding(
+                "browser.credential_fill_cloud", "MEDIUM",
+                "Saved passwords can be sent to a cloud browser",
+                "browser.credential_fill.allow_cloud_browser is true: when a cloud browser "
+                "provider is configured, logins from your password manager are typed into a "
+                "browser that runs on that provider.",
+                key="browser.credential_fill.allow_cloud_browser", current=True, safe_value=False,
+                fixable=True, fix_note="sets browser.credential_fill.allow_cloud_browser: false"))
+        sites = [s for s in (cf.get("allowed_sites") or []) if isinstance(s, str) and s.strip()]
+        surfaces = _unattended_surfaces(raw, janus_home)
+        if sites and surfaces:
+            res.append(PostureFinding(
+                "browser.credential_fill_unattended", "LOW",
+                f"Logins fill without asking on {len(sites)} site(s), unattended runs included",
+                f"browser.credential_fill.allowed_sites pre-approves {', '.join(sites[:5])}; "
+                f"with {', '.join(surfaces)} configured, a task nobody watches can sign in there.",
+                key="browser.credential_fill.allowed_sites", current=sites, fixable=False,
+                fix_note="keep allowed_sites to sites unattended tasks really need"))
+        return res
+
     def c_dangerously_prefixed():
         res = []
         for dotted, v in _walk_leaves(raw):
@@ -426,7 +452,8 @@ def collect(
     for fn in (c_guard_agent_created, c_approvals_off, c_gateway_approver_any, c_unattended_approve, c_yolo,
                c_auto_promote_without_governor, c_self_improve_no_human, c_inline_shell,
                c_sandbox_off_unattended, c_no_caps_unattended, c_frozen, c_exposed_bind,
-               c_allowlist_empty, c_file_perms, c_broad_allowlist, c_dangerously_prefixed):
+               c_allowlist_empty, c_file_perms, c_broad_allowlist, c_dangerously_prefixed,
+               c_credential_fill):
         check(fn)
     return out
 
