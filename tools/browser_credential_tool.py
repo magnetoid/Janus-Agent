@@ -82,8 +82,8 @@ def check_credential_fill_requirements() -> bool:
 
 
 def _fail(message: str) -> str:
-    from agent.secret_sources.logins import scrub_filled_secrets
-    return json.dumps({"success": False, "error": scrub_filled_secrets(message)},
+    from agent.secret_sources.logins import redact_filled_values
+    return json.dumps({"success": False, "error": redact_filled_values(message)},
                       ensure_ascii=False)
 
 
@@ -204,7 +204,7 @@ def browser_fill_credential(username_ref: str = "", username: str = "",
     except logins.LoginLookupError as exc:
         return _fail(str(exc))
 
-    logins.remember_filled_secret(login.password)
+    logins.remember_filled_value(login.password)
     filled = []
     try:
         if username_ref:

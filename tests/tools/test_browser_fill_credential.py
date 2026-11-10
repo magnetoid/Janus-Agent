@@ -14,12 +14,12 @@ SECRET = "hunter2-very-secret"
 
 @pytest.fixture(autouse=True)
 def _clean():
-    L._reset_filled_secrets_for_tests()
+    L._reset_filled_values_for_tests()
     with A._lock:
         A._permanent_approved.clear()
         A._session_approved.clear()
     yield
-    L._reset_filled_secrets_for_tests()
+    L._reset_filled_values_for_tests()
     with A._lock:
         A._permanent_approved.clear()
         A._session_approved.clear()

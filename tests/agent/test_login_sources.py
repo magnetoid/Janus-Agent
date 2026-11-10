@@ -8,9 +8,9 @@ from agent.secret_sources import logins as L
 
 @pytest.fixture(autouse=True)
 def _clean_filled():
-    L._reset_filled_secrets_for_tests()
+    L._reset_filled_values_for_tests()
     yield
-    L._reset_filled_secrets_for_tests()
+    L._reset_filled_values_for_tests()
 
 
 class TestPageHost:
@@ -180,19 +180,19 @@ def test_unknown_source_is_refused():
 
 class TestScrub:
     def test_filled_secret_is_masked_in_later_output(self):
-        L.remember_filled_secret("hunter2-very-secret")
+        L.remember_filled_value("hunter2-very-secret")
 
-        out = L.scrub_filled_secrets('{"result": "value=hunter2-very-secret"}')
+        out = L.redact_filled_values('{"result": "value=hunter2-very-secret"}')
 
         assert "hunter2" not in out
         assert L.REDACTED in out
 
     def test_json_escaped_form_is_masked_too(self):
-        L.remember_filled_secret('pa"ss\\word')
+        L.remember_filled_value('pa"ss\\word')
 
-        out = L.scrub_filled_secrets(json.dumps({"result": 'pa"ss\\word'}))
+        out = L.redact_filled_values(json.dumps({"result": 'pa"ss\\word'}))
 
         assert "ss\\\\word" not in out and L.REDACTED in out
 
     def test_nothing_remembered_leaves_text_alone(self):
-        assert L.scrub_filled_secrets("plain") == "plain"
+        assert L.redact_filled_values("plain") == "plain"

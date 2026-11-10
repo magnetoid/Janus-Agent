@@ -16,7 +16,7 @@ caller, never taken from the model.
 
 Passwords handed to the browser are remembered in memory for the life of
 the process so later tool output can be scrubbed of them
-(:func:`scrub_filled_secrets`): once a password sits in a page's DOM, an
+(:func:`redact_filled_values`): once a password sits in a page's DOM, an
 eval or a console read could otherwise carry it back to the model.
 """
 from __future__ import annotations
@@ -246,7 +246,7 @@ _FILLED: set = set()
 _FILLED_LOCK = threading.Lock()
 
 
-def remember_filled_secret(value: str) -> None:
+def remember_filled_value(value: str) -> None:
     """Mask ``value`` in every later tool result of this process."""
     if not value:
         return
@@ -256,18 +256,18 @@ def remember_filled_secret(value: str) -> None:
         _FILLED.update({value, escaped, ascii_escaped})
 
 
-def scrub_filled_secrets(text):
-    """``text`` with every remembered secret replaced by :data:`REDACTED`."""
+def redact_filled_values(text):
+    """``text`` with every remembered filled value replaced by :data:`REDACTED`."""
     if not _FILLED or not isinstance(text, str):
         return text
     with _FILLED_LOCK:
-        secrets = sorted(_FILLED, key=len, reverse=True)
-    for secret in secrets:
-        if secret and secret in text:
-            text = text.replace(secret, REDACTED)
+        known = sorted(_FILLED, key=len, reverse=True)
+    for value in known:
+        if value and value in text:
+            text = text.replace(value, REDACTED)
     return text
 
 
-def _reset_filled_secrets_for_tests() -> None:
+def _reset_filled_values_for_tests() -> None:
     with _FILLED_LOCK:
         _FILLED.clear()
