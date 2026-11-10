@@ -827,6 +827,17 @@ def init_agent(
                         _fb_entries = [fallback_model]
                     _fb_resolved = False
                     for _fb in _fb_entries:
+                        # Same consent guard as the mid-turn chain
+                        # (janus_cli/free_fallback.py).
+                        if _fb.get("free_preset"):
+                            from janus_cli.free_fallback import free_entry_allowed
+                            if not free_entry_allowed(_fb):
+                                logger.info(
+                                    "Init fallback skip: free tier %s/%s may train on "
+                                    "inputs and was not allowed",
+                                    _fb.get("provider"), _fb.get("model"),
+                                )
+                                continue
                         _fb_explicit_key = (_fb.get("api_key") or "").strip() or None
                         if not _fb_explicit_key:
                             _fb_key_env = (_fb.get("key_env") or _fb.get("api_key_env") or "").strip()
@@ -853,6 +864,11 @@ def init_agent(
                             if _fb_headers:
                                 client_kwargs["default_headers"] = dict(_fb_headers)
                             _fb_resolved = True
+                            if _fb.get("free_preset"):
+                                from janus_cli.free_fallback import switch_warning
+                                _free_note = switch_warning(_fb)
+                                if _free_note:
+                                    agent._emit_warning(_free_note)
                             break
                     if not _fb_resolved:
                         raise RuntimeError(
