@@ -1864,5 +1864,91 @@ def check_execute_code_guard(code: str, env_type: str) -> dict:
             "user_approved": True, "description": description}
 
 
+def check_credential_fill_guard(host: str, allowed_sites=()) -> dict:
+    """Approve filling a saved login on ``host`` (``browser_fill_credential``).
+
+    Stricter than the command guards on purpose: a password leaving the
+    vault is never decided by a model or a blanket switch.
+
+    * ``allowed_sites`` (``browser.credential_fill.allowed_sites``) pre-approves
+      a host the user listed by hand.
+    * Otherwise the user is asked, per site. "Session" and "Always" are stored
+      under ``credential_fill:<host>``, so approving one site never approves
+      another.
+    * ``--yolo``, ``approvals.mode: off`` and smart approval do not bypass it.
+    * Cron and headless runs, where nobody can answer, are blocked.
+
+    Returns the same dict contract as ``check_all_command_guards``.
+    """
+    from agent.secret_sources.logins import _norm
+
+    site = _norm(host)
+    pattern_key = f"credential_fill:{site}"
+    command = f"browser_fill_credential {site}"
+    description = (
+        f"fill a saved login from your password manager on {site}. The password "
+        "is typed into the page's password field and is never shown to the model"
+    )
+
+    def _blocked(message: str, outcome: str) -> dict:
+        return {"approved": False, "message": message, "pattern_key": pattern_key,
+                "description": description, "outcome": outcome, "user_consent": False}
+
+    if site and site in {_norm(s) for s in (allowed_sites or ()) if isinstance(s, str)}:
+        return {"approved": True, "message": None, "description": description}
+
+    session_key = get_current_session_key()
+    if is_approved(session_key, pattern_key):
+        return {"approved": True, "message": None, "description": description}
+
+    is_gateway = _is_gateway_approval_context()
+    is_ask = env_var_enabled("JANUS_EXEC_ASK")
+    is_cli = env_var_enabled("JANUS_INTERACTIVE")
+
+    if env_var_enabled("JANUS_CRON_SESSION") or not (is_gateway or is_ask or is_cli):
+        return _blocked(
+            f"BLOCKED: filling a saved login on {site} needs the user's approval and "
+            "nobody is present to give it. Add the site to "
+            "browser.credential_fill.allowed_sites to allow it in unattended runs.",
+            "blocked")
+
+    if is_cli and not is_gateway and not is_ask:
+        from tools.terminal_tool import _get_approval_callback
+        choice = prompt_dangerous_approval(command, description,
+                                           approval_callback=_get_approval_callback())
+    else:
+        with _lock:
+            notify_cb = _gateway_notify_cbs.get(session_key)
+        if notify_cb is None:
+            return _blocked(
+                f"BLOCKED: no approval channel is available to ask about filling a "
+                f"login on {site}. Do NOT retry.", "notify_failed")
+        decision = _await_gateway_decision(
+            session_key, notify_cb,
+            {"command": command, "pattern_key": pattern_key,
+             "pattern_keys": [pattern_key], "description": description},
+            surface="gateway")
+        if decision.get("notify_failed"):
+            return _blocked(
+                "BLOCKED: failed to send the login approval request to the user. "
+                "Do NOT retry.", "notify_failed")
+        choice = decision["choice"] if decision["resolved"] else None
+
+    if choice not in {"once", "session", "always"}:
+        reason = "timed out without an answer" if choice is None else "denied by the user"
+        return _blocked(
+            f"BLOCKED: filling a saved login on {site} was {reason}. Do NOT retry and "
+            "do NOT ask for the password in the chat.",
+            "timeout" if choice is None else "denied")
+
+    if choice == "session":
+        approve_session(session_key, pattern_key)
+    elif choice == "always":
+        approve_session(session_key, pattern_key)
+        approve_permanent(pattern_key)
+        save_permanent_allowlist(_permanent_approved)
+    return {"approved": True, "message": None, "user_approved": True,
+            "description": description}
+
 # Load permanent allowlist from config on module import
 load_permanent_allowlist()

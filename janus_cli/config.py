@@ -1092,6 +1092,16 @@ DEFAULT_CONFIG = {
         # Also settable via AGENT_BROWSER_ENGINE env var.
         "engine": "auto",
         "auto_local_for_private_urls": True,  # When a cloud provider is set, auto-spawn local Chromium for LAN/localhost URLs instead of sending them to the cloud
+        # browser_fill_credential: sign in with a login saved in a password
+        # manager; the model never sees the password. Off until enabled; the
+        # user approves each site (allowed_sites pre-approves by host).
+        "credential_fill": {
+            "enabled": False,
+            "source": "",  # "1password" (op CLI) or "bitwarden" (bw CLI, BW_SESSION)
+            "vault": "",  # 1Password vault to search; empty = all
+            "allowed_sites": [],
+            "allow_cloud_browser": False,
+        },
         "cdp_url": "",  # Optional persistent CDP endpoint for attaching to an existing Chromium/Chrome
         # CDP supervisor — dialog + frame detection via a persistent WebSocket.
         # Active only when a CDP-capable backend is attached (Browserbase or
