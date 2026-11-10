@@ -174,7 +174,10 @@ def _lookup_onepassword(run: Runner, host: str, username: str, vault: str) -> Lo
     if not candidates:
         raise LoginLookupError(f"no saved login for {host} in 1Password")
     if len(candidates) == 1:
-        return _onepassword_get(run, *candidates[0], vault)
+        login = _onepassword_get(run, *candidates[0], vault)
+        if username and login.username != username:
+            raise LoginLookupError(f"no saved login for {host} with that username in 1Password")
+        return login
     if not username:
         raise _ambiguous(host, [t for _, t in candidates])
     # Usernames are only in the full item; fetch each until one matches.

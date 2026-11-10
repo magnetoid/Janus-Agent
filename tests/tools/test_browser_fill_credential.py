@@ -26,13 +26,20 @@ def _clean():
 
 
 class Page:
-    """A fake browser page: answers the marking eval and records fills."""
+    """A fake browser page.
+
+    ``_browser_eval`` is the page-context marking eval (it answers with
+    ``mark_reply``, the field count by default); the URL is read through
+    agent-browser ``eval location.href`` and comes from ``urls`` in order.
+    """
 
     def __init__(self, monkeypatch, *, urls=("https://github.com/login",), fields=1,
-                 fill_result=None):
+                 fill_result=None, mark_reply=None):
         self.urls = list(urls)
         self.fields = fields
+        self.mark_reply = mark_reply
         self.evals = 0
+        self.url_reads = []
         self.fills = []
         self.fill_result = fill_result or {"success": True, "data": {}}
         monkeypatch.setattr(bt, "_browser_eval", self._eval)
@@ -42,11 +49,15 @@ class Page:
         monkeypatch.setattr(bt, "_using_lightpanda_engine", lambda: False)
 
     def _eval(self, expression, task_id=None):
-        href = self.urls[min(self.evals, len(self.urls) - 1)]
         self.evals += 1
-        return json.dumps({"success": True, "result": {"href": href, "count": self.fields}})
+        reply = self.fields if self.mark_reply is None else self.mark_reply
+        return json.dumps({"success": True, "result": reply})
 
     def _command(self, task_id, command, args=None, timeout=None, _engine_override=None):
+        if command == "eval":
+            self.url_reads.append(list(args))
+            href = self.urls[min(len(self.url_reads) - 1, len(self.urls) - 1)]
+            return {"success": True, "data": {"result": href}}
         if command == "fill":
             self.fills.append(list(args))
             return self.fill_result
@@ -120,11 +131,34 @@ def test_result_never_carries_the_password(monkeypatch, enabled, approve, vault)
 
 
 def test_the_site_comes_from_the_page_not_the_model(monkeypatch, enabled, approve, vault):
-    Page(monkeypatch, urls=("https://github.com/login",))
+    page = Page(monkeypatch, urls=("https://github.com/login",))
 
     _call()
 
     assert vault[0][0] == "https://github.com/login"
+    # Read as the bare expression, with nothing a page could override.
+    assert page.url_reads and all(r == ["location.href"] for r in page.url_reads)
+
+
+def test_a_page_lying_in_its_own_reply_cannot_choose_the_site(monkeypatch, enabled, approve, vault):
+    # A hostile page overrides JSON.stringify/String so a page-context reply
+    # claims another site; the URL the browser reports is the real one.
+    page = Page(monkeypatch, urls=("https://evil.example/login",),
+                mark_reply={"href": "https://github.com/login", "count": 1})
+
+    res = _call()
+
+    assert res["success"] is False
+    assert vault == [] and page.fills == []
+    assert all(host != "github.com" for host in approve)
+
+
+def test_the_real_site_is_what_the_user_is_asked_about(monkeypatch, enabled, approve, vault):
+    Page(monkeypatch, urls=("https://evil.example/login",))
+
+    _call()
+
+    assert approve == ["evil.example"]
 
 
 @pytest.mark.parametrize("url", ["http://github.com/login", "about:blank"])
@@ -257,7 +291,8 @@ def test_gate_asks_and_names_the_site(gw_session):
     res = A.check_credential_fill_guard("github.com")
 
     assert res["approved"] is True
-    assert "github.com" in seen[0]["description"]
+    assert seen[0]["command"] == "browser_fill_credential github.com"
+    assert seen[0]["pattern_key"] == "credential_fill:github.com"
     assert not A.is_approved(gw_session, "credential_fill:github.com")
 
 
@@ -314,7 +349,7 @@ def test_gate_cli_prompts_through_the_cli_callback(monkeypatch):
     asked = []
 
     def cb(command, description, *, allow_permanent=True):
-        asked.append(description)
+        asked.append(command)
         return "once"
 
     terminal_tool.set_approval_callback(cb)
@@ -322,7 +357,7 @@ def test_gate_cli_prompts_through_the_cli_callback(monkeypatch):
         assert A.check_credential_fill_guard("github.com")["approved"] is True
     finally:
         terminal_tool.set_approval_callback(None)
-    assert asked and "github.com" in asked[0]
+    assert asked == ["browser_fill_credential github.com"]
 
 
 # ---------------------------------------------------------------------------

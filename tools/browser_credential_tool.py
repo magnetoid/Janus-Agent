@@ -3,15 +3,19 @@
 The model asks for a login to be filled on the page that is open; it never
 chooses the site and never sees the password:
 
-1. One page-side eval reads ``location.href`` and marks the page's single
-   visible ``<input type=password>``. The site is the host of that URL, so a
-   page cannot talk the model into filling another site's login, and the
-   password can only land in a real password field (never a comment box or
-   a search field the model points at).
+1. One page-side eval marks the page's single visible
+   ``<input type=password>``, so the password can only land in a real
+   password field (never a comment box or a search field the model points
+   at). The site is read separately as the bare ``location.href``, returned
+   by value: ``location`` and its ``href`` are unforgeable, and nothing in
+   that read runs page code (no ``JSON.stringify`` or ``String`` a page could
+   replace), so a page cannot pass itself off as another site. What the
+   marking eval reports about the page is never used to decide the site.
 2. The approval gate asks the user, per site
    (``tools.approval.check_credential_fill_guard``).
-3. The page is read again; if it moved to another host while the user was
-   deciding, nothing is filled.
+3. The field is marked and the URL read again right before the fill; if
+   the page moved to another host while the user was deciding, nothing is
+   filled.
 4. The login comes from 1Password or Bitwarden
    (``agent.secret_sources.logins``) and is typed straight into the page.
    The result names the site and the saved item, nothing else, and every
@@ -40,7 +44,8 @@ _DEFAULTS: Dict[str, Any] = {
 }
 
 # Finds the visible password inputs, clears any earlier mark, and marks the
-# field when there is exactly one. Returns the page's own URL.
+# field when there is exactly one. Runs in the page's context, so a hostile
+# page can lie in its reply: only the field count is used from it, never a URL.
 _MARK_JS = """(() => {
   const shown = (el) => {
     const r = el.getBoundingClientRect();
@@ -51,7 +56,7 @@ _MARK_JS = """(() => {
   document.querySelectorAll('[data-janus-cred]').forEach((el) => el.removeAttribute('data-janus-cred'));
   const fields = Array.from(document.querySelectorAll('input[type="password"]')).filter(shown);
   if (fields.length === 1) fields[0].setAttribute('data-janus-cred', '%s');
-  return JSON.stringify({href: String(location.href), count: fields.length});
+  return fields.length;
 })()"""
 
 _UNMARK_JS = ("document.querySelectorAll('[data-janus-cred]')"
@@ -82,8 +87,8 @@ def _fail(message: str) -> str:
                       ensure_ascii=False)
 
 
-def _read_page(bt, task_id: Optional[str]):
-    """Mark the password field; return ``(href, count, token)`` or an error string."""
+def _mark_password_field(bt, task_id: Optional[str]):
+    """Mark the password field; return ``(count, token)`` or an error string."""
     token = uuid.uuid4().hex
     raw = bt._browser_eval(_MARK_JS % token, task_id)
     try:
@@ -93,18 +98,56 @@ def _read_page(bt, task_id: Optional[str]):
     if not reply.get("success"):
         return f"could not read the page: {reply.get('error') or 'eval failed'}"
     result = reply.get("result")
-    if isinstance(result, str):
-        try:
-            result = json.loads(result)
-        except ValueError:
-            result = None
-    if not isinstance(result, dict):
+    if isinstance(result, bool) or not isinstance(result, (int, float, str)):
         return "could not read the page (unexpected browser reply)"
     try:
-        count = int(result.get("count") or 0)
+        return int(result), token
     except (TypeError, ValueError):
-        count = 0
-    return str(result.get("href") or ""), count, token
+        return "could not read the page (unexpected browser reply)"
+
+
+def _page_url(bt, session: str):
+    """``(url, "")`` as the browser reports it, or ``("", error)``.
+
+    The expression is the bare ``location.href`` (unforgeable getters) and
+    the browser serializes the primitive itself, so no page-defined
+    function takes part in producing the value.
+    """
+    res = bt._run_browser_command(session, "eval", ["location.href"])
+    if not res.get("success"):
+        return "", f"could not read the page URL: {res.get('error') or 'eval failed'}"
+    value = (res.get("data") or {}).get("result")
+    if isinstance(value, str):
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] == '"':
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+    if not isinstance(value, str) or not value:
+        return "", "could not read the page URL (unexpected browser reply)"
+    return value, ""
+
+
+def _check_page(bt, task_id: Optional[str], session: str):
+    """Mark the field, then read the URL: ``(href, host, token)`` or an error string."""
+    from agent.secret_sources import logins
+
+    marked = _mark_password_field(bt, task_id)
+    if isinstance(marked, str):
+        return marked
+    count, token = marked
+    href, error = _page_url(bt, session)
+    if error:
+        return error
+    try:
+        host = logins.page_host(href)
+    except logins.LoginLookupError as exc:
+        return str(exc)
+    problem = _field_problem(count)
+    if problem:
+        return problem
+    return href, host, token
 
 
 def _field_problem(count: int) -> Optional[str]:
@@ -136,37 +179,24 @@ def browser_fill_credential(username_ref: str = "", username: str = "",
         return _fail("the browser runs on a cloud provider; sending a saved password there "
                      "needs browser.credential_fill.allow_cloud_browser: true")
 
-    page = _read_page(bt, task_id)
+    session = bt._last_session_key(task_id or "default")
+    page = _check_page(bt, task_id, session)
     if isinstance(page, str):
         return _fail(page)
-    href, count, _token = page
-    try:
-        host = logins.page_host(href)
-    except logins.LoginLookupError as exc:
-        return _fail(str(exc))
-    problem = _field_problem(count)
-    if problem:
-        return _fail(problem)
+    _href, host, _token = page
 
     guard = approval.check_credential_fill_guard(host, allowed_sites=cfg.get("allowed_sites") or ())
     if not guard.get("approved"):
         return _fail(guard.get("message") or f"filling a login on {host} was not approved")
 
-    # Read the page again: it may have moved while the user was deciding.
-    page = _read_page(bt, task_id)
+    # Check the page again: it may have moved while the user was deciding.
+    page = _check_page(bt, task_id, session)
     if isinstance(page, str):
         return _fail(page)
-    href, count, token = page
-    try:
-        now = logins.page_host(href)
-    except logins.LoginLookupError as exc:
-        return _fail(str(exc))
+    href, now, token = page
     if now != host:
         return _fail(f"the page changed from {host} to {now} before the login was filled; "
                      "nothing was filled")
-    problem = _field_problem(count)
-    if problem:
-        return _fail(problem)
 
     try:
         login = logins.lookup_login(href, source=str(cfg.get("source") or ""),
@@ -175,7 +205,6 @@ def browser_fill_credential(username_ref: str = "", username: str = "",
         return _fail(str(exc))
 
     logins.remember_filled_secret(login.password)
-    session = bt._last_session_key(task_id or "default")
     filled = []
     try:
         if username_ref:

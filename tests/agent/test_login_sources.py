@@ -107,6 +107,13 @@ class TestOnePassword:
 
         assert all("--vault" in c and "Work" in c for c in run.calls)
 
+    def test_a_single_match_with_another_username_is_refused(self):
+        run = _runner({("item", "list"): (0, _OP_LIST, ""), ("item", "get"): (0, _OP_ITEM, "")})
+
+        with pytest.raises(L.LoginLookupError, match="that username"):
+            L.lookup_login("https://github.com/", source="1password", username="someone-else",
+                           runner=run)
+
     def test_cli_failure_becomes_a_lookup_error(self):
         run = _runner({("item", "list"): (1, "", "[ERROR] not signed in")})
 
