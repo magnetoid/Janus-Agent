@@ -223,7 +223,8 @@ def browser_fill_credential(username_ref: str = "", username: str = "",
         except Exception:
             logger.debug("credential fill: could not clear the field mark", exc_info=True)
 
-    logger.info("credential fill: filled %s on %s", "+".join(filled), host)
+    # Audit line: the site only, nothing about the login itself.
+    logger.info("credential fill: saved login filled on %s", host)
     return json.dumps({
         "success": True,
         "site": host,
