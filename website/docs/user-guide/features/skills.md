@@ -24,7 +24,7 @@ By default every profile is seeded with the bundled skill catalog, and each `jan
 **At install time** (applies to the default `~/.janus` profile):
 
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash -s -- --no-skills
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash -s -- --no-skills
 ```
 
 **At profile-create time** (named profiles):

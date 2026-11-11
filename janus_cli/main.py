@@ -10559,7 +10559,7 @@ def _cmd_update_impl(args, gateway_mode: bool, channel: str = "main"):
                 return
             print("✗ Not a git repository. Please reinstall:")
             print(
-                "  curl -fsSL https://github.com/magnetoid/janus | bash"
+                "  curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash"
             )
             sys.exit(1)
 
