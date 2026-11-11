@@ -16,6 +16,11 @@ def should_use_color() -> bool:
         return False
     if not sys.stdout.isatty():
         return False
+    # A Windows console that can't interpret escape codes would print them
+    # literally (``←[33m``). Always True elsewhere.
+    from janus_cli.stdio import ansi_supported
+    if not ansi_supported():
+        return False
     return True
 
 
