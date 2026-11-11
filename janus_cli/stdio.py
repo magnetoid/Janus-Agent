@@ -82,6 +82,151 @@ def _reconfigure_stream(stream, *, encoding: str = "utf-8", errors: str = "repla
         pass
 
 
+# ---------------------------------------------------------------------------
+# The classic console window (conhost)
+# ---------------------------------------------------------------------------
+#
+# conhost is what Windows PowerShell 5.1 and cmd.exe open on Windows 10. It
+# prints ANSI escape codes literally (``←[33m``) unless the program turns on
+# virtual-terminal processing, and it has no font fallback: any glyph its
+# font (Consolas, Lucida Console) lacks shows as an empty box. Windows
+# Terminal, VS Code, WezTerm and mintty have neither problem.
+
+_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+_STD_OUTPUT_HANDLE = -11
+_STD_ERROR_HANDLE = -12
+
+# Whether stdout's console handles ANSI escape codes. Only ever False on a
+# Windows console too old to turn them on (before Windows 10 1511).
+_ANSI_OK = True
+
+
+def ansi_supported() -> bool:
+    """Whether ANSI colour codes written to stdout will be interpreted."""
+    return _ANSI_OK
+
+
+def _kernel32():
+    try:
+        import ctypes
+
+        return ctypes.windll.kernel32  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
+def _enable_vt_processing() -> bool:
+    """Turn on ANSI escape handling for the console behind stdout and stderr.
+
+    Returns False only when stdout is a console that refuses it; a stream
+    redirected to a file or pipe needs nothing and counts as fine.
+    """
+    k32 = _kernel32()
+    if k32 is None:
+        return True
+    import ctypes
+
+    ok = True
+    for which in (_STD_OUTPUT_HANDLE, _STD_ERROR_HANDLE):
+        try:
+            handle = k32.GetStdHandle(which)
+            mode = ctypes.c_uint32()
+            if not k32.GetConsoleMode(handle, ctypes.byref(mode)):
+                continue  # not a console
+            if mode.value & _ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+                continue
+            if not k32.SetConsoleMode(handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_PROCESSING):
+                if which == _STD_OUTPUT_HANDLE:
+                    ok = False
+        except Exception:
+            continue
+    return ok
+
+
+# Glyphs Janus prints that the classic console's fonts lack, and their ASCII
+# stand-ins. Everything in WGL4 (Latin, Greek, Cyrillic, light and double box
+# drawing, block elements, arrows, ● ○ • — …) renders and is left alone.
+_GLYPH_MAP = {
+    "✓": "+", "✔": "+", "✗": "x", "✘": "x", "⚠": "!",
+    "◆": "*", "◇": "*", "◎": "*", "▣": "*", "★": "*", "☆": "*",
+    "━": "─", "┃": "│", "⋮": ":", "⇒": "=>",
+}
+_INVISIBLE = {"️", "‍"}  # emoji presentation selector, zero-width joiner
+
+
+def _is_emoji_or_symbol(cp: int) -> bool:
+    return (0x1F000 <= cp <= 0x1FAFF      # emoji
+            or 0x2600 <= cp <= 0x27BF     # misc symbols, dingbats
+            or 0x2B00 <= cp <= 0x2BFF     # misc symbols and arrows (⬆ ⭐)
+            or 0x2800 <= cp <= 0x28FF)    # braille (spinner frames)
+
+
+def to_console_safe_glyphs(text: str) -> str:
+    """``text`` with glyphs the classic console can't draw swapped for ASCII."""
+    if text.isascii():
+        return text
+    out = []
+    for ch in text:
+        if ch in _GLYPH_MAP:
+            out.append(_GLYPH_MAP[ch])
+        elif ch in _INVISIBLE:
+            continue
+        elif _is_emoji_or_symbol(ord(ch)):
+            out.append("*")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+# Set by terminals that fall back to other fonts for missing glyphs.
+_MODERN_TERMINAL_VARS = ("WT_SESSION", "TERM_PROGRAM", "WEZTERM_PANE",
+                         "ALACRITTY_WINDOW_ID", "TERM")
+
+
+def wants_ascii_glyphs(stream) -> bool:
+    """Whether ``stream`` is the classic Windows console.
+
+    ``JANUS_ASCII_GLYPHS=1`` forces ASCII glyphs anywhere, ``=0`` never.
+    """
+    forced = (os.environ.get("JANUS_ASCII_GLYPHS") or "").strip().lower()
+    if forced in {"1", "true", "yes", "on"}:
+        return True
+    if forced in {"0", "false", "no", "off"}:
+        return False
+    if not is_windows():
+        return False
+    try:
+        if not stream.isatty():
+            return False
+    except Exception:
+        return False
+    if any(os.environ.get(var) for var in _MODERN_TERMINAL_VARS):
+        return False
+    if os.environ.get("ConEmuANSI") == "ON":
+        return False
+    return True
+
+
+class AsciiGlyphStream:
+    """A text stream that writes through :func:`to_console_safe_glyphs`."""
+
+    def __init__(self, stream):
+        while isinstance(stream, AsciiGlyphStream):
+            stream = stream._stream
+        self._stream = stream
+
+    def write(self, text):
+        self._stream.write(to_console_safe_glyphs(text) if isinstance(text, str) else text)
+        return len(text)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
 def configure_windows_stdio() -> bool:
     """Force UTF-8 stdio on Windows.  No-op elsewhere.
 
@@ -153,6 +298,15 @@ def configure_windows_stdio() -> bool:
     # input path uses prompt_toolkit which manages its own encoding,
     # but batch/pipe input benefits from UTF-8 decoding on stdin too.
     _reconfigure_stream(sys.stdin)
+
+    # The classic console: interpret colour codes instead of printing them,
+    # and swap glyphs its font lacks for ASCII instead of empty boxes.
+    global _ANSI_OK
+    _ANSI_OK = _enable_vt_processing()
+    if wants_ascii_glyphs(sys.stdout):
+        sys.stdout = AsciiGlyphStream(sys.stdout)
+    if wants_ascii_glyphs(sys.stderr):
+        sys.stderr = AsciiGlyphStream(sys.stderr)
 
     _CONFIGURED = True
     return True
