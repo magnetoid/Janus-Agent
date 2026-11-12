@@ -755,6 +755,7 @@ Warnings are injected into the last tool result's JSON (as a `_budget_warning` f
 agent:
   max_turns: 90                # Max iterations per conversation turn (default: 90)
   api_max_retries: 3           # Retries per provider before fallback engages (default: 3)
+  auto_recovery_cycles: 0      # Wait out provider outages this many times per turn (default: 0 = off)
 ```
 
 Budget pressure is enabled by default. The agent sees warnings naturally as part of tool results, encouraging it to consolidate its work and deliver a response before running out of iterations.
@@ -762,6 +763,8 @@ Budget pressure is enabled by default. The agent sees warnings naturally as part
 When the iteration budget is fully exhausted, the CLI shows a notification to the user: `⚠ Iteration budget reached (90/90) — response may be incomplete`. If the budget runs out during active work, the agent generates a summary of what was accomplished before stopping.
 
 `agent.api_max_retries` controls how many times Janus retries a provider API call on transient errors (rate limits, connection drops, 5xx) **before** fallback-provider switching engages. The default is `3` — four attempts total. If you have [fallback providers](/user-guide/features/fallback-providers) configured and want to fail over faster, drop this to `0` so the first transient error on your primary immediately hands off to the fallback instead of churning retries against the flaky endpoint.
+
+`agent.auto_recovery_cycles` is for outages rather than hiccups. When every retry — and every fallback provider — has failed because the provider is down or overloaded (HTTP 503/529, other 5xx, timeouts), Janus normally ends the turn with `API call failed after N retries`. Set this to, say, `5` and Janus instead says `Provider unavailable … Waiting 30s, then recovery cycle 1/5`, waits, and runs the whole retry block again, starting over from your primary provider and then its fallbacks. Waits double each cycle (30s, 60s, 120s, …) up to 300s. The status line shows in the CLI, the TUI and gateway chats; you can interrupt the wait at any time. Errors that waiting cannot fix — a bad request, auth, billing, rate limits — still end the turn at once. The default `0` keeps the old behaviour.
 
 ### API Timeouts
 
