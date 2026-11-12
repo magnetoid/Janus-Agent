@@ -3616,9 +3616,10 @@ def run_conversation(
                             f"{recovery_cycles_used}/{_cycle_total}..."
                         )
                         logger.warning(
-                            "%sOutage recovery cycle %s/%s in %ss | provider=%s model=%s error=%s",
+                            "%sOutage recovery cycle %s/%s in %ss | provider=%s model=%s reason=%s status=%s",
                             agent.log_prefix, recovery_cycles_used, _cycle_total,
-                            _cycle_wait, _provider, _model, api_error,
+                            _cycle_wait, _provider, _model,
+                            classified.reason.value, classified.status_code,
                         )
                         if not _wait_for_recovery_cycle(
                             agent, _cycle_wait,
@@ -3637,7 +3638,11 @@ def run_conversation(
                                 "completed": False,
                                 "interrupted": True,
                             }
+                        # The primary (or an earlier fallback) may be the
+                        # one that came back: start the chain over.
+                        agent._restore_primary_runtime()
                         retry_count = 0
+                        compression_attempts = 0
                         primary_recovery_attempted = False
                         continue
                     # Terminal — flush buffered retry/fallback trace.

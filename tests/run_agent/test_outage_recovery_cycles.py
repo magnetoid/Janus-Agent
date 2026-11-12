@@ -95,6 +95,39 @@ class TestConfig:
         assert _agent(raw)._auto_recovery_cycles == expected
 
 
+class TestRealConfigLoader:
+    """The setting reaches the agent through the real load_config() merge."""
+
+    def _agent_from_disk(self, yaml_text=None):
+        from janus_constants import get_janus_home
+
+        home = get_janus_home()
+        home.mkdir(parents=True, exist_ok=True)
+        cfg = home / "config.yaml"
+        if yaml_text is None:
+            cfg.unlink(missing_ok=True)
+        else:
+            cfg.write_text(yaml_text, encoding="utf-8")
+        with (
+            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+        ):
+            return AIAgent(api_key="test-key-1234567890", base_url="https://openrouter.ai/api/v1",
+                           quiet_mode=True, skip_context_files=True, skip_memory=True)
+
+    def test_default_comes_from_default_config(self):
+        from janus_cli.config import load_config
+
+        assert load_config()["agent"]["auto_recovery_cycles"] == 0
+        assert self._agent_from_disk()._auto_recovery_cycles == 0
+
+    def test_persisted_override_is_used(self):
+        agent = self._agent_from_disk("agent:\n  auto_recovery_cycles: 4\n")
+
+        assert agent._auto_recovery_cycles == 4
+
+
 class TestRecovery:
     def test_turn_survives_an_outage_within_the_cycle_budget(self):
         agent = _agent(cycles=1)
@@ -130,6 +163,47 @@ class TestRecovery:
 
         assert result.get("failed") is True
         assert not any("recovery cycle" in s for s in statuses)
+
+    def test_each_cycle_starts_again_from_the_primary(self):
+        # Primary and its fallback both fail; when the cycle starts, the
+        # primary (which may have recovered) must be tried again, not only
+        # the last fallback.
+        agent = _agent(cycles=1)
+        primary = agent.model
+
+        def activate_fallback():
+            if agent._fallback_index:
+                return False
+            agent._fallback_index = 1
+            agent._fallback_activated = True
+            agent.model = "fallback/model"
+            return True
+
+        def restore_primary():
+            if agent._fallback_activated:
+                agent.model = primary
+                agent._fallback_activated = False
+            agent._fallback_index = 0
+            return True
+
+        seen = []
+        replies = iter([_overloaded()] * 4 + [_ok()])
+
+        def call(**kwargs):
+            seen.append(agent.model)
+            reply = next(replies)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        with (
+            patch.object(agent, "_try_activate_fallback", side_effect=activate_fallback),
+            patch.object(agent, "_restore_primary_runtime", side_effect=restore_primary),
+        ):
+            result, _ = _run(agent, call)
+
+        assert result.get("completed") is True, result
+        assert seen == [primary, primary, "fallback/model", "fallback/model", primary]
 
     def test_rate_limits_are_not_an_outage(self):
         agent = _agent(cycles=3)
