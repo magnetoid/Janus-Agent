@@ -628,6 +628,12 @@ agent:
   # primaries (default 3). The OpenAI SDK does its own low-level retries
   # underneath this wrapper — this is the Janus-level loop.
   # api_max_retries: 3
+
+  # When every retry and fallback fails because the provider is down or
+  # overloaded (503/529, 5xx, timeouts), wait and try again this many times
+  # per turn instead of ending it. Waits are 30s, 60s, 120s, ... (max 300s).
+  # Interrupt any time. 0 = end the turn (default).
+  # auto_recovery_cycles: 0
   
   # Enable verbose logging
   verbose: false

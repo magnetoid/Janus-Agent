@@ -65,6 +65,35 @@ from utils import base_url_host_matches, env_var_enabled
 logger = logging.getLogger(__name__)
 
 
+# Errors that waiting can fix: the provider is down or overloaded, not
+# rejecting this request.  Rate limits are excluded on purpose — they are a
+# quota wall with their own Retry-After handling.
+_OUTAGE_REASONS = frozenset({
+    FailoverReason.overloaded,
+    FailoverReason.server_error,
+    FailoverReason.timeout,
+})
+
+
+def _recovery_cycle_wait(cycle: int) -> float:
+    """Seconds to wait before outage recovery cycle *cycle* (1-based)."""
+    return float(min(30 * 2 ** (max(cycle, 1) - 1), 300))
+
+
+def _wait_for_recovery_cycle(agent, seconds: float, label: str) -> bool:
+    """Sleep *seconds* in small steps; False if the user interrupted."""
+    end = time.time() + seconds
+    ticks = 0
+    while time.time() < end:
+        if agent._interrupt_requested:
+            return False
+        time.sleep(0.2)
+        ticks += 1
+        if ticks % 150 == 0:  # ~30 s: keep the gateway inactivity monitor fed
+            agent._touch_activity(f"{label}, {int(end - time.time())}s remaining")
+    return not agent._interrupt_requested
+
+
 def _ollama_context_limit_error(agent: Any, request_tokens: int) -> Optional[str]:
     """Return a user-facing error when Ollama is loaded with too little context."""
     if not getattr(agent, "tools", None):
@@ -772,6 +801,7 @@ def run_conversation(
 
     # Main conversation loop
     api_call_count = 0
+    recovery_cycles_used = 0  # agent.auto_recovery_cycles budget, per turn
     final_response = None
     interrupted = False
     failed = False
@@ -3568,6 +3598,46 @@ def run_conversation(
                     if agent._try_activate_fallback():
                         retry_count = 0
                         compression_attempts = 0
+                        primary_recovery_attempted = False
+                        continue
+                    # Provider outage: wait it out in bounded, visible
+                    # cycles (agent.auto_recovery_cycles) before giving up.
+                    if (
+                        classified.reason in _OUTAGE_REASONS
+                        and recovery_cycles_used < getattr(agent, "_auto_recovery_cycles", 0)
+                    ):
+                        recovery_cycles_used += 1
+                        _cycle_total = agent._auto_recovery_cycles
+                        _cycle_wait = _recovery_cycle_wait(recovery_cycles_used)
+                        agent._flush_status_buffer()
+                        agent._emit_status(
+                            f"⏳ Provider unavailable ({agent._summarize_api_error(api_error)}). "
+                            f"Waiting {_cycle_wait:.0f}s, then recovery cycle "
+                            f"{recovery_cycles_used}/{_cycle_total}..."
+                        )
+                        logger.warning(
+                            "%sOutage recovery cycle %s/%s in %ss | provider=%s model=%s error=%s",
+                            agent.log_prefix, recovery_cycles_used, _cycle_total,
+                            _cycle_wait, _provider, _model, api_error,
+                        )
+                        if not _wait_for_recovery_cycle(
+                            agent, _cycle_wait,
+                            f"outage recovery cycle {recovery_cycles_used}/{_cycle_total}",
+                        ):
+                            agent._vprint(f"{agent.log_prefix}⚡ Interrupt detected during outage recovery wait, aborting.", force=True)
+                            agent._persist_session(messages, conversation_history)
+                            agent.clear_interrupt()
+                            return {
+                                "final_response": (
+                                    f"Operation interrupted while waiting for the provider "
+                                    f"(recovery cycle {recovery_cycles_used}/{_cycle_total})."
+                                ),
+                                "messages": messages,
+                                "api_calls": api_call_count,
+                                "completed": False,
+                                "interrupted": True,
+                            }
+                        retry_count = 0
                         primary_recovery_attempted = False
                         continue
                     # Terminal — flush buffered retry/fallback trace.
