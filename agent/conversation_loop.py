@@ -3616,10 +3616,9 @@ def run_conversation(
                             f"{recovery_cycles_used}/{_cycle_total}..."
                         )
                         logger.warning(
-                            "%sOutage recovery cycle %s/%s in %ss | provider=%s model=%s reason=%s status=%s",
+                            "%sOutage recovery cycle %s/%s in %ss | reason=%s status=%s",
                             agent.log_prefix, recovery_cycles_used, _cycle_total,
-                            _cycle_wait, _provider, _model,
-                            classified.reason.value, classified.status_code,
+                            _cycle_wait, classified.reason.value, classified.status_code,
                         )
                         if not _wait_for_recovery_cycle(
                             agent, _cycle_wait,
