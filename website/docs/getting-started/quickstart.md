@@ -85,21 +85,10 @@ The single most important setup step. Use `janus model` to walk through the choi
 janus model
 ```
 
-:::tip Easiest path: Cloud Industry Portal
-One subscription covers 300+ models plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, cloud browser). On a fresh install:
-
-```bash
-janus setup --portal
-```
-
-That logs you in, sets Nous as your provider, and turns on the Tool Gateway in one command.
-:::
-
 Good defaults:
 
 | Provider | What it is | How to set up |
 |----------|-----------|---------------|
-| **Cloud Industry Portal** | Subscription-based, zero-config | OAuth login via `janus model` |
 | **OpenAI Codex** | ChatGPT OAuth, uses Codex models | Device code auth via `janus model` |
 | **Anthropic** | Claude models directly — Max plan + extra usage credits (OAuth), or API key for pay-per-token | `janus model` → OAuth login (requires Max + extra credits), or an Anthropic API key |
 | **OpenRouter** | Multi-provider routing across many models | Enter your API key |

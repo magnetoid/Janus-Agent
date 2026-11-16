@@ -90,7 +90,7 @@ compression:
 auxiliary:
   compression:
     model: null              # Override model for summaries (default: auto-detect)
-    provider: auto           # Provider: "auto", "openrouter", "nous", "main", etc.
+    provider: auto           # Provider: "auto", "openrouter", "anthropic", "main", etc.
     base_url: null           # Custom OpenAI-compatible endpoint
 ```
 

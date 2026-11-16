@@ -8,10 +8,6 @@ description: "Master the Janus Agent terminal interface — commands, keybinding
 
 Janus Agent's CLI is a full terminal user interface (TUI) — not a web UI. It features multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output. Built for people who live in the terminal.
 
-:::tip First-time setup
-One command — `janus setup --portal` — and you're ready to `janus chat`. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 :::tip
 Janus also ships a modern TUI with modal overlays, mouse selection, and non-blocking input. Launch it with `janus --tui` — see the [TUI](tui.md) guide.
 :::
@@ -29,7 +25,7 @@ janus chat -q "Hello"
 janus chat --model "anthropic/claude-sonnet-4"
 
 # With a specific provider
-janus chat --provider nous        # Use Cloud Industry Portal
+janus chat --provider anthropic   # Use Anthropic directly
 janus chat --provider openrouter  # Force OpenRouter
 
 # With specific toolsets

@@ -39,10 +39,6 @@ docker run -it --rm \
 
 This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.janus/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
 
-:::tip
-Inside the container, run `janus setup --portal` once — the refresh token persists in the mounted `~/.janus` volume. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 ## Running in gateway mode
 
 Once configured, run the container in the background as a persistent gateway (Telegram, Discord, Slack, WhatsApp, etc.):
@@ -118,13 +114,12 @@ The dashboard's auth gate engages automatically when both of the following are t
 1. The bind host is non-loopback (e.g. the default `0.0.0.0` inside the container), **and**
 2. A `DashboardAuthProvider` plugin is registered.
 
-There are three bundled ways to satisfy the second condition:
+There are two bundled ways to satisfy the second condition:
 
 - **Username/password** — the simplest for a self-hosted / on-prem / homelab container on a trusted network or behind a VPN: set `JANUS_DASHBOARD_BASIC_AUTH_USERNAME` + `JANUS_DASHBOARD_BASIC_AUTH_PASSWORD` (and `JANUS_DASHBOARD_BASIC_AUTH_SECRET` for restart-stable sessions). Not suitable for direct public-internet exposure.
-- **OAuth (Cloud Industry Portal)** — for hosted/public deploys: the `dashboard_auth/nous` provider activates whenever `JANUS_DASHBOARD_OAUTH_CLIENT_ID` is set.
 - **Self-hosted OIDC** — to authenticate against your own identity provider via standard OpenID Connect: the `dashboard_auth/self_hosted` provider activates when `JANUS_DASHBOARD_OIDC_ISSUER` + `JANUS_DASHBOARD_OIDC_CLIENT_ID` are set.
 
-Whichever you choose, the gate redirects callers to a login page before they can reach any protected route. See [Web Dashboard → Authentication](features/web-dashboard.md#authentication-gated-mode) for all three providers.
+Whichever you choose, the gate redirects callers to a login page before they can reach any protected route. See [Web Dashboard → Authentication](features/web-dashboard.md#authentication-gated-mode) for both providers.
 
 If no provider is registered and the bind is non-loopback, the dashboard **fails closed at startup** with a specific error pointing at the missing env var. The `JANUS_DASHBOARD_INSECURE=1` escape hatch disables the gate entirely (the bind host alone never implies `--insecure`), but it serves an unauthenticated dashboard — configure a provider instead unless you have your own auth layer in front.
 

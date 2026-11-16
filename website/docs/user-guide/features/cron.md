@@ -21,10 +21,6 @@ Cron jobs can:
 
 All of this is available to Janus itself through the `cronjob` tool, so you can create, pause, edit, and remove jobs by asking in plain language — no CLI required.
 
-:::tip
-Cron jobs use whatever provider `janus model` selected. `janus setup --portal` is the lowest-friction option for unattended runs since OAuth refresh is automatic. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 :::warning
 Cron-run sessions cannot recursively create more cron jobs. Janus disables cron management tools inside cron executions to prevent runaway scheduling loops.
 :::

@@ -152,7 +152,6 @@ class AcmeProfile(ProviderProfile):
 | `plugins/model-providers/gemini/` | `thinking_config` 转换（原生 + OpenAI 兼容嵌套形式） |
 | `plugins/model-providers/kimi-coding/` | `OMIT_TEMPERATURE`、`extra_body.thinking`、顶层 `reasoning_effort` |
 | `plugins/model-providers/qwen-oauth/` | 消息规范化、`cache_control` 注入、VL 高分辨率 |
-| `plugins/model-providers/nous/` | 归因标签、"禁用时省略 reasoning" |
 | `plugins/model-providers/custom/` | Ollama 的 `num_ctx` + `think: false` 特殊处理 |
 | `plugins/model-providers/bedrock/` | `api_mode="bedrock_converse"`，`fetch_models` 返回 None（无 REST 端点） |
 

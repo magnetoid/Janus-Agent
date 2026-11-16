@@ -29,7 +29,7 @@ G0DM0D3 是一个开源越狱工具包，通过三种互补的攻击模式自动
 | `unfiltered_liberated` | Grok 3 | 直接使用"unfiltered liberated"框架配合 GODMODE 分隔符 |
 | `refusal_inversion` | Gemini 2.5 Flash | 要求模型写一个假拒绝，然后分隔符，然后真实答案 |
 | `og_godmode` | GPT-4o | 经典 GODMODE 格式，含 l33t-speak 和拒绝抑制 |
-| `zero_refusal` | Hermes 4 405B | 已无审查——使用 Pliny Love 分隔符作为形式 |
+| `zero_refusal` | 无审查的开放权重模型 | 已无审查——使用 Pliny Love 分隔符作为形式 |
 
 模板来源：[L1B3RT4S repo](https://github.com/elder-plinius/L1B3RT4S)
 
@@ -220,7 +220,7 @@ Claude Sonnet 4 对所有当前技术在明显有害内容方面具有较强抵�
 
 4. **单独使用预填充对 Claude 不够** — 仅用"GODMODE ENABLED"预激活无法覆盖 Claude 的训练。预填充作为放大器与系统提示词技巧结合时效果更好。
 
-5. **对于强硬拒绝，切换模型** — 当所有技术失败时，ULTRAPLINIAN（多模型竞速）是实用的备选方案。Janus 模型和 Grok 通常过滤最少。
+5. **对于强硬拒绝，切换模型** — 当所有技术失败时，ULTRAPLINIAN（多模型竞速）是实用的备选方案。无审查的开放权重模型和 Grok 通常过滤最少。
 
 ## 各模型专项说明
 
@@ -230,7 +230,6 @@ Claude Sonnet 4 对所有当前技术在明显有害内容方面具有较强抵�
 | GPT-4/4o (OpenAI) | OG GODMODE l33t + 预填充 | 对经典分隔符格式有响应 |
 | Gemini (Google) | 拒绝反转 + 反叛角色 | Gemini 的拒绝可被语义反转 |
 | Grok (xAI) | Unfiltered liberated + GODMODE 分隔符 | 本身过滤较少；轻度提示即可 |
-| Janus (Nous) | 无需越狱 | 已无审查——直接使用 |
 | DeepSeek | Parseltongue + 多次尝试 | 输入分类器基于关键词；混淆有效 |
 | Llama (Meta) | 预填充 + 简单系统提示词 | 开放模型对预填充工程响应良好 |
 | Qwen (Alibaba) | Parseltongue + 拒绝反转 | 类似 DeepSeek——关键词分类器 |
@@ -244,19 +243,17 @@ Claude Sonnet 4 对所有当前技术在明显有害内容方面具有较强抵�
 
 3. **ULTRAPLINIAN 需要花费** — 竞速 55 个模型意味着 55 次 API 调用。快速测试使用 `fast` 层级（10 个模型），仅在需要最大覆盖时使用 `ultra`。
 
-4. **Janus 模型无需越狱** — `imbalabs/hermes-3-*` 和 `hermes-4-*` 已无审查。直接使用即可。
+4. **始终在 execute_code 中使用 `load_godmode.py`** — 各独立脚本（`parseltongue.py`、`godmode_race.py`、`auto_jailbreak.py`）有 argparse CLI 入口点。通过 `exec()` 在 execute_code 中加载时，`__name__` 为 `'__main__'`，argparse 会触发并导致脚本崩溃。加载器会处理此问题。
 
-5. **始终在 execute_code 中使用 `load_godmode.py`** — 各独立脚本（`parseltongue.py`、`godmode_race.py`、`auto_jailbreak.py`）有 argparse CLI 入口点。通过 `exec()` 在 execute_code 中加载时，`__name__` 为 `'__main__'`，argparse 会触发并导致脚本崩溃。加载器会处理此问题。
+5. **auto_jailbreak 后重启 Janus** — CLI 在启动时读取一次配置。Gateway 会话可立即获取更改。
 
-6. **auto_jailbreak 后重启 Janus** — CLI 在启动时读取一次配置。Gateway 会话可立即获取更改。
+6. **execute_code 沙箱缺少环境变量** — 显式加载 dotenv：`from dotenv import load_dotenv; load_dotenv(os.path.expanduser("~/.janus/.env"))`
 
-7. **execute_code 沙箱缺少环境变量** — 显式加载 dotenv：`from dotenv import load_dotenv; load_dotenv(os.path.expanduser("~/.janus/.env"))`
+7. **`boundary_inversion` 与模型版本相关** — 在 Claude 3.5 Sonnet 上有效，但在 Claude Sonnet 4 或 Claude 4.6 上**无效**。
 
-8. **`boundary_inversion` 与模型版本相关** — 在 Claude 3.5 Sonnet 上有效，但在 Claude Sonnet 4 或 Claude 4.6 上**无效**。
+8. **灰色地带查询 vs 高难度查询** — 越狱技术对双重用途查询（撬锁、安全工具）效果远好于明显有害的查询（钓鱼、恶意软件）。对于高难度查询，直接跳到 ULTRAPLINIAN 或使用无审查的开放权重模型或 Grok。
 
-9. **灰色地带查询 vs 高难度查询** — 越狱技术对双重用途查询（撬锁、安全工具）效果远好于明显有害的查询（钓鱼、恶意软件）。对于高难度查询，直接跳到 ULTRAPLINIAN 或使用 Janus/Grok。
-
-10. **预填充消息是临时的** — 在 API 调用时注入，但不会保存到会话或轨迹中。重启后自动从 JSON 文件重新加载。
+9. **预填充消息是临时的** — 在 API 调用时注入，但不会保存到会话或轨迹中。重启后自动从 JSON 文件重新加载。
 
 ## 技能内容
 

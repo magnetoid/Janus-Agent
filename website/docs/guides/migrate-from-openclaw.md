@@ -8,10 +8,6 @@ description: "Complete guide to migrating your OpenClaw / Clawdbot setup to Janu
 
 `janus claw migrate` imports your OpenClaw (or legacy Clawdbot/Moldbot) setup into Janus. This guide covers exactly what gets migrated, the config key mappings, and what to verify after migration.
 
-:::tip
-If your OpenClaw setup was multi-provider, `janus setup --portal` collapses it to one OAuth — 300+ models plus the Tool Gateway in a single login. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 ## Quick start
 
 ```bash

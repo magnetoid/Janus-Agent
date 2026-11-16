@@ -24,10 +24,6 @@ That's it. `coder` is now its own Janus profile with its own config, memory, and
 
 ## Creating a profile
 
-:::tip
-Quickest setup: run `janus setup --portal` inside the new profile to wire up models + tools at once. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 ### Blank profile
 
 ```bash
