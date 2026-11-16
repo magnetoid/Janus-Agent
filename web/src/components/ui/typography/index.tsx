@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 export interface TypographyProps extends React.HTMLAttributes<HTMLElement> {
   as?: React.ElementType;
-  /** nous-compat font flags (mapped to font classes where available). */
+  /** Legacy-DS-compat font flags (mapped to font classes where available). */
   mondwest?: boolean;
   expanded?: boolean;
   compressed?: boolean;
@@ -15,7 +15,7 @@ export interface TypographyProps extends React.HTMLAttributes<HTMLElement> {
 
 /**
  * Polymorphic text element. Defaults to a `span`; pages supply their own
- * className. Accepts the nous font flags so existing call sites keep compiling.
+ * className. Accepts the legacy DS font flags so existing call sites keep compiling.
  */
 export function Typography({
   as,

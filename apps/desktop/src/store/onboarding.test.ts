@@ -166,7 +166,7 @@ describe('OAuth onboarding', () => {
     installApiMock(async ({ body, path }: { body?: unknown; path: string }) => {
       calls.push({ body, path })
 
-      if (path === '/api/providers/oauth/nous/submit') {
+      if (path === '/api/providers/oauth/xai-oauth/submit') {
         return { ok: true, status: 'approved' }
       }
 
@@ -174,8 +174,8 @@ describe('OAuth onboarding', () => {
         return {
           providers: [
             {
-              name: 'Cloud Industry Portal',
-              slug: 'nous',
+              name: 'xAI Grok',
+              slug: 'xai-oauth',
               models: [model]
             }
           ]
@@ -183,11 +183,11 @@ describe('OAuth onboarding', () => {
       }
 
       if (path.startsWith('/api/model/recommended-default?')) {
-        return { provider: 'nous', model, free_tier: false }
+        return { provider: 'xai-oauth', model }
       }
 
       if (path === '/api/model/set') {
-        return { ok: true, provider: 'nous', model, gateway_tools: [] }
+        return { ok: true, provider: 'xai-oauth', model }
       }
 
       throw new Error(`unexpected api path: ${path}`)
@@ -213,17 +213,17 @@ describe('OAuth onboarding', () => {
       baseState({
         flow: {
           status: 'awaiting_user',
-          provider: provider('nous', 'Cloud Industry Portal'),
+          provider: provider('xai-oauth', 'xAI Grok'),
           start: {
-            auth_url: 'https://portal.example/auth',
+            auth_url: 'https://auth.example/authorize',
             expires_in: 600,
             flow: 'pkce',
-            session_id: 'portal-session'
+            session_id: 'oauth-session'
           },
           code: 'fresh-code'
         },
         reason:
-          'No access token found for Cloud Industry Portal login. setup.status reports configured credentials, but runtime resolution still failed.',
+          'No access token found for xAI Grok login. setup.status reports configured credentials, but runtime resolution still failed.',
         requested: true
       })
     )
@@ -235,7 +235,7 @@ describe('OAuth onboarding', () => {
     expect(state.flow.status).toBe('confirming_model')
 
     if (state.flow.status === 'confirming_model') {
-      expect(state.flow.label).toBe('Cloud Industry Portal')
+      expect(state.flow.label).toBe('xAI Grok')
       expect(state.flow.currentModel).toBe(model)
     }
 

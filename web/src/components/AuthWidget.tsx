@@ -5,10 +5,10 @@
  * Renders nothing in loopback / --insecure mode. In gated mode, fetches
  * /api/auth/me on mount and surfaces:
  *
- *   - the user_id (truncated to 14 chars + ellipsis) since the Cloud Industry Portal
- *     contract V1 doesn't emit email/display_name claims (Contract Anchor
- *     C4 in the plan; the API responds with empty strings for those
- *     fields, so we use user_id as the display value)
+ *   - the display_name / email when the provider supplies them, else the
+ *     user_id (truncated to 14 chars + ellipsis) — some identity providers
+ *     don't emit email/display_name claims and the API responds with empty
+ *     strings for those fields
  *   - the provider's display_name (looked up from /api/auth/providers,
  *     defaults to the bare provider key)
  *   - a logout button that POSTs /auth/logout and full-page-navigates to
@@ -107,9 +107,8 @@ export function AuthWidget({ className }: AuthWidgetProps) {
     void api.logout();
   };
 
-  // Prefer display_name → email → truncated user_id. Contract V1 only
-  // populates user_id; the fallthroughs are forward-compat for a future
-  // Portal that adds a userinfo endpoint (OQ-C1 in the plan).
+  // Prefer display_name → email → truncated user_id. Not every identity
+  // provider populates the name/email claims.
   const label = me.display_name || me.email || truncateUserId(me.user_id);
 
   return (

@@ -13,12 +13,12 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { matchesQuery, useMediaQuery } from '@/hooks/use-media-query'
 
-import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
+import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, janusTheme } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
 
 const SKIN_KEY = 'janus-desktop-theme-v2'
 const MODE_KEY = 'janus-desktop-mode-v1'
-const RETIRED_SKINS = new Set(['nous-light', 'default', 'gold'])
+const RETIRED_SKINS = new Set(['default', 'gold'])
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -108,7 +108,7 @@ function synthLightColors(seed: DesktopTheme): DesktopThemeColors {
 
 /** Returns the seed palette for a given skin + mode (no overrides applied). */
 export function getBaseColors(skinName: string, mode: 'light' | 'dark'): DesktopThemeColors {
-  const seed = BUILTIN_THEMES[skinName] ?? nousTheme
+  const seed = BUILTIN_THEMES[skinName] ?? janusTheme
 
   if (mode === 'dark') {
     return seed.darkColors ?? seed.colors
@@ -118,7 +118,7 @@ export function getBaseColors(skinName: string, mode: 'light' | 'dark'): Desktop
 }
 
 function deriveTheme(skinName: string, mode: 'light' | 'dark'): DesktopTheme {
-  const seed = BUILTIN_THEMES[skinName] ?? nousTheme
+  const seed = BUILTIN_THEMES[skinName] ?? janusTheme
 
   return {
     ...seed,
@@ -166,7 +166,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
 
   const root = document.documentElement
   const c = theme.colors
-  const typo = { ...DEFAULT_TYPOGRAPHY, ...nousTheme.typography, ...theme.typography }
+  const typo = { ...DEFAULT_TYPOGRAPHY, ...janusTheme.typography, ...theme.typography }
   const rendered = renderedModeFor(c, mode)
   const isDark = rendered === 'dark'
   const midground = c.midground ?? c.ring
@@ -254,7 +254,7 @@ interface ThemeContextValue {
 const SKIN_LIST = BUILTIN_THEME_LIST.map(({ name, label, description }) => ({ name, label, description }))
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: nousTheme,
+  theme: janusTheme,
   themeName: DEFAULT_SKIN_NAME,
   mode: 'light',
   resolvedMode: 'light',
