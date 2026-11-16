@@ -499,6 +499,50 @@ def test_auth_add_xai_oauth_flow_choice(tmp_path, monkeypatch, loopback, manual_
     assert used == [expected]
 
 
+def test_auth_add_xai_oauth_does_not_print_token_claims(tmp_path, monkeypatch, capsys):
+    """The success line must not echo anything decoded from the access token."""
+    import base64
+
+    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
+    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
+    claims = base64.urlsafe_b64encode(json.dumps({"email": "grok-user@example.com"}).encode()).decode().rstrip("=")
+    access_token = f"e30.{claims}.sig"
+    monkeypatch.setattr(
+        "janus_cli.xai_device_login.xai_device_code_login",
+        lambda **kwargs: {
+            "tokens": {"access_token": access_token, "refresh_token": "xai-rt", "id_token": "", "token_type": "Bearer"},
+            "discovery": {"token_endpoint": "https://auth.x.ai/token"},
+            "redirect_uri": "",
+            "base_url": "https://api.x.ai/v1",
+            "last_refresh": "2026-06-02T10:00:00Z",
+        },
+    )
+
+    class _EmptyPool:
+        def entries(self):
+            return []
+
+    monkeypatch.setattr("janus_cli.auth_commands.load_pool", lambda provider: _EmptyPool())
+
+    from janus_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "xai-oauth"
+        auth_type = "oauth"
+        api_key = None
+        label = None
+        timeout = None
+        no_browser = True
+        manual_paste = False
+        loopback = False
+
+    auth_add_command(_Args())
+    out = capsys.readouterr().out
+    assert "Saved xai-oauth OAuth credentials" in out
+    assert "grok-user@example.com" not in out
+    assert access_token not in out
+
+
 def test_auth_remove_reindexes_priorities(tmp_path, monkeypatch):
     monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
     # Prevent pool auto-seeding from host env vars and file-backed sources
