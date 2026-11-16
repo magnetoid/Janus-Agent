@@ -19,10 +19,9 @@
 >   hook pending"* (#9) are **shipped**; *"24 cloud-industry.com README URLs"* (#10/L2) is
 >   now **zero**; *"no public WebSocket/SSE API"* (#12) — one **exists**. These trace to a
 >   single stale `.torsor/active/context.md` note (2026-06-09).
-> - **Branding is retired:** "Cloud Industry" → **Cloud Industry** (ADR 0004); C1's *"Nous
->   Portal"* → **Cloud Industry Portal**; and C1 "Janus Cloud" is partly **already started** at
->   cloud-industry.com (ADR 0005). Provider/model slugs (`nous`, Nous Hermes IDs) are
->   correctly preserved — keep those.
+> - **Branding is retired:** the old upstream branding → **Cloud Industry** (ADR 0004); the
+>   upstream Portal integration has since been removed entirely; and C1 "Janus Cloud" is partly
+>   **already started** at cloud-industry.com (ADR 0005).
 > - **LOC figures are off:** `run_agent.py` is ~5.3k LOC (not 12k); `cli.py` is ~16.2k
 >   (not 11k); test count is ~28.6k (not 17k). The "12k/11k monoliths" framing is unreliable.
 > - **Internal contradictions:** C4 + M1 (multi-tenant) reverse the single-tenant/OS-isolation
@@ -148,7 +147,7 @@ Priorities use **Impact × Feasibility / Cost**:
 
 **Why critical:** The README is explicit that the only distribution is from source. There is no hosted option, no one-line installer, no try-before-install. Every competitor (OpenAI Operator, Anthropic Computer Use, Replit Agent, Devin, Manus, Genspark) ships a hosted URL. This is the single biggest acquisition bottleneck.
 
-**Scope:** Hosted `janus` runtime with persistent profiles, web UI (embed the existing dashboard), OAuth sign-in, pay-per-use LLM routing through Cloud Industry Portal as the default backend.
+**Scope:** Hosted `janus` runtime with persistent profiles, web UI (embed the existing dashboard), OAuth sign-in, pay-per-use LLM routing through a configurable default provider.
 
 **Implementation:** Wrap `tui_gateway` + `janus_cli/web_server.py` behind a stateless container service, persistent storage in Postgres / S3-compatible blob, signed JWT for cross-tab session resume. Reuse profile-isolation machinery.
 
