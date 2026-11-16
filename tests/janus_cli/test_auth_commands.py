@@ -418,7 +418,7 @@ def test_auth_add_xai_oauth_sets_active_provider(tmp_path, monkeypatch):
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
     access_token = "xai-test-access-token"
     monkeypatch.setattr(
-        "janus_cli.auth._xai_oauth_loopback_login",
+        "janus_cli.xai_device_login.xai_device_code_login",
         lambda **kwargs: {
             "tokens": {
                 "access_token": access_token,
@@ -427,10 +427,10 @@ def test_auth_add_xai_oauth_sets_active_provider(tmp_path, monkeypatch):
                 "token_type": "Bearer",
             },
             "discovery": {"token_endpoint": "https://auth.x.ai/token"},
-            "redirect_uri": "http://127.0.0.1:7777/callback",
+            "redirect_uri": "",
             "base_url": "https://api.x.ai/v1",
             "last_refresh": "2026-06-02T10:00:00Z",
-            "source": "oauth-loopback",
+            "source": "oauth-device-code",
         },
     )
 
@@ -456,6 +456,47 @@ def test_auth_add_xai_oauth_sets_active_provider(tmp_path, monkeypatch):
     entries = payload["credential_pool"]["xai-oauth"]
     entry = next(item for item in entries if item["source"] == "loopback_pkce")
     assert entry["refresh_token"] == "xai-refresh-token"
+
+
+@pytest.mark.parametrize(
+    ("loopback", "manual_paste", "expected"),
+    [(False, False, "device"), (True, False, "loopback"), (False, True, "loopback")],
+)
+def test_auth_add_xai_oauth_flow_choice(tmp_path, monkeypatch, loopback, manual_paste, expected):
+    """Device code is the default; --loopback / --manual-paste keep the old flow."""
+    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
+    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
+    used = []
+    creds = {
+        "tokens": {"access_token": "xai-at", "refresh_token": "xai-rt", "id_token": "", "token_type": "Bearer"},
+        "discovery": {"token_endpoint": "https://auth.x.ai/token"},
+        "redirect_uri": "",
+        "base_url": "https://api.x.ai/v1",
+        "last_refresh": "2026-06-02T10:00:00Z",
+    }
+    monkeypatch.setattr(
+        "janus_cli.xai_device_login.xai_device_code_login",
+        lambda **kwargs: used.append("device") or creds,
+    )
+    monkeypatch.setattr(
+        "janus_cli.auth._xai_oauth_loopback_login",
+        lambda **kwargs: used.append("loopback") or creds,
+    )
+
+    from janus_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "xai-oauth"
+        auth_type = "oauth"
+        api_key = None
+        label = None
+        timeout = None
+        no_browser = True
+
+    _Args.loopback = loopback
+    _Args.manual_paste = manual_paste
+    auth_add_command(_Args())
+    assert used == [expected]
 
 
 def test_auth_remove_reindexes_priorities(tmp_path, monkeypatch):

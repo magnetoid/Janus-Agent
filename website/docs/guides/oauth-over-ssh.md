@@ -6,7 +6,7 @@ description: "How to complete browser-based OAuth (xAI, Spotify, MCP servers) wh
 
 # OAuth over SSH / Remote Hosts
 
-Some Janus providers — **xAI Grok OAuth**, **Spotify**, and **remote MCP servers** (Linear, Sentry, Atlassian, Asana, Figma, …) — use a *loopback redirect* OAuth flow. The auth server redirects your browser to `http://127.0.0.1:<port>/callback` so a tiny HTTP listener started by Janus can grab the authorization code.
+Some Janus providers — **xAI Grok OAuth** (only with `--loopback`; its default device-code login needs no callback), **Spotify**, and **remote MCP servers** (Linear, Sentry, Atlassian, Asana, Figma, …) — use a *loopback redirect* OAuth flow. The auth server redirects your browser to `http://127.0.0.1:<port>/callback` so a tiny HTTP listener started by Janus can grab the authorization code.
 
 This works perfectly when Janus and your browser are on the same machine. It breaks the moment they aren't: your laptop's browser tries to reach `127.0.0.1` on **your laptop**, but the listener is bound to `127.0.0.1` on **the remote server**.
 

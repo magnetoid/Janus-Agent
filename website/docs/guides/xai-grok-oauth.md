@@ -20,7 +20,7 @@ The same OAuth bearer token is also reused by every direct-to-xAI surface in Jan
 |------|-------|
 | Provider ID | `xai-oauth` |
 | Display name | xAI Grok OAuth (SuperGrok / X Premium+) |
-| Auth type | Browser OAuth 2.0 PKCE (loopback callback) |
+| Auth type | OAuth 2.0 device code ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)); loopback PKCE with `--loopback` |
 | Transport | xAI Responses API (`codex_responses`) |
 | Default model | `grok-4.3` |
 | Endpoint | `https://api.x.ai/v1` |
@@ -33,7 +33,7 @@ The same OAuth bearer token is also reused by every direct-to-xAI surface in Jan
 - Python 3.9+
 - Janus Agent installed
 - An active **SuperGrok** subscription on your xAI account, **or** an **X Premium+** subscription on the X account you sign in with (xAI links the subscription automatically)
-- A browser available on the local machine (or use `--no-browser` for remote sessions)
+- A browser on any device (the sign-in page can be opened on your phone or laptop; Janus only needs to reach `auth.x.ai`)
 
 :::warning xAI may restrict OAuth API access by tier
 xAI's backend enforces its own allowlist on the OAuth API surface and has been seen to reject standard SuperGrok subscribers with `HTTP 403` (see issue [#26847](https://github.com/magnetoid/janus/issues/26847)) even though the in-app subscription is active. If OAuth login succeeds in the browser but inference returns 403, set `XAI_API_KEY` and switch to the API-key path (`provider: xai`) — that surface is not subject to the same gating today.
@@ -45,8 +45,8 @@ xAI's backend enforces its own allowlist on the OAuth API surface and has been s
 # Launch the provider and model picker
 janus model
 # → Select "xAI Grok OAuth (SuperGrok / X Premium+)" from the provider list
-# → Janus opens your browser to accounts.x.ai
-# → Approve access in the browser
+# → Janus prints a short code and opens accounts.x.ai/oauth2/device
+# → Check that the code matches and approve
 # → Pick a model (grok-4.3 is at the top)
 # → Start chatting
 
@@ -63,44 +63,41 @@ You can trigger a login without going through the model picker:
 janus auth add xai-oauth
 ```
 
+Janus prints a code and a link, for example:
+
+```text
+To sign in to xAI Grok, open this page and confirm the code:
+  https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH
+  Code: ABCD-EFGH
+Waiting for approval (code expires in 30 min)...
+```
+
+Open the link (Janus opens it for you on a desktop), sign in, check that the code matches, and approve. Janus polls xAI in the background and finishes on its own; there is nothing to paste back.
+
+The dashboard and the desktop app use the same flow: they show the code and open the page, then pick up the approval automatically.
+
 ### Remote / headless sessions
 
-On servers, containers, or SSH sessions where no browser is available, Janus detects the remote environment and prints the authorization URL instead of opening a browser.
+The device-code flow needs no local callback, so it works the same over SSH, in containers, and in browser-only consoles (Cloud Shell, Codespaces, EC2 Instance Connect). Janus prints the link instead of opening a browser; open it on any device. No port forwarding is needed.
 
-**Important:** the loopback listener still runs on the remote machine at `127.0.0.1:56121`. The xAI redirect needs to reach *that* listener, so opening the URL on your laptop will fail (`Could not establish connection. We couldn't reach your app.`) unless you forward the port:
+### Browser-redirect login (`--loopback`)
 
-```bash
-# In a separate terminal on your local machine:
-ssh -N -L 56121:127.0.0.1:56121 user@remote-host
-
-# Then in your SSH session on the remote machine:
-janus auth add xai-oauth --no-browser
-# Open the printed authorize URL in your local browser.
-```
-
-Through a jump box / bastion: add `-J jump-user@jump-host`.
-
-See [OAuth over SSH / Remote Hosts](./oauth-over-ssh.md) for the full step-by-step, including ProxyJump chains, mosh/tmux, and ControlMaster gotchas.
-
-### Browser-only remotes (Cloud Shell, Codespaces, EC2 Instance Connect)
-
-If you don't have a regular SSH client (e.g. you're running Janus inside GCP Cloud Shell, GitHub Codespaces, AWS EC2 Instance Connect, Gitpod, or another browser-based console), the `ssh -L` recipe above isn't available. Use `--manual-paste` instead — Janus skips the loopback listener and lets you paste the failed callback URL straight from your browser:
+The older loopback PKCE flow is still available:
 
 ```bash
-janus auth add xai-oauth --manual-paste
-# Or via the model picker:
-janus model --manual-paste
+janus auth add xai-oauth --loopback
+janus model --loopback
 ```
 
-See [OAuth over SSH / Remote Hosts](./oauth-over-ssh.md#browser-only-remote-cloud-shell--codespaces--ec2-instance-connect) for the full walkthrough. Regression fix for [#26923](https://github.com/magnetoid/janus/issues/26923).
+It listens on `127.0.0.1:56121` and waits for xAI to redirect back. xAI's consent page often shows the authorization code on the page instead of redirecting. In that case, paste **just the bare code** at the `Callback URL:` prompt that appears after the wait times out, or start with `--manual-paste` to skip the listener. Janus accepts the full callback URL, a bare `?code=...&state=...` query fragment, or a bare code.
 
-If the consent page renders the authorization code directly on the page (xAI's current behavior on browser-based consoles) instead of redirecting to your `127.0.0.1:56121/callback`, paste **just the bare code value** at the `Callback URL:` prompt — Janus accepts the full URL, a bare `?code=...&state=...` query fragment, or a bare code interchangeably.
+For running the loopback flow on a remote host (SSH port forwarding, ProxyJump chains), see [OAuth over SSH / Remote Hosts](./oauth-over-ssh.md).
 
 ## How the Login Works
 
-1. Janus opens your browser to `accounts.x.ai`.
-2. You sign in (or confirm your existing session) and approve access.
-3. xAI redirects back to Janus and the tokens are saved to `~/.janus/auth.json`.
+1. Janus asks `auth.x.ai` for a device code and shows you the code and the verification link.
+2. You sign in at `accounts.x.ai` (or confirm your existing session), check the code, and approve.
+3. Janus polls xAI's token endpoint until you approve, deny, or the code expires (30 minutes). The tokens are saved to `~/.janus/auth.json`.
 4. From then on, Janus refreshes the access token in the background — you stay signed in until you `janus auth remove xai-oauth` or revoke access from your xAI account settings.
 
 ## Checking Login Status
