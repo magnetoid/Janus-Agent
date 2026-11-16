@@ -246,8 +246,8 @@ def test_e2e_login_then_supervised_gateway_can_read_auth(
     Pre-shim: ``docker exec <c> janus login`` (root) wrote
     /opt/data/auth.json as root:root 0600. The supervised gateway (UID
     10000) couldn't read it, _load_auth_store swallowed PermissionError
-    as a parse failure, and resolve_nous_runtime_credentials raised
-    "Janus is not logged into Cloud Industry Portal" on every message.
+    as a parse failure, so the gateway behaved as if nobody had logged in
+    and every message failed with an authentication error.
 
     We can't do a real OAuth login in a unit test, but we can stand in
     for it by writing the same file shape via `janus config set`-style

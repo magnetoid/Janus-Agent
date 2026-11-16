@@ -91,7 +91,7 @@ def test_dashboard_slot_reports_up_when_enabled(
          "-e", "JANUS_DASHBOARD=1",
          # The default dashboard host is 0.0.0.0, which now engages the
          # OAuth auth gate. Without a provider registered (no
-         # JANUS_DASHBOARD_OAUTH_CLIENT_ID in this test env), start_server
+         # JANUS_DASHBOARD_BASIC_AUTH_* in this test env), start_server
          # would fail closed and the slot would never come up. Pin the
          # explicit insecure opt-in to keep this test focused on the s6
          # supervision contract, not the auth gate.
@@ -307,9 +307,9 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
 ) -> None:
     """The s6 dashboard run script must NOT auto-add ``--insecure`` when the
     dashboard binds to ``0.0.0.0``. The OAuth auth gate engages on its own
-    when a ``DashboardAuthProvider`` is registered (the bundled nous
-    provider activates whenever ``JANUS_DASHBOARD_OAUTH_CLIENT_ID`` is
-    set).
+    when a ``DashboardAuthProvider`` is registered (the bundled basic
+    provider activates when ``JANUS_DASHBOARD_BASIC_AUTH_USERNAME`` and a
+    password are set).
 
     Regression guard for the wildcard-subdomain rollout where every
     portal-provisioned agent binds ``0.0.0.0`` and relies on the OAuth
@@ -322,7 +322,7 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
     on:
 
     1. ``/api/auth/providers`` (publicly reachable through the gate so
-       the login page can bootstrap) returns 200 with ``nous`` in the
+       the login page can bootstrap) returns 200 with ``basic`` in the
        provider list — proves the bundled provider registered.
     2. ``/api/sessions`` (a gated route under both the legacy
        ``_SESSION_TOKEN`` middleware and the OAuth gate) returns 401
@@ -337,7 +337,8 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
         ["docker", "run", "-d", "--name", container_name,
          "-e", "JANUS_DASHBOARD=1",
          "-e", "JANUS_DASHBOARD_HOST=0.0.0.0",
-         "-e", "JANUS_DASHBOARD_OAUTH_CLIENT_ID=agent:test-instance",
+         "-e", "JANUS_DASHBOARD_BASIC_AUTH_USERNAME=operator",
+         "-e", "JANUS_DASHBOARD_BASIC_AUTH_PASSWORD=test-only-password",
          built_image, "sleep", "120"],
         check=True, capture_output=True, timeout=30,
     )
@@ -350,9 +351,9 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
     )
     payload = json.loads(body)
     provider_names = [p.get("name") for p in payload.get("providers", [])]
-    assert "nous" in provider_names, (
-        "Bundled dashboard_auth/nous provider should register when "
-        f"JANUS_DASHBOARD_OAUTH_CLIENT_ID is set. Got: {payload!r}"
+    assert "basic" in provider_names, (
+        "Bundled dashboard_auth/basic provider should register when "
+        f"JANUS_DASHBOARD_BASIC_AUTH_* is set. Got: {payload!r}"
     )
 
     # (2) A gated route (``/api/sessions``) returns 401 to an
