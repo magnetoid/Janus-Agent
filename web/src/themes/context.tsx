@@ -208,8 +208,9 @@ function assetVars(assets: ThemeAssets | undefined): Record<string, string> {
     if (/^(url\(|linear-gradient|radial-gradient|conic-gradient|none$)/i.test(trimmed)) {
       return trimmed;
     }
-    // Bare path / http(s) URL / data: URL → wrap in url().
-    return `url("${trimmed.replace(/"/g, '\\"')}")`;
+    // Bare path / http(s) URL / data: URL → wrap in url(). Escape the
+    // backslash first so a trailing `\` can't swallow the escaped quote.
+    return `url("${trimmed.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")`;
   };
   for (const key of NAMED_ASSET_KEYS) {
     const val = assets[key];
