@@ -12,7 +12,6 @@ import { useI18n } from '@/i18n'
 import { getGlobalModelOptions } from '@/janus'
 import {
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -167,7 +166,6 @@ function useApiKeyCatalog(): ApiKeyOption[] {
 }
 
 const PROVIDER_DISPLAY: Record<string, { order: number; title: string }> = {
-  nous: { order: 0, title: 'Cloud Industry Portal' },
   'openai-codex': { order: 1, title: 'OpenAI OAuth (ChatGPT)' },
   'minimax-oauth': { order: 2, title: 'MiniMax' },
   'qwen-oauth': { order: 3, title: 'Qwen Code' },
@@ -177,8 +175,6 @@ const PROVIDER_DISPLAY: Record<string, { order: number; title: string }> = {
   anthropic: { order: 5, title: 'Anthropic API Key' },
   'claude-code': { order: 6, title: 'Anthropic OAuth: Required Extra Usage Credits to Use Subscription' }
 }
-
-const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
 const providerTitle = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.title ?? p.name
 const orderOf = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.order ?? 99
@@ -319,7 +315,7 @@ export function DesktopOnboardingOverlay({ enabled, onCompleted, requestGateway 
           'relative w-full max-w-[45rem] transition-all duration-500 ease-out',
           bare
             ? ''
-            : 'overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous',
+            : 'overflow-hidden rounded-xl border border-(--stroke-overlay) bg-(--ui-chat-bubble-background) shadow-overlay',
           // Bare confirm screen orchestrates its own per-element exit; the
           // carded states use the simple lift/blur dissolve.
           leaving && !bare
@@ -407,31 +403,9 @@ function Header() {
   )
 }
 
-export const FEATURED_ID = 'nous'
-const SHOW_ALL_KEY = 'janus-onboarding-show-all-v1'
-
-const readShowAll = () => {
-  try {
-    return window.localStorage.getItem(SHOW_ALL_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-const persistShowAll = (value: boolean) => {
-  try {
-    window.localStorage.setItem(SHOW_ALL_KEY, value ? '1' : '0')
-  } catch {
-    // localStorage unavailable — degrade silently.
-  }
-
-  return value
-}
-
 export function Picker({ ctx }: { ctx: OnboardingContext }) {
   const { t } = useI18n()
   const { manual, mode, providers } = useStore($desktopOnboarding)
-  const [showAll, setShowAll] = useState(readShowAll)
   const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
   const hasOauth = ordered.length > 0
   const apiKeyOptions = useApiKeyCatalog()
@@ -459,38 +433,15 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
   }
 
   const select = (p: OAuthProvider) => void startProviderOAuth(p, ctx)
-  const featured = ordered.find(p => p.id === FEATURED_ID) ?? null
-  const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
-  // Collapse the secondary providers behind a disclosure only when Nous
-  // Portal is present to anchor the choice — otherwise show the full list.
-  const collapsible = Boolean(featured) && rest.length > 0
-  const showRest = !collapsible || showAll
 
   return (
     <div className="grid gap-2">
       <div className="grid max-h-[60dvh] gap-2 overflow-y-auto p-1">
-        {featured ? <FeaturedProviderRow onSelect={select} provider={featured} /> : null}
-        {showRest ? (
-          <>
-            {rest.map(p => (
-              <ProviderRow key={p.id} onSelect={select} provider={p} />
-            ))}
-            <KeyProviderRow onClick={() => setOnboardingMode('apikey')} />
-          </>
-        ) : null}
+        {ordered.map(p => (
+          <ProviderRow key={p.id} onSelect={select} provider={p} />
+        ))}
+        <KeyProviderRow onClick={() => setOnboardingMode('apikey')} />
       </div>
-      {collapsible ? (
-        <Button
-          className="mt-1 self-center font-medium"
-          onClick={() => setShowAll(persistShowAll(!showAll))}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          {showAll ? t.onboarding.collapse : t.onboarding.otherProviders}
-          <ChevronDown className={cn('size-3.5 transition', showAll && 'rotate-180')} />
-        </Button>
-      ) : null}
       <div className="flex items-center justify-between gap-3 pt-1">
         {/* First run only: let the user defer the choice and land in the app.
             In manual mode the overlay already has a close affordance, so the
@@ -526,45 +477,6 @@ function ChooseLaterLink() {
     >
       {t.onboarding.chooseLater}
     </Button>
-  )
-}
-
-export function FeaturedProviderRow({
-  onSelect,
-  provider
-}: {
-  onSelect: (provider: OAuthProvider) => void
-  provider: OAuthProvider
-}) {
-  const { t } = useI18n()
-  const loggedIn = provider.status?.logged_in
-
-  return (
-    <button
-      className="group relative flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
-      onClick={() => onSelect(provider)}
-      type="button"
-    >
-      <span aria-hidden className="arc-border arc-reverse arc-nous" />
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <img alt="" className="size-5 shrink-0 rounded" src={assetPath('apple-touch-icon.png')} />
-          <span className="text-[length:var(--conversation-text-font-size)] font-semibold">
-            {providerTitle(provider)}
-          </span>
-          {loggedIn ? (
-            <ConnectedTag />
-          ) : (
-            <span className="inline-flex items-center gap-1.5 bg-primary px-2 py-0.5 text-[0.64rem] font-semibold uppercase tracking-[0.16em] text-primary-foreground">
-              <span aria-hidden="true" className="dither inline-block size-2 shrink-0" />
-              {t.onboarding.recommended}
-            </span>
-          )}
-        </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.featuredPitch}</p>
-      </div>
-      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
-    </button>
   )
 }
 
@@ -938,7 +850,7 @@ function DeviceCode({ code, copied, onCopy }: { code: string; copied: boolean; o
               'flex size-10 items-center justify-center rounded-md border font-mono text-xl font-semibold uppercase transition-colors',
               copied
                 ? 'border-primary/50 text-primary'
-                : 'border-(--stroke-nous) text-foreground group-hover:border-(--ui-stroke-secondary)'
+                : 'border-(--stroke-overlay) text-foreground group-hover:border-(--ui-stroke-secondary)'
             )}
             key={i}
           >
@@ -954,7 +866,7 @@ function CodeBlock({ copied, onCopy, text }: { copied: boolean; onCopy: () => vo
   const { t } = useI18n()
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-(--stroke-nous) px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-md border border-(--stroke-overlay) px-3 py-2">
       <code className="min-w-0 flex-1 truncate font-mono text-sm">
         <span className="mr-2 select-none text-muted-foreground">$</span>
         {text}
@@ -1134,7 +1046,7 @@ function HackeryButton({
   return (
     <button
       className={cn(
-        'group inline-flex items-center gap-2 rounded-md border border-(--stroke-nous) px-6 py-2.5',
+        'group inline-flex items-center gap-2 rounded-md border border-(--stroke-overlay) px-6 py-2.5',
         'font-mono text-xs font-semibold uppercase text-primary',
         'transition-all duration-150 hover:border-primary/60 hover:bg-primary/[0.06]',
         'disabled:pointer-events-none disabled:opacity-50'
@@ -1170,8 +1082,8 @@ function ConfirmingModelPanel({
   // a familiar UI for users who'll see this picker again later.
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Pull pricing + tier for the just-picked default so the confirm card
-  // shows the same $/Mtok + Free/Pro info the picker and CLI do.
+  // Pull pricing for the just-picked default so the confirm card shows the
+  // same $/Mtok info the picker and CLI do.
   const options = useQuery({
     queryKey: ['onboarding-model-options', flow.providerSlug],
     queryFn: () => getGlobalModelOptions()
@@ -1182,7 +1094,6 @@ function ConfirmingModelPanel({
   )
 
   const price = providerRow?.pricing?.[flow.currentModel]
-  const freeTier = providerRow?.free_tier
 
   return (
     <div className="grid place-items-center gap-7 py-6 text-center">
@@ -1198,16 +1109,6 @@ function ConfirmingModelPanel({
           <span className="font-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
             {t.onboarding.defaultModel}
           </span>
-          {freeTier === true && (
-            <span className="rounded-sm bg-emerald-500/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-              {t.onboarding.freeTier}
-            </span>
-          )}
-          {freeTier === false && (
-            <span className="rounded-sm bg-primary/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-primary">
-              {t.onboarding.pro}
-            </span>
-          )}
         </div>
         <p className="font-mono text-base">
           <GlyphText text={scrambledModel} />

@@ -31,10 +31,6 @@ Brave Search, DDGS, and xAI are **search-only** — pair any of them with Firecr
 
 **Per-capability split:** you can use different providers for search and extract independently — for example SearXNG (free) for search and Firecrawl for extract. See [Per-capability configuration](#per-capability-configuration) below.
 
-:::tip Nous Subscribers
-If you have a paid [Cloud Industry Portal](https://portal.cloud-industry.com) subscription, web search and extract are available through the **[Tool Gateway](tool-gateway.md)** via managed Firecrawl — no API key needed. New installs can run `janus setup --portal` to log in and turn on all gateway tools at once; existing installs can flip just web via `janus tools`.
-:::
-
 ---
 
 ## How `web_extract` handles long pages

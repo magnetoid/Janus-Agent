@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from utils import is_truthy_value
-
 
 _DEFAULT_BROWSER_PROVIDER = "local"
 _DEFAULT_MODAL_MODE = "auto"
@@ -39,33 +37,6 @@ def managed_nous_tools_enabled(*, force_fresh: bool = False) -> bool:
         return account_info.tool_gateway_entitled
     except Exception:
         return False
-
-
-def nous_tool_gateway_unavailable_message(
-    capability: str = "the Nous Tool Gateway",
-    *,
-    force_fresh: bool = False,
-) -> str:
-    """Return account-aware guidance for an unavailable Nous Tool Gateway path."""
-    try:
-        from janus_cli.nous_account import (
-            format_nous_portal_entitlement_message,
-            get_nous_portal_account_info,
-        )
-
-        account_info = get_nous_portal_account_info(force_fresh=force_fresh)
-        message = format_nous_portal_entitlement_message(
-            account_info,
-            capability=capability,
-        )
-        if message:
-            return message
-    except Exception:
-        pass
-    return (
-        f"{capability} is unavailable. Run `janus model` to refresh your "
-        "Cloud Industry Portal login and billing status."
-    )
 
 
 def normalize_browser_cloud_provider(value: object | None) -> str:
@@ -144,21 +115,6 @@ def resolve_openai_audio_api_key() -> str:
         os.getenv("VOICE_TOOLS_OPENAI_KEY", "")
         or os.getenv("OPENAI_API_KEY", "")
     ).strip()
-
-
-def prefers_gateway(config_section: str) -> bool:
-    """Return True when the user opted into the Tool Gateway for this tool.
-
-    Reads ``<section>.use_gateway`` from config.yaml.  Never raises.
-    """
-    try:
-        from janus_cli.config import load_config
-        section = (load_config() or {}).get(config_section)
-        if isinstance(section, dict):
-            return is_truthy_value(section.get("use_gateway"), default=False)
-    except Exception:
-        pass
-    return False
 
 
 def fal_key_is_configured() -> bool:

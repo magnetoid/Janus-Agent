@@ -54,32 +54,17 @@ afterEach(() => {
 })
 
 describe('onboarding Picker', () => {
-  it('features Cloud Industry Portal and hides other providers behind a disclosure', () => {
-    setProviders([provider('anthropic', 'Anthropic Claude'), provider('nous', 'Cloud Industry Portal')])
-    render(<Picker ctx={ctx} />)
-
-    expect(screen.getByText('Cloud Industry Portal')).toBeTruthy()
-    expect(screen.getByText('Recommended')).toBeTruthy()
-    expect(screen.queryByText('Anthropic API Key')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Other providers' }))
-
-    expect(screen.getByText('Anthropic API Key')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
-  })
-
-  it('shows every provider directly when Cloud Industry Portal is absent', () => {
+  it('lists every provider directly, plus the API-key row', () => {
     setProviders([provider('anthropic', 'Anthropic Claude'), provider('openai-codex', 'OpenAI Codex / ChatGPT')])
     render(<Picker ctx={ctx} />)
 
     expect(screen.getByText('Anthropic API Key')).toBeTruthy()
     expect(screen.getByText('OpenAI OAuth (ChatGPT)')).toBeTruthy()
-    expect(screen.queryByText('Other sign-in options')).toBeNull()
-    expect(screen.queryByText('Recommended')).toBeNull()
+    expect(screen.getByText('OpenRouter')).toBeTruthy()
   })
 
   it('offers "choose later" on first run and persists the skip', () => {
-    setProviders([provider('nous', 'Cloud Industry Portal')])
+    setProviders([provider('openai-codex', 'OpenAI Codex / ChatGPT')])
     render(<Picker ctx={ctx} />)
 
     const skip = screen.getByRole('button', { name: "I'll choose a provider later" })
@@ -91,7 +76,7 @@ describe('onboarding Picker', () => {
   })
 
   it('hides "choose later" in manual (add-provider) mode', () => {
-    setProviders([provider('nous', 'Cloud Industry Portal')])
+    setProviders([provider('openai-codex', 'OpenAI Codex / ChatGPT')])
     $desktopOnboarding.set({ ...$desktopOnboarding.get(), manual: true })
     render(<Picker ctx={ctx} />)
 

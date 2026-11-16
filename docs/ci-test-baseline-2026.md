@@ -111,7 +111,7 @@ by category:
 
 | Bug | Impact |
 |---|---|
-| `agent_runtime_helpers.py` still matched the pre-rebrand `imbalabs` domain | Portal traffic got 0% prompt-cache hits and re-billed the full prompt every turn |
+| `agent_runtime_helpers.py` still matched a stale pre-rebrand provider domain | That provider's traffic got 0% prompt-cache hits and re-billed the full prompt every turn |
 | `.janus-bootstrap-complete` was not in `.gitignore` | `janus update`'s `git stash -u` swept it, re-triggering bootstrap on every update (#38529) |
 | `auxiliary.dialectic_{advocate,skeptic,arbiter}` missing from `DEFAULT_CONFIG` | The three dialectic stances could not be configured or model-pinned |
 | `autonomy` / `self-improve` missing from `_BUILTIN_SUBCOMMANDS` | Plugin discovery ran eagerly on two built-in commands that should skip it |

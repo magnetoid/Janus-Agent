@@ -20,7 +20,6 @@ from typing import Any, Dict, Mapping
 _PERSISTABLE_PROVIDER_SOURCES = frozenset({
     ("anthropic", "janus_pkce"),
     ("minimax-oauth", "oauth"),
-    ("nous", "device_code"),
     ("openai-codex", "device_code"),
     ("xai-oauth", "loopback_pkce"),
 })
@@ -31,11 +30,6 @@ _SAFE_SECRETISH_METADATA_KEYS = frozenset({
     "token_type",
     "scope",
     "client_id",
-    "agent_key_id",
-    "agent_key_expires_at",
-    "agent_key_expires_in",
-    "agent_key_reused",
-    "agent_key_obtained_at",
     "expires_at",
     "expires_at_ms",
     "expires_in",

@@ -46,10 +46,7 @@ const FONT_STORAGE_KEY = "janus-dashboard-font";
  *  because the lookup in `resolveTheme` no longer finds the stale key.
  *  Keep entries here until enough release cycles have passed that we can
  *  reasonably assume nobody still has the old value persisted. */
-const THEME_NAME_ALIASES: Record<string, string> = {
-  // Renamed during the LENS_5I port + Nous-blue rebrand.
-  "lens-5i": "nous-blue",
-};
+const THEME_NAME_ALIASES: Record<string, string> = {};
 
 function migrateThemeName(name: string): string {
   return THEME_NAME_ALIASES[name] ?? name;
@@ -355,8 +352,8 @@ function applyTheme(theme: DashboardTheme) {
     root.style.removeProperty(cssVar);
   }
   // Same clear-then-set for series colors so a theme that defines them
-  // (e.g. Nous Blue) doesn't leave its values behind when the user
-  // switches to a theme that inherits the `:root` defaults.
+  // doesn't leave its values behind when the user switches to a theme that
+  // inherits the `:root` defaults.
   for (const cssVar of ALL_SERIES_VARS) {
     root.style.removeProperty(cssVar);
   }

@@ -32,20 +32,20 @@ vi.mock('@/store/onboarding', () => ({
 }))
 
 beforeEach(() => {
-  getGlobalModelInfo.mockResolvedValue({ provider: 'nous', model: 'hermes-4' })
+  getGlobalModelInfo.mockResolvedValue({ provider: 'anthropic', model: 'claude-sonnet-4.6' })
   getGlobalModelOptions.mockResolvedValue({
     providers: [
-      { name: 'Nous', slug: 'nous', models: ['hermes-4', 'hermes-4-mini'], authenticated: true },
+      { name: 'Anthropic', slug: 'anthropic', models: ['claude-sonnet-4.6', 'claude-haiku-4.5'], authenticated: true },
       // An unconfigured api_key provider — surfaced by the full-universe payload.
       { name: 'DeepSeek', slug: 'deepseek', models: [], authenticated: false, auth_type: 'api_key', key_env: 'DEEPSEEK_API_KEY' }
     ]
   })
   getAuxiliaryModels.mockResolvedValue({
-    main: { provider: 'nous', model: 'hermes-4' },
+    main: { provider: 'anthropic', model: 'claude-sonnet-4.6' },
     tasks: [{ task: 'vision', provider: 'auto', model: '', base_url: '' }]
   })
-  setModelAssignment.mockResolvedValue({ provider: 'nous', model: 'hermes-4', gateway_tools: [] })
-  getRecommendedDefaultModel.mockResolvedValue({ provider: 'deepseek', model: 'deepseek-chat', free_tier: null })
+  setModelAssignment.mockResolvedValue({ provider: 'anthropic', model: 'claude-sonnet-4.6' })
+  getRecommendedDefaultModel.mockResolvedValue({ provider: 'deepseek', model: 'deepseek-chat' })
   setEnvVar.mockResolvedValue({ ok: true })
 })
 
@@ -72,9 +72,9 @@ describe('ModelSettings', () => {
     const triggers = await screen.findAllByRole('combobox')
     fireEvent.click(triggers[0])
 
-    // "Nous" shows in both the trigger and the open list; the unconfigured
+    // "Anthropic" shows in both the trigger and the open list; the unconfigured
     // provider + its setup hint are the unique signal of the full universe.
-    expect((await screen.findAllByText('Nous')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Anthropic')).length).toBeGreaterThan(0)
     expect(await screen.findByText(/DeepSeek/)).toBeTruthy()
     expect(await screen.findByText(/set up/)).toBeTruthy()
   })
@@ -116,8 +116,8 @@ describe('ModelSettings', () => {
 
     await waitFor(() =>
       expect(setModelAssignment).toHaveBeenCalledWith({
-        model: 'hermes-4',
-        provider: 'nous',
+        model: 'claude-sonnet-4.6',
+        provider: 'anthropic',
         scope: 'auxiliary',
         task: 'vision'
       })
@@ -128,8 +128,7 @@ describe('ModelSettings', () => {
     setModelAssignment.mockResolvedValueOnce({
       provider: 'openrouter',
       model: 'anthropic/claude-opus-4.7',
-      gateway_tools: [],
-      stale_aux: [{ task: 'compression', provider: 'nous', model: 'hermes-4' }]
+      stale_aux: [{ task: 'compression', provider: 'anthropic', model: 'claude-sonnet-4.6' }]
     })
 
     await renderModelSettings()
@@ -140,12 +139,12 @@ describe('ModelSettings', () => {
 
     // The switch-time notice names the pinned provider and offers a reset.
     expect(await screen.findByText(/still run on/)).toBeTruthy()
-    expect(screen.getByText('nous')).toBeTruthy()
+    expect(screen.getByText('anthropic')).toBeTruthy()
   })
 
   it('shows a persistent banner when a loaded aux slot mismatches the main provider', async () => {
     getAuxiliaryModels.mockResolvedValueOnce({
-      main: { provider: 'nous', model: 'hermes-4' },
+      main: { provider: 'anthropic', model: 'claude-sonnet-4.6' },
       tasks: [{ task: 'curator', provider: 'openrouter', model: 'anthropic/claude-opus-4.7', base_url: '' }]
     })
 

@@ -8,10 +8,6 @@ description: "Practical advice to get the most out of Janus Agent — prompt tip
 
 A quick-wins collection of practical tips that make you immediately more effective with Janus Agent. Each section targets a different aspect — scan the headers and jump to what's relevant.
 
-:::tip Confused which model to pick?
-Run `janus setup --portal` — you get 300+ models including Claude, GPT-5, and Gemini under one subscription. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 ---
 
 ## Getting the Best Results

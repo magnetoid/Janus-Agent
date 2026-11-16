@@ -89,10 +89,10 @@ dashboard 的 OAuth 鉴权门控会自动启用：
 1. 绑定地址为非回环地址，**且**
 2. 注册了一个 `DashboardAuthProvider` 插件。
 
-捆绑的 `dashboard_auth/nous` 提供者会在设置
-`JANUS_DASHBOARD_OAUTH_CLIENT_ID` 时自动激活（参见
+捆绑的 `basic`（用户名/密码）和 `self_hosted`（自托管 OIDC）
+提供者都可以满足第二个条件（参见
 [Web Dashboard → 鉴权](features/web-dashboard.md)）。门控启用后，
-浏览器调用方会先被重定向到所配置门户的 OAuth 流，然后才能
+浏览器调用方会先被重定向到登录页面，然后才能
 访问任何受保护路由。
 
 如果未注册提供者且绑定为非回环地址，dashboard **会在启动时

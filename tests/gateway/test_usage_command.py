@@ -226,10 +226,9 @@ class TestUsageAccountSection:
         calls = []
 
         async def _fake_to_thread(fn, *args, **kwargs):
-            # /usage dispatches BOTH the account fetch (fetch_account_usage, called
-            # with the provider positionally) and the Nous credits fetch
-            # (nous_credits_lines, markdown-only) through to_thread — record every
-            # call rather than last-wins so we can pick out the account fetch.
+            # Record every to_thread call rather than last-wins so we can pick
+            # out the account fetch (fetch_account_usage, called with the
+            # provider positionally).
             calls.append({"args": args, "kwargs": kwargs})
             return fn(*args, **kwargs)
 
@@ -245,9 +244,6 @@ class TestUsageAccountSection:
                 "Provider: openai-codex (Pro)",
             ],
         )
-        # The credits block routes through the shared nous_credits_lines() helper;
-        # stub it so this account-section test stays hermetic (no portal/auth lookup).
-        monkeypatch.setattr("agent.account_usage.nous_credits_lines", lambda markdown=False: [])
 
         event = MagicMock()
         result = await runner._handle_usage_command(event)

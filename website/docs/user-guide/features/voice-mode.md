@@ -22,10 +22,6 @@ Before using voice features, make sure you have:
 The `~/.janus/` directory and default `config.yaml` are created automatically the first time you run `janus`. You only need to create `~/.janus/.env` manually for API keys.
 :::
 
-:::tip Cloud Industry Portal covers both
-A paid [Cloud Industry Portal](/user-guide/features/tool-gateway) subscription supplies the LLM (step 2) **and** OpenAI TTS via the Tool Gateway — no separate OpenAI key needed. On a fresh install, `janus setup --portal` wires both up at once.
-:::
-
 ## Overview
 
 | Feature | Platform | Description |

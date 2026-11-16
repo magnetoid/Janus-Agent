@@ -178,11 +178,6 @@ MODEL_STRATEGIES = {
             ),
         },
     },
-    # Nous/Janus models — already uncensored, just needs clean prompt
-    "janus": {
-        "order": ["prefill_only"],
-        "system_templates": {},
-    },
     # DeepSeek — keyword-based classifiers, parseltongue effective
     "deepseek": {
         "order": ["parseltongue", "refusal_inversion", "prefill_only"],
@@ -305,8 +300,6 @@ def _detect_model_family(model: str) -> str:
         return "gemini"
     if "grok" in model_lower or "x-ai" in model_lower:
         return "grok"
-    if "janus" in model_lower or "nous" in model_lower:
-        return "janus"
     if "deepseek" in model_lower:
         return "deepseek"
     if "llama" in model_lower or "meta" in model_lower:

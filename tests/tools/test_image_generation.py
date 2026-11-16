@@ -3,8 +3,7 @@
 Covers the pure logic of the new wrapper: catalog integrity, the three size
 families (image_size_preset / aspect_ratio / gpt_literal), the supports
 whitelist, default merging, GPT quality override, and model resolution
-fallback. Does NOT exercise fal_client submission — that's covered by
-tests/tools/test_managed_media_gateways.py.
+fallback, plus the direct ``fal_client.submit`` path.
 """
 
 from __future__ import annotations
@@ -258,7 +257,7 @@ class TestDefaults:
 
 class TestGptQualityPinnedToMedium:
     """GPT-Image quality is baked into the FAL_MODELS defaults at 'medium'
-    and cannot be overridden via config. Pinning keeps Cloud Industry Portal billing
+    and cannot be overridden via config. Pinning keeps per-image cost
     predictable across all users."""
 
     def test_gpt_payload_always_has_medium_quality(self, image_tool):
@@ -375,7 +374,7 @@ class TestRegistryIntegration:
 
 
 # ---------------------------------------------------------------------------
-# Managed gateway 4xx translation
+# Direct FAL submission
 # ---------------------------------------------------------------------------
 
 class _MockResponse:
@@ -390,86 +389,25 @@ class _MockHttpxError(Exception):
         self.response = _MockResponse(status_code)
 
 
-class TestExtractHttpStatus:
-    """Status-code extraction should work across exception shapes."""
-
-    def test_extracts_from_response_attr(self, image_tool):
-        exc = _MockHttpxError(403)
-        assert image_tool._extract_http_status(exc) == 403
-
-    def test_extracts_from_status_code_attr(self, image_tool):
-        exc = Exception("fail")
-        exc.status_code = 404  # type: ignore[attr-defined]
-        assert image_tool._extract_http_status(exc) == 404
-
-    def test_returns_none_for_non_http_exception(self, image_tool):
-        assert image_tool._extract_http_status(ValueError("nope")) is None
-        assert image_tool._extract_http_status(RuntimeError("nope")) is None
-
-    def test_response_attr_without_status_code_returns_none(self, image_tool):
-        class OddResponse:
-            pass
-        exc = Exception("weird")
-        exc.response = OddResponse()  # type: ignore[attr-defined]
-        assert image_tool._extract_http_status(exc) is None
-
-
-class TestManagedGatewayErrorTranslation:
-    """4xx from the Nous managed gateway should be translated to a user-actionable message."""
-
-    def test_4xx_translates_to_value_error_with_remediation(self, image_tool, monkeypatch):
-        """403 from managed gateway → ValueError mentioning FAL_KEY + janus tools."""
+class TestDirectFalSubmission:
+    def test_submit_uses_fal_client_with_idempotency_header(self, image_tool, monkeypatch):
         from unittest.mock import MagicMock
 
-        # Simulate: managed mode active, managed submit raises 4xx.
-        managed_gateway = MagicMock()
-        managed_gateway.gateway_origin = "https://fal-queue-gateway.example.com"
-        managed_gateway.nous_user_token = "test-token"
-        monkeypatch.setattr(image_tool, "_resolve_managed_fal_gateway",
-                            lambda: managed_gateway)
+        fake_fal_client = MagicMock()
+        monkeypatch.setattr(image_tool, "fal_client", fake_fal_client)
 
-        bad_request = _MockHttpxError(403, "Forbidden")
-        mock_managed_client = MagicMock()
-        mock_managed_client.submit.side_effect = bad_request
-        monkeypatch.setattr(image_tool, "_get_managed_fal_client",
-                            lambda gw: mock_managed_client)
+        handle = image_tool._submit_fal_request("fal-ai/flux-2-pro", {"prompt": "x"})
 
-        with pytest.raises(ValueError) as exc_info:
-            image_tool._submit_fal_request("fal-ai/nano-banana-pro", {"prompt": "x"})
-
-        msg = str(exc_info.value)
-        assert "fal-ai/nano-banana-pro" in msg
-        assert "403" in msg
-        assert "FAL_KEY" in msg
-        assert "janus tools" in msg
-        # Original exception chained for debugging
-        assert exc_info.value.__cause__ is bad_request
-
-    def test_5xx_is_not_translated(self, image_tool, monkeypatch):
-        """500s are real outages, not model-availability issues — don't rewrite them."""
-        from unittest.mock import MagicMock
-
-        managed_gateway = MagicMock()
-        monkeypatch.setattr(image_tool, "_resolve_managed_fal_gateway",
-                            lambda: managed_gateway)
-
-        server_error = _MockHttpxError(502, "Bad Gateway")
-        mock_managed_client = MagicMock()
-        mock_managed_client.submit.side_effect = server_error
-        monkeypatch.setattr(image_tool, "_get_managed_fal_client",
-                            lambda gw: mock_managed_client)
-
-        with pytest.raises(_MockHttpxError):
-            image_tool._submit_fal_request("fal-ai/flux-2-pro", {"prompt": "x"})
+        assert handle is fake_fal_client.submit.return_value
+        args, kwargs = fake_fal_client.submit.call_args
+        assert args == ("fal-ai/flux-2-pro",)
+        assert kwargs["arguments"] == {"prompt": "x"}
+        assert set(kwargs["headers"]) == {"x-idempotency-key"}
 
     def test_direct_fal_errors_are_not_translated(self, image_tool, monkeypatch):
-        """When user has direct FAL_KEY (managed gateway returns None), raw
-        errors from fal_client bubble up unchanged — fal_client already
+        """Raw errors from fal_client bubble up unchanged — fal_client already
         provides reasonable error messages for direct usage."""
         from unittest.mock import MagicMock
-
-        monkeypatch.setattr(image_tool, "_resolve_managed_fal_gateway",
-                            lambda: None)
 
         direct_error = _MockHttpxError(403, "Forbidden")
         fake_fal_client = MagicMock()
@@ -477,22 +415,4 @@ class TestManagedGatewayErrorTranslation:
         monkeypatch.setattr(image_tool, "fal_client", fake_fal_client)
 
         with pytest.raises(_MockHttpxError):
-            image_tool._submit_fal_request("fal-ai/flux-2-pro", {"prompt": "x"})
-
-    def test_non_http_exception_from_managed_bubbles_up(self, image_tool, monkeypatch):
-        """Connection errors, timeouts, etc. from managed mode aren't 4xx —
-        they should bubble up unchanged so callers can retry or diagnose."""
-        from unittest.mock import MagicMock
-
-        managed_gateway = MagicMock()
-        monkeypatch.setattr(image_tool, "_resolve_managed_fal_gateway",
-                            lambda: managed_gateway)
-
-        conn_error = ConnectionError("network down")
-        mock_managed_client = MagicMock()
-        mock_managed_client.submit.side_effect = conn_error
-        monkeypatch.setattr(image_tool, "_get_managed_fal_client",
-                            lambda gw: mock_managed_client)
-
-        with pytest.raises(ConnectionError):
             image_tool._submit_fal_request("fal-ai/flux-2-pro", {"prompt": "x"})

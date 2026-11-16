@@ -78,7 +78,7 @@ A $5 VPS, a GPU cluster, or <b>serverless infrastructure that hibernates when id
 </tr>
 <tr>
 <td width="50%"><h3>🔀 Any model, zero lock-in</h3>
-Cloud Industry Portal, OpenRouter (200+ models), NVIDIA NIM, z.ai/GLM, Kimi, MiniMax, Hugging Face, OpenAI, or your own endpoint. Switch with <code>janus model</code> — no code changes. And it <b>learns which model is best for which kind of task</b>, then routes cheap work to cheap models and hard work to strong ones.</td>
+OpenRouter (200+ models), Anthropic, xAI, NVIDIA NIM, z.ai/GLM, Kimi, MiniMax, Hugging Face, OpenAI, or your own endpoint. Switch with <code>janus model</code> — no code changes. And it <b>learns which model is best for which kind of task</b>, then routes cheap work to cheap models and hard work to strong ones.</td>
 <td width="50%"><h3>🧭 Delegates and parallelizes</h3>
 Spawns isolated subagents for parallel workstreams and folds their results back in. Writes Python that calls tools over RPC, collapsing multi-step pipelines into a single zero-context-cost turn. Big jobs fan out; you get one clean answer.</td>
 </tr>
@@ -202,23 +202,6 @@ The slash variants (`/memory`, `/aspire`, `/interest`, …) work from the messag
 
 ---
 
-## 🔑 Skip the API-key scavenger hunt — Cloud Industry Portal
-
-Janus works with whatever provider you want — that's not changing. But if you'd rather not collect five separate API keys for the model, web search, image generation, TTS, and a cloud browser, **[Cloud Industry Portal](https://portal.cloud-industry.com)** covers all of them under one subscription:
-
-- **300+ models** — pick any with `/model <name>`
-- **Tool Gateway** — web search (Firecrawl), image generation (FAL), text-to-speech (OpenAI), cloud browser (Browser Use) — all routed through your sub. No extra accounts.
-
-One command from a fresh install:
-
-```bash
-janus setup --portal
-```
-
-That logs you in via OAuth, sets the provider, and turns on the Tool Gateway. Check what's wired up any time with `janus portal info`. You can still bring your own keys per-tool whenever you want — the gateway is per-backend, not all-or-nothing.
-
----
-
 ## 📟 CLI vs Messaging — quick reference
 
 Two entry points: start the terminal UI with `janus`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, most slash commands are shared.
@@ -288,7 +271,7 @@ janus migrate hermes         # Import ~/.hermes into ~/.janus (add --dry-run to 
 janus claw migrate           # Import an OpenClaw install (settings, memories, skills, keys)
 ```
 
-`janus setup` also auto-detects both during first-time setup and offers to migrate before configuration begins. Top-level directories are merged (new files copied in, existing kept); Nous Hermes model IDs and the `nous` provider slug are preserved so your model config keeps working. See `janus migrate hermes --help` / `janus claw migrate --help` for all options.
+`janus setup` also auto-detects both during first-time setup and offers to migrate before configuration begins. Top-level directories are merged (new files copied in, existing kept). See `janus migrate hermes --help` / `janus claw migrate --help` for all options.
 
 ---
 

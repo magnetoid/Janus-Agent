@@ -286,8 +286,6 @@ class TestUnconfiguredErrorEnvelopeParity:
             "PARALLEL_API_KEY",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
-            "FIRECRAWL_GATEWAY_URL",
-            "TOOL_GATEWAY_DOMAIN",
         ):
             monkeypatch.delenv(k, raising=False)
 

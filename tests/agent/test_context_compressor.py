@@ -507,7 +507,7 @@ class TestSummaryFallbackToMainModel:
         mock_ok.choices = [MagicMock()]
         mock_ok.choices[0].message.content = "summary via main model"
 
-        # A 400 from OpenRouter / Nous portal with an opaque message — does
+        # A 400 from OpenRouter / an aggregator with an opaque message — does
         # NOT match _is_model_not_found, but still an unrecoverable misconfig.
         err_400 = Exception("400 Bad Request: provider rejected model")
         err_400.status_code = 400

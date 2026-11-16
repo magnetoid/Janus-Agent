@@ -33,7 +33,7 @@ type Variant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
 export interface ButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "prefix">,
     VariantProps<typeof buttonVariants> {
-  /** nous-compat boolean variant shortcuts (override `variant`). */
+  /** Legacy-DS-compat boolean variant shortcuts (override `variant`). */
   ghost?: boolean;
   destructive?: boolean;
   outlined?: boolean;

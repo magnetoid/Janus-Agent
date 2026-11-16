@@ -675,7 +675,6 @@ export const ja = defineLocale({
         'このツールセットにはプロバイダーのオプションがありません。有効にすれば現在の設定で動作します。',
       noProviders: '現在このツールセットに利用可能なプロバイダーがありません。',
       ready: '準備完了',
-      nousIncluded: 'Nous サブスクリプションに含まれています。有効にするには Cloud Industry Portal にサインインしてください。',
       noApiKeyRequired: 'API キーは不要です。',
       postSetupHint: step =>
         `このバックエンドは一度だけインストールが必要です (${step})。このマシン上で実行され、数分かかる場合があります。`,
@@ -1443,13 +1442,9 @@ export const ja = defineLocale({
     preparingInstall: 'Janus はインストールを完了中です。初回実行では通常 1 分以内に完了します。',
     starting: 'Janus を起動中…',
     lookingUpProviders: 'プロバイダーを検索中...',
-    collapse: '折りたたむ',
-    otherProviders: 'その他のプロバイダー',
     haveApiKey: 'API キーをお持ちです',
     chooseLater: '後でプロバイダーを選択します',
-    recommended: '推奨',
     connected: '接続済み',
-    featuredPitch: '1 つのサブスクリプションで 300 以上の最先端モデル — Janus を実行するための推奨方法',
     openRouterPitch: '1 つのキーで数百のモデル — 堅実なデフォルト',
     apiKeyOptions: {
       openrouter: {
@@ -1501,8 +1496,6 @@ export const ja = defineLocale({
     reopenVerification: '確認ページを再度開く',
     copy: 'コピー',
     defaultModel: 'デフォルトモデル',
-    freeTier: '無料プラン',
-    pro: 'Pro',
     free: '無料',
     price: (input, output) => `${input} 入力 / ${output} 出力 per Mtok`,
     change: '変更',
@@ -1521,10 +1514,7 @@ export const ja = defineLocale({
     addProvider: 'プロバイダーを追加',
     loadFailed: 'モデルを読み込めませんでした',
     noAuthenticatedProviders: '認証済みプロバイダーがありません。',
-    pro: 'Pro',
-    proNeedsSubscription: 'Pro モデルには有料の Nous サブスクリプションが必要です。',
     free: '無料',
-    freeTier: '無料プラン',
     priceTitle: '100 万トークンあたりの入力/出力価格'
   },
 

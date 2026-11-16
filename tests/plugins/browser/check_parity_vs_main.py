@@ -53,9 +53,8 @@ os.environ["JANUS_HOME"] = home
 # Clear every browser-related env var so is_available() is deterministic.
 for k in (
     "BROWSERBASE_API_KEY", "BROWSERBASE_PROJECT_ID", "BROWSERBASE_BASE_URL",
-    "BROWSER_USE_API_KEY", "BROWSER_USE_GATEWAY_URL",
+    "BROWSER_USE_API_KEY",
     "FIRECRAWL_API_KEY", "FIRECRAWL_API_URL", "FIRECRAWL_BROWSER_TTL",
-    "TOOL_GATEWAY_DOMAIN", "TOOL_GATEWAY_USER_TOKEN",
 ):
     os.environ.pop(k, None)
 

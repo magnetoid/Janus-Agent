@@ -21,48 +21,48 @@ const SYSTEM_MONO =
 
 export const DEFAULT_TYPOGRAPHY: DesktopThemeTypography = { fontSans: SYSTEM_SANS, fontMono: SYSTEM_MONO }
 
-const NOUS_BLUE = '#0053FD'
+const JANUS_BLUE = '#0053FD'
 const PSYCHE_BLUE = '#1540B1'
 const PSYCHE_WARM = '#FFE6CB'
 
-const nousTint = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, #FFFFFF)`
-const nousTintTransparent = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, transparent)`
+const blueTint = (pct: number) => `color-mix(in srgb, ${JANUS_BLUE} ${pct}%, #FFFFFF)`
+const blueTintTransparent = (pct: number) => `color-mix(in srgb, ${JANUS_BLUE} ${pct}%, transparent)`
 
 /**
- * Nous — canonical Janus desktop identity. The palette keeps the current
- * glass geometry neutral, then lets the old bb/gui blue and psyche cream
- * return as accent seeds.
+ * Janus — canonical desktop identity. The palette keeps the current glass
+ * geometry neutral, then lets the old bb/gui blue and psyche cream return as
+ * accent seeds.
  */
-export const nousTheme: DesktopTheme = {
-  name: 'nous',
-  label: 'Nous',
-  description: 'Glass neutrals with Nous blue accents',
+export const janusTheme: DesktopTheme = {
+  name: 'janus',
+  label: 'Janus',
+  description: 'Glass neutrals with blue accents',
   colors: {
     background: '#F8FAFF',
     foreground: '#17171A',
     card: '#FFFFFF',
     cardForeground: '#17171A',
-    muted: nousTint(5),
+    muted: blueTint(5),
     mutedForeground: '#666678',
     popover: '#FFFFFF',
     popoverForeground: '#17171A',
-    primary: NOUS_BLUE,
+    primary: JANUS_BLUE,
     primaryForeground: '#FCFCFC',
-    secondary: nousTint(7),
+    secondary: blueTint(7),
     secondaryForeground: '#242432',
-    accent: nousTint(10),
+    accent: blueTint(10),
     accentForeground: '#202030',
-    border: nousTintTransparent(22),
-    input: nousTintTransparent(30),
-    ring: NOUS_BLUE,
-    midground: NOUS_BLUE,
-    composerRing: NOUS_BLUE,
+    border: blueTintTransparent(22),
+    input: blueTintTransparent(30),
+    ring: JANUS_BLUE,
+    midground: JANUS_BLUE,
+    composerRing: JANUS_BLUE,
     destructive: '#C72E4D',
     destructiveForeground: '#FFFFFF',
     sidebarBackground: '#F3F7FF',
-    sidebarBorder: nousTintTransparent(18),
-    userBubble: nousTint(6),
-    userBubbleBorder: nousTintTransparent(24)
+    sidebarBorder: blueTintTransparent(18),
+    userBubble: blueTint(6),
+    userBubbleBorder: blueTintTransparent(24)
   },
   darkColors: {
     background: '#0D2F86',
@@ -82,7 +82,7 @@ export const nousTheme: DesktopTheme = {
     border: '#3158AD',
     input: '#0B2566',
     ring: PSYCHE_WARM,
-    midground: NOUS_BLUE,
+    midground: JANUS_BLUE,
     composerRing: PSYCHE_WARM,
     destructive: '#C0473A',
     destructiveForeground: '#FEF2F2',
@@ -279,7 +279,7 @@ export const slateTheme: DesktopTheme = {
 }
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
-  nous: nousTheme,
+  janus: janusTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,
@@ -290,4 +290,4 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
 /** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+export const DEFAULT_SKIN_NAME = 'janus'

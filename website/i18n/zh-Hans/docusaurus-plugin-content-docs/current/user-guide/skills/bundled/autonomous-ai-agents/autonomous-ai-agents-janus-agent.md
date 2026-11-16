@@ -98,7 +98,7 @@ janus chat [flags]
   -q, --query TEXT          Single query, non-interactive
   -m, --model MODEL         Model (e.g. anthropic/claude-sonnet-4)
   -t, --toolsets LIST       Comma-separated toolsets
-  --provider PROVIDER       Force provider (openrouter, anthropic, nous, etc.)
+  --provider PROVIDER       Force provider (openrouter, anthropic, xai, etc.)
   -v, --verbose             Verbose output
   -Q, --quiet               Suppress banner, spinner, tool previews
   --checkpoints             Enable filesystem checkpoints (/rollback)
@@ -118,7 +118,7 @@ janus config env-path      Print .env path
 janus config check         Check for missing/outdated config
 janus config migrate       Update config with new options
 janus auth                 交互式凭据管理器
-janus auth add PROVIDER    添加 OAuth 或 API key 凭据（例如 nous、openai-codex、qwen-oauth）
+janus auth add PROVIDER    添加 OAuth 或 API key 凭据（例如 anthropic、openai-codex、qwen-oauth）
 janus auth list            列出已存储的凭据
 janus auth remove PROVIDER 移除已存储的凭据
 janus doctor [--fix]       Check dependencies and config
@@ -387,7 +387,6 @@ Profiles 使用 `~/.janus/profiles/<name>/`，布局相同。
 |----------|------|-------------|
 | OpenRouter | API key | `OPENROUTER_API_KEY` |
 | Anthropic | API key | `ANTHROPIC_API_KEY` |
-| Cloud Industry Portal | OAuth | `janus auth` |
 | OpenAI Codex | OAuth | `janus auth` |
 | GitHub Copilot | Token | `COPILOT_GITHUB_TOKEN` |
 | Google Gemini | API key | `GOOGLE_API_KEY` 或 `GEMINI_API_KEY` |

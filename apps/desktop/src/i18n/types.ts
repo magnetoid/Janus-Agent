@@ -448,7 +448,6 @@ export interface Translations {
       noProviderOptions: string
       noProviders: string
       ready: string
-      nousIncluded: string
       noApiKeyRequired: string
       postSetupHint: (step: string) => string
       postSetupRun: string
@@ -992,13 +991,9 @@ export interface Translations {
     preparingInstall: string
     starting: string
     lookingUpProviders: string
-    collapse: string
-    otherProviders: string
     haveApiKey: string
     chooseLater: string
-    recommended: string
     connected: string
-    featuredPitch: string
     openRouterPitch: string
     apiKeyOptions: Record<string, { short: string; description: string }>
     backToSignIn: string
@@ -1030,8 +1025,6 @@ export interface Translations {
     reopenVerification: string
     copy: string
     defaultModel: string
-    freeTier: string
-    pro: string
     free: string
     price: (input: string, output: string) => string
     change: string
@@ -1050,10 +1043,7 @@ export interface Translations {
     addProvider: string
     loadFailed: string
     noAuthenticatedProviders: string
-    pro: string
-    proNeedsSubscription: string
     free: string
-    freeTier: string
     priceTitle: string
   }
 

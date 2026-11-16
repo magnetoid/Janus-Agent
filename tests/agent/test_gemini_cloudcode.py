@@ -1159,7 +1159,7 @@ class TestProviderRegistration:
     def test_oauth_capable_set_preserves_existing(self):
         from janus_cli.auth_commands import _OAUTH_CAPABLE_PROVIDERS
 
-        for required in ("anthropic", "nous", "openai-codex", "qwen-oauth", "google-gemini-cli"):
+        for required in ("anthropic", "openai-codex", "qwen-oauth", "google-gemini-cli"):
             assert required in _OAUTH_CAPABLE_PROVIDERS
 
     def test_config_env_vars_registered(self):
@@ -1187,13 +1187,13 @@ class TestAuthStatus:
         save_credentials(GoogleCredentials(
             access_token="tok", refresh_token="rt",
             expires_ms=int((time.time() + 3600) * 1000),
-            email="tek@nous.ai",
+            email="tek@example.com",
             project_id="tek-proj",
         ))
 
         s = get_auth_status("google-gemini-cli")
         assert s["logged_in"] is True
-        assert s["email"] == "tek@nous.ai"
+        assert s["email"] == "tek@example.com"
         assert s["project_id"] == "tek-proj"
 
 

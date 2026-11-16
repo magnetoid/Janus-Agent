@@ -11,10 +11,6 @@ Credential pools let you register multiple API keys or OAuth tokens for the same
 
 This is different from [fallback providers](./fallback-providers.md), which switch to a *different* provider entirely. Credential pools are same-provider rotation; fallback providers are cross-provider failover. Pools are tried first — if all pool keys are exhausted, *then* the fallback provider activates.
 
-:::tip
-Credential pools are mainly for API-key providers (OpenRouter, Anthropic). A single [Cloud Industry Portal](/integrations/nous-portal) OAuth covers 300+ models, so most users don't need a pool when on Portal.
-:::
-
 ## How It Works
 
 ```
@@ -91,7 +87,7 @@ What would you like to do?
   5. Exit
 ```
 
-For providers that support both API keys and OAuth (Anthropic, Nous, Codex), the add flow asks which type:
+For providers that support both API keys and OAuth (Anthropic, Codex), the add flow asks which type:
 
 ```
 anthropic supports both API keys and OAuth login.
@@ -178,7 +174,7 @@ Janus automatically discovers credentials from multiple sources and seeds the po
 | Source | Example | Auto-seeded? |
 |--------|---------|-------------|
 | Environment variables | `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` | Yes |
-| OAuth tokens (auth.json) | Codex device code, Nous device code | Yes |
+| OAuth tokens (auth.json) | Codex device code, xAI Grok OAuth | Yes |
 | Claude Code credentials | `~/.claude/.credentials.json` | Yes (Anthropic) |
 | Janus PKCE OAuth | `~/.janus/auth.json` | Yes (Anthropic) |
 | Custom endpoint config | `model.api_key` in config.yaml | Yes (custom endpoints) |

@@ -626,13 +626,10 @@ export function getGlobalModelOptions(): Promise<ModelOptionsResponse> {
 export interface RecommendedDefaultModel {
   provider: string
   model: string
-  /** True/false for Nous (free vs paid tier); null for other providers. */
-  free_tier: boolean | null
 }
 
 // Recommended default model for a freshly-authenticated provider. Mirrors the
-// curation `janus model` does — for Nous it honors the free/paid tier so a
-// free user gets a free model instead of a paid default.
+// curation `janus model` does.
 export function getRecommendedDefaultModel(provider: string): Promise<RecommendedDefaultModel> {
   return window.janusDesktop.api<RecommendedDefaultModel>({
     ...profileScoped(),

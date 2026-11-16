@@ -3103,7 +3103,7 @@ class JanusCLI:
         Args:
             model: Model to use (default: from env or claude-sonnet)
             toolsets: List of toolsets to enable (default: all)
-            provider: Inference provider ("auto", "openrouter", "nous", "openai-codex", "zai", "kimi-coding", "minimax", "minimax-cn")
+            provider: Inference provider ("auto", "openrouter", "openai-codex", "zai", "kimi-coding", "minimax", "minimax-cn")
             api_key: API key (default: from environment)
             base_url: API base URL (default: OpenRouter)
             max_turns: Maximum tool-calling iterations shared with subagents (default: 90)
@@ -4271,8 +4271,7 @@ class JanusCLI:
     def _on_notice(self, notice) -> None:
         """Queue an out-of-band AgentNotice for rendering at the next clean boundary.
 
-        Notices fire from inside the agent turn (cold-start seed during _init_agent,
-        per-turn _capture_credits after the API call) — printing immediately races the
+        Notices fire from inside the agent turn — printing immediately races the
         streaming response and the line gets buried behind the prompt (see _cprint's
         bg-thread caveat). So we QUEUE here and flush in _flush_credit_notices(), called
         right after run_conversation returns. Fail-soft: never break the turn.
@@ -5345,16 +5344,6 @@ class JanusCLI:
             # Route agent status output through prompt_toolkit so ANSI escape
             # sequences aren't garbled by patch_stdout's StdoutProxy (#2262).
             self.agent._print_fn = _cprint
-            # Hydrate credits notices at session OPEN (parity with the TUI), so a
-            # depletion / usage-band warning shows before the first message. The
-            # notice_callback is bound above → _on_notice renders the line. Idempotent
-            # + fail-open inside the helper; harmless for non-Nous providers.
-            try:
-                from agent.credits_tracker import seed_credits_at_session_start
-
-                seed_credits_at_session_start(self.agent)
-            except Exception:
-                pass
             self._active_agent_route_signature = (
                 effective_model,
                 runtime.get("provider"),
@@ -5474,24 +5463,6 @@ class JanusCLI:
                 self._console_print(
                     "[dim]   Fix: Set model.context_length in config.yaml, or increase your server's context setting[/]"
                 )
-
-        # Warn if the configured model is a Nous Hermes LLM (not agentic)
-        from janus_cli.model_switch import is_nous_janus_non_agentic
-
-        model_name = getattr(self, "model", "") or ""
-        if is_nous_janus_non_agentic(model_name):
-            self._console_print()
-            self._console_print(
-                "[bold yellow]⚠  Cloud Industry Hermes 3 & 4 models are NOT agentic and are not "
-                "designed for use with Janus Agent.[/]"
-            )
-            self._console_print(
-                "[dim]   They lack tool-calling capabilities required for agent workflows. "
-                "Consider using an agentic model (Claude, GPT, Gemini, DeepSeek, etc.).[/]"
-            )
-            self._console_print(
-                "[dim]   Switch with: /model sonnet  or  /model gpt5[/]"
-            )
 
         self._console_print()
 
@@ -8155,7 +8126,7 @@ class JanusCLI:
                     "Same chat continues on the new model.")
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
-        # Copilot, and Nous-enforced caps win over the raw models.dev entry
+        # and Copilot-enforced caps win over the raw models.dev entry
         # (e.g. gpt-5.5 is 1.05M on openai but 272K on Codex OAuth).
         mi = result.model_info
         try:
@@ -8426,7 +8397,7 @@ class JanusCLI:
                     "Same chat continues on the new model.")
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
-        # Copilot, and Nous-enforced caps win over the raw models.dev entry
+        # and Copilot-enforced caps win over the raw models.dev entry
         # (e.g. gpt-5.5 is 1.05M on openai but 272K on Codex OAuth).
         mi = result.model_info
         from janus_cli.model_switch import resolve_display_context_length
@@ -10849,24 +10820,16 @@ class JanusCLI:
         return True
 
     def _show_usage(self):
-        """Rate limits + session token usage (when a live agent exists) + Nous credits.
-
-        The Nous credits block is agent-independent (a portal fetch), so it runs even
-        with no live agent — important for the TUI, where /usage runs in a slash-worker
-        subprocess that resumes the session WITHOUT building an agent (self.agent is None),
-        which would otherwise early-return before any credits showed.
-        """
+        """Rate limits + session token usage for the live agent."""
         if not self.agent:
-            if not self._print_nous_credits_block():
-                print("(._.) No active agent -- send a message first.")
+            print("(._.) No active agent -- send a message first.")
             return
 
         agent = self.agent
         calls = agent.session_api_calls
 
         if calls == 0:
-            if not self._print_nous_credits_block():
-                print("(._.) No API calls made yet in this session.")
+            print("(._.) No API calls made yet in this session.")
             return
 
         # ── Rate limits (shown first when available) ────────────────
@@ -10960,10 +10923,6 @@ class JanusCLI:
             for line in account_lines:
                 print(line)
 
-        # Nous credits magnitudes + monthly-grant gauge (agent-independent — also
-        # runs at the no-agent / no-calls early-returns above). See the helper.
-        self._print_nous_credits_block()
-
         if self.verbose:
             logging.getLogger().setLevel(logging.DEBUG)
             for noisy in ('openai', 'openai._base_client', 'httpx', 'httpcore', 'asyncio', 'hpack', 'grpc', 'modal'):
@@ -10977,28 +10936,6 @@ class JanusCLI:
             # into stream-retry events, credential rotations, etc.
             # Console quietness is enforced by janus_logging not
             # installing a console StreamHandler in non-verbose mode.
-
-    def _print_nous_credits_block(self) -> bool:
-        """Print the Nous credits magnitudes + monthly-grant gauge when a Nous account
-        is logged in. Returns True if it printed anything.
-
-        Delegates to the shared ``agent.account_usage.nous_credits_lines`` helper —
-        the single source for the /usage credits block across CLI, gateway, and TUI.
-        It's agent-independent (a portal fetch gated on "a Nous account is logged in",
-        NOT the inference-provider string), so /usage shows the block even in the TUI
-        slash-worker subprocess that resumes WITHOUT a live agent. Fail-open and
-        wall-clock-bounded inside the helper; also honors JANUS_DEV_CREDITS_FIXTURE
-        for offline testing — same behavior as every other surface.
-        """
-        from agent.account_usage import nous_credits_lines
-
-        lines = nous_credits_lines()
-        if not lines:
-            return False
-        print()
-        for line in lines:
-            print(f"  {line}")
-        return True
 
     def _show_insights(self, command: str = "/insights"):
         """Show usage + learning insights from session history."""
@@ -12774,8 +12711,8 @@ class JanusCLI:
                         "error": _summary,
                     }
                 finally:
-                    # Surface any credit notices queued during the turn (cold-start
-                    # seed / per-turn capture) now that the response is done — printing
+                    # Surface any notices queued during the turn now that the
+                    # response is done — printing
                     # at this boundary paints cleanly above the prompt instead of being
                     # buried behind the streaming output.
                     self._flush_credit_notices()
@@ -16047,7 +15984,7 @@ def main(
         toolsets: Comma-separated list of toolsets to enable (e.g., "web,terminal")
         skills: Comma-separated or repeated list of skills to preload for the session
         model: Model to use (default: anthropic/claude-opus-4-20250514)
-        provider: Inference provider ("auto", "openrouter", "nous", "openai-codex", "zai", "kimi-coding", "minimax", "minimax-cn")
+        provider: Inference provider ("auto", "openrouter", "openai-codex", "zai", "kimi-coding", "minimax", "minimax-cn")
         api_key: API key for authentication
         base_url: Base URL for the API
         max_turns: Maximum tool-calling iterations (default: 60)

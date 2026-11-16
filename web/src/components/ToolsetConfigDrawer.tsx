@@ -294,11 +294,6 @@ export function ToolsetConfigDrawer({ toolset, onClose, onChanged }: Props) {
                           {provider.badge}
                         </Badge>
                       )}
-                      {provider.requires_nous_auth && (
-                        <Badge tone="outline" className="text-xs">
-                          Cloud Industry Portal
-                        </Badge>
-                      )}
                     </div>
                     {isActive ? (
                       <Badge tone="success" className="text-xs shrink-0">
