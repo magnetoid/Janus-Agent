@@ -6,10 +6,9 @@ this is a safe directory COPY — not a format translation — plus a targeted
 rewrite of two tokens inside config.yaml/.env: ``HERMES_HOME`` ->
 ``JANUS_HOME`` and filesystem paths ``.hermes`` -> ``.janus``.
 
-It deliberately does NOT touch Nous 'Hermes' model IDs (hermes-3-*, Hermes-4-*,
-nous-hermes-*) or the 'nous' provider slug — those are real products that must
-keep working. The rewrite is anchored to ``HERMES_HOME`` and the dot-prefixed
-``/.hermes`` path so model IDs (no leading dot, no HOME suffix) are never hit.
+The rewrite is anchored to ``HERMES_HOME`` and the dot-prefixed ``/.hermes``
+path, so other strings that merely contain "hermes" (for example model IDs,
+which have no leading dot and no HOME suffix) are never hit.
 
 Non-destructive: copies into the Janus home and leaves ~/.hermes intact; the
 caller may offer to delete it afterward. Best-effort; never raises.
@@ -59,8 +58,8 @@ def legacy_hermes_home() -> Optional[Path]:
 def _rewrite_brand_tokens(text: str) -> str:
     """Targeted, SAFE rewrite: only the home env var + the .hermes config path.
 
-    Anchored so it never matches 'hermes-N' / 'nous-hermes' model IDs (no
-    leading dot, no HOME suffix) or the 'nous' provider slug.
+    Anchored so it never matches other "hermes" substrings such as model IDs
+    (no leading dot, no HOME suffix).
     """
     text = text.replace("HERMES_HOME", "JANUS_HOME")
     text = text.replace("/.hermes", "/.janus")    # POSIX config-dir paths

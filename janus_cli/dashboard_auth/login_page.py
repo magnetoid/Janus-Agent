@@ -4,8 +4,7 @@ No React, no JavaScript dependency. Listed providers come from the
 registry; clicking a provider sends a GET to
 ``/auth/login?provider=<name>``.
 
-Visual styling mirrors the Cloud Industry design system (the
-``@nous-research/ui`` package the React dashboard uses): the same
+Visual styling mirrors the React dashboard's design system: the same
 ``Collapse`` / ``Rules Compressed`` typeface, amber-on-dark colour
 tokens (``#170d02`` / ``#ffac02`` / ``#fff``), uppercase + wide-tracking
 brand chrome, and the inset-bevel button shadow. Fonts are served
@@ -40,7 +39,7 @@ _LOGIN_HTML_TEMPLATE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in — Janus Agent</title>
 <style>
-  /* Brand fonts shipped by @nous-research/ui — same files the SPA loads. */
+  /* Brand fonts — same files the SPA loads. */
   @font-face {{
     font-family: 'Collapse';
     font-style: normal;
@@ -302,7 +301,7 @@ _LOGIN_HTML_TEMPLATE = """\
 </head>
 <body>
 <main>
-  <div class="brand">Nous<span class="dot"></span>Research</div>
+  <div class="brand">Janus<span class="dot"></span>Agent</div>
   <div class="card">
     <h1>Sign in</h1>
     <p class="subtitle">Choose a sign-in method to continue to the Janus Agent dashboard.</p>
@@ -392,8 +391,9 @@ _EMPTY_HTML = """\
 <h1>Sign-in unavailable</h1>
 <p>This dashboard is bound to a non-loopback host but no authentication
 providers are installed.</p>
-<p>Install <code>plugins/dashboard-auth-nous</code> (default) or another
-auth provider, or restart with <code>--insecure</code> to bypass the
+<p>Configure <code>plugins/dashboard_auth/basic</code> (username/password),
+<code>plugins/dashboard_auth/self_hosted</code>, or another auth provider,
+or restart with <code>--insecure</code> to bypass the
 auth gate (not recommended on untrusted networks).</p>
 </main>
 </body>

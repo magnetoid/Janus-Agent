@@ -513,7 +513,7 @@ class TestImport:
         self._make_backup_zip(zip_path, {
             "config.yaml": "model: openrouter\n",
             ".env": "OPENROUTER_API_KEY=sk-secret\n",
-            "auth.json": '{"providers": {"nous": "token"}}',
+            "auth.json": '{"providers": {"openai-codex": "token"}}',
             "state.db": b"SQLite format 3\x00",
             "profiles/coder/.env": "ANTHROPIC_API_KEY=sk-ant-secret\n",
         })

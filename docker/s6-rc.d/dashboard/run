@@ -32,9 +32,8 @@ dash_port="${JANUS_DASHBOARD_PORT:-9119}"
 
 # `--insecure` is opt-in via JANUS_DASHBOARD_INSECURE. The dashboard's
 # OAuth auth gate engages automatically on non-loopback binds when a
-# DashboardAuthProvider is registered (e.g. the bundled dashboard_auth/nous
-# provider, which auto-registers when JANUS_DASHBOARD_OAUTH_CLIENT_ID is
-# set). If no provider is registered, start_server fails closed with a
+# DashboardAuthProvider is registered (e.g. the bundled dashboard_auth/basic
+# or dashboard_auth/self_hosted provider). If no provider is registered, start_server fails closed with a
 # specific operator-facing error.
 #
 # This used to derive --insecure from the bind host ("anything non-loopback

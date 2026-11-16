@@ -9,10 +9,9 @@
 # the default UID is root (0), and any file the command writes under
 # $JANUS_HOME — auth.json, .env, config.yaml — ends up root-owned and
 # unreadable to the supervised gateway. The most common manifestation: the
-# user runs `docker exec <c> janus login`, this writes
+# user runs `docker exec <c> janus auth add <provider>`, this writes
 # /opt/data/auth.json as root:root mode 0600, and from then on the gateway
-# returns "Provider authentication failed: Janus is not logged into Nous
-# Portal" on every incoming message — even though `docker exec <c> janus
+# returns "Provider authentication failed" on every incoming message — even though `docker exec <c> janus
 # chat -q ping` (also running as root) succeeds because root happens to be
 # able to read its own root-owned file. See systematic-debugging skill
 # notes attached to this fix.

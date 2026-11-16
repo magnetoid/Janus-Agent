@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from janus_cli.proxy.adapters import ADAPTERS, get_adapter
 from janus_cli.proxy.adapters.base import UpstreamAdapter, UpstreamCredential
-from janus_cli.proxy.adapters.nous_portal import NousPortalAdapter
 from janus_cli.proxy.adapters.xai import XAIGrokAdapter
 
 
@@ -22,18 +20,8 @@ from janus_cli.proxy.adapters.xai import XAIGrokAdapter
 # ---------------------------------------------------------------------------
 
 
-def test_registry_lists_nous():
-    assert "nous" in ADAPTERS
-
-
 def test_registry_lists_xai():
     assert "xai" in ADAPTERS
-
-
-def test_get_adapter_returns_instance():
-    adapter = get_adapter("nous")
-    assert isinstance(adapter, NousPortalAdapter)
-    assert isinstance(adapter, UpstreamAdapter)
 
 
 def test_get_adapter_returns_xai_instance():
@@ -43,298 +31,13 @@ def test_get_adapter_returns_xai_instance():
 
 
 def test_get_adapter_case_insensitive():
-    assert isinstance(get_adapter("NOUS"), NousPortalAdapter)
-    assert isinstance(get_adapter("  Nous  "), NousPortalAdapter)
     assert isinstance(get_adapter("XAI"), XAIGrokAdapter)
+    assert isinstance(get_adapter("  Xai  "), XAIGrokAdapter)
 
 
 def test_get_adapter_unknown_provider_raises():
     with pytest.raises(ValueError, match="anthropic"):
         get_adapter("anthropic")  # not yet implemented
-
-
-# ---------------------------------------------------------------------------
-# NousPortalAdapter
-# ---------------------------------------------------------------------------
-
-
-def _write_auth_store(janus_home: Path, nous_state: Dict[str, Any]) -> Path:
-    """Write an auth.json with the given nous state into a hermetic JANUS_HOME."""
-    auth_path = janus_home / "auth.json"
-    auth_path.write_text(json.dumps({
-        "version": 1,
-        "providers": {"nous": nous_state},
-    }))
-    return auth_path
-
-
-def test_nous_adapter_metadata():
-    adapter = NousPortalAdapter()
-    assert adapter.name == "nous"
-    assert adapter.display_name == "Cloud Industry Portal"
-    assert "/chat/completions" in adapter.allowed_paths
-    assert "/embeddings" in adapter.allowed_paths
-    assert "/completions" in adapter.allowed_paths
-    assert "/models" in adapter.allowed_paths
-
-
-def test_nous_adapter_not_authenticated_when_no_auth_file(tmp_path, monkeypatch):
-    # JANUS_HOME is already set by conftest, but make doubly sure
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    adapter = NousPortalAdapter()
-    assert not adapter.is_authenticated()
-
-
-def test_nous_adapter_not_authenticated_when_provider_missing(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    (tmp_path / "auth.json").write_text(json.dumps({
-        "version": 1,
-        "providers": {},
-    }))
-    assert not NousPortalAdapter().is_authenticated()
-
-
-def test_nous_adapter_authenticated_with_agent_key(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "agent_key": "ov-test-key",
-        "agent_key_expires_at": "2099-01-01T00:00:00Z",
-        "inference_base_url": "https://inference-api.cloud-industry.com/v1",
-    })
-    assert NousPortalAdapter().is_authenticated()
-
-
-def test_nous_adapter_authenticated_with_refresh_token_only(tmp_path, monkeypatch):
-    """If access_token+refresh_token exist but no agent_key yet, we can still refresh."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "access-tok",
-        "refresh_token": "refresh-tok",
-    })
-    assert NousPortalAdapter().is_authenticated()
-
-
-def test_nous_adapter_get_credential_uses_runtime_resolver(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "access-tok",
-        "refresh_token": "refresh-tok",
-        "client_id": "janus-cli",
-        "portal_base_url": "https://portal.cloud-industry.com",
-        "inference_base_url": "https://inference-api.cloud-industry.com/v1",
-    })
-
-    refreshed_state = {
-        "api_key": "jwt-bearer",
-        "base_url": "https://inference-api.cloud-industry.com/v1",
-        "expires_at": "2099-01-01T00:00:00Z",
-    }
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        return_value=refreshed_state,
-    ) as mock_resolve:
-        adapter = NousPortalAdapter()
-        cred = adapter.get_credential()
-
-    mock_resolve.assert_called_once()
-    assert cred.bearer == "jwt-bearer"
-    assert cred.base_url == "https://inference-api.cloud-industry.com/v1"
-    assert cred.expires_at == "2099-01-01T00:00:00Z"
-    assert cred.token_type == "Bearer"
-
-
-def test_nous_adapter_retry_credential_force_refreshes_on_jwt_401(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "jwt-access",
-        "refresh_token": "refresh-tok",
-        "client_id": "janus-cli",
-        "portal_base_url": "https://portal.cloud-industry.com",
-        "inference_base_url": "https://inference-api.cloud-industry.com/v1",
-        "agent_key": "jwt-access",
-    })
-    refreshed_state = {
-        "api_key": "fresh-jwt-bearer",
-        "base_url": "https://inference-api.cloud-industry.com/v1",
-        "expires_at": "2099-01-01T00:00:00Z",
-    }
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        return_value=refreshed_state,
-    ) as mock_resolve:
-        adapter = NousPortalAdapter()
-        cred = adapter.get_retry_credential(
-            failed_credential=UpstreamCredential(
-                bearer="header.jwt.signature",
-                base_url="https://inference-api.cloud-industry.com/v1",
-            ),
-            status_code=401,
-        )
-
-    assert cred is not None
-    assert cred.bearer == "fresh-jwt-bearer"
-    assert mock_resolve.call_args.kwargs["force_refresh"] is True
-
-
-def test_nous_adapter_retry_credential_skips_non_401(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "jwt-access",
-        "refresh_token": "refresh-tok",
-        "agent_key": "opaque-bearer",
-    })
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-    ) as mock_resolve:
-        adapter = NousPortalAdapter()
-        cred = adapter.get_retry_credential(
-            failed_credential=UpstreamCredential(
-                bearer="opaque-bearer",
-                base_url="https://inference-api.cloud-industry.com/v1",
-            ),
-            status_code=403,
-        )
-
-    assert cred is None
-    mock_resolve.assert_not_called()
-
-
-def test_nous_adapter_get_credential_raises_when_not_logged_in(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    adapter = NousPortalAdapter()
-    with pytest.raises(RuntimeError, match="janus auth add nous"):
-        adapter.get_credential()
-
-
-def test_nous_adapter_get_credential_raises_on_refresh_failure(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "access-tok",
-        "refresh_token": "refresh-tok",
-    })
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        side_effect=RuntimeError("Refresh session has been revoked"),
-    ):
-        adapter = NousPortalAdapter()
-        with pytest.raises(RuntimeError, match="Refresh session has been revoked"):
-            adapter.get_credential()
-
-
-def test_nous_adapter_quarantines_terminal_refresh_failure(tmp_path, monkeypatch):
-    from janus_cli.auth import AuthError
-    from agent.credential_pool import load_pool
-
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "access-tok",
-        "refresh_token": "refresh-tok",
-        "agent_key": "stale-agent-key",
-    })
-    assert load_pool("nous").select() is not None
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        side_effect=AuthError(
-            "Refresh session has been revoked",
-            provider="nous",
-            code="invalid_grant",
-            relogin_required=True,
-        ),
-    ):
-        adapter = NousPortalAdapter()
-        with pytest.raises(RuntimeError, match="Refresh session has been revoked"):
-            adapter.get_credential()
-
-    stored = json.loads((tmp_path / "auth.json").read_text())
-    nous_state = stored["providers"]["nous"]
-    assert not nous_state.get("refresh_token")
-    assert not nous_state.get("access_token")
-    assert not nous_state.get("agent_key")
-    assert nous_state["last_auth_error"]["code"] == "invalid_grant"
-    assert stored.get("credential_pool", {}).get("nous") == []
-
-
-def test_nous_adapter_get_credential_raises_when_no_jwt_returned(tmp_path, monkeypatch):
-    """If the refresh helper succeeds but produces no JWT, we surface a clear error."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "access-tok",
-        "refresh_token": "refresh-tok",
-    })
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        return_value={"access_token": "a", "refresh_token": "r"},
-    ):
-        adapter = NousPortalAdapter()
-        with pytest.raises(RuntimeError, match="did not return a usable inference JWT"):
-            adapter.get_credential()
-
-
-def test_nous_adapter_concurrent_refresh_serialized(tmp_path, monkeypatch):
-    """Two parallel get_credential() calls must serialize through the lock."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _write_auth_store(tmp_path, {
-        "access_token": "a", "refresh_token": "r",
-    })
-
-    call_log: list = []
-    in_flight = threading.Event()
-    overlap_detected = threading.Event()
-    counter = [0]
-    counter_lock = threading.Lock()
-
-    def serializing_refresh(**kwargs):
-        # If another thread is already inside refresh, the lock is broken.
-        if in_flight.is_set():
-            overlap_detected.set()
-        in_flight.set()
-        try:
-            call_log.append(threading.current_thread().ident)
-            # Simulate refresh latency so any race window is exposed.
-            import time
-            time.sleep(0.05)
-            with counter_lock:
-                counter[0] += 1
-                idx = counter[0]
-            return {
-                "api_key": f"key-{idx}",
-                "expires_at": "2099-01-01T00:00:00Z",
-                "base_url": "https://inference-api.cloud-industry.com/v1",
-            }
-        finally:
-            in_flight.clear()
-
-    adapter = NousPortalAdapter()
-    results: list = []
-    errors: list = []
-
-    def worker():
-        try:
-            results.append(adapter.get_credential().bearer)
-        except Exception as exc:  # pragma: no cover - shouldn't happen
-            errors.append(exc)
-
-    with patch(
-        "janus_cli.proxy.adapters.nous_portal.resolve_nous_runtime_credentials",
-        side_effect=serializing_refresh,
-    ):
-        threads = [threading.Thread(target=worker) for _ in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-    assert not errors, f"workers errored: {errors}"
-    assert len(results) == 3
-    assert len(call_log) == 3
-    assert not overlap_detected.is_set(), "refresh calls overlapped — lock is broken"
-    assert all(r.startswith("key-") for r in results)
 
 
 # ---------------------------------------------------------------------------
@@ -685,14 +388,14 @@ def test_server_forwards_chat_completions():
     async def run():
         captured: Dict[str, Any] = {"requests": []}
         upstream_runner, upstream_base = await _start_runner(_build_fake_upstream(captured))
-        adapter = FakeAdapter(f"{upstream_base}/v1", bearer="real-portal-key")
+        adapter = FakeAdapter(f"{upstream_base}/v1", bearer="real-upstream-key")
         proxy_runner, proxy_base = await _start_runner(create_app(adapter))
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{proxy_base}/v1/chat/completions",
-                    json={"model": "Hermes-4-70B",
+                    json={"model": "test-model",
                           "messages": [{"role": "user", "content": "hi"}]},
                     headers={"Authorization": "Bearer client-dummy-key"},
                 ) as resp:
@@ -702,8 +405,8 @@ def test_server_forwards_chat_completions():
 
             assert len(captured["requests"]) == 1
             req = captured["requests"][0]
-            assert req["auth"] == "Bearer real-portal-key"
-            assert "Hermes-4-70B" in req["body"]
+            assert req["auth"] == "Bearer real-upstream-key"
+            assert "test-model" in req["body"]
         finally:
             await proxy_runner.cleanup()
             await upstream_runner.cleanup()
@@ -728,7 +431,7 @@ def test_server_retries_once_with_adapter_retry_credential_on_401():
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{proxy_base}/v1/chat/completions",
-                    json={"model": "Hermes-4-70B"},
+                    json={"model": "test-model"},
                 ) as resp:
                     assert resp.status == 200
                     data = await resp.json()
@@ -858,8 +561,8 @@ def test_cmd_proxy_status_runs(capsys, tmp_path, monkeypatch):
     rc = cmd_proxy_status(args)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "nous" in out
-    assert "Cloud Industry Portal" in out
+    assert "xai" in out
+    assert "xAI Grok OAuth" in out
     assert "not logged in" in out
 
 
@@ -870,8 +573,8 @@ def test_cmd_proxy_providers_runs(capsys):
     rc = cmd_proxy_list_providers(args)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "nous" in out
-    assert "Cloud Industry Portal" in out
+    assert "xai" in out
+    assert "xAI Grok OAuth" in out
 
 
 def test_cmd_proxy_start_refuses_unknown_provider(capsys):
@@ -892,10 +595,10 @@ def test_cmd_proxy_start_refuses_when_unauthenticated(capsys, tmp_path, monkeypa
     from janus_cli.proxy.cli import cmd_proxy_start
 
     args = MagicMock()
-    args.provider = "nous"
+    args.provider = "xai"
     args.host = None
     args.port = None
     rc = cmd_proxy_start(args)
     assert rc == 2
     err = capsys.readouterr().err
-    assert "janus auth add nous" in err
+    assert "Not logged into xAI Grok OAuth" in err

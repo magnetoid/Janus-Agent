@@ -208,22 +208,23 @@ def test_start_server_gate_without_provider_fails_closed(monkeypatch):
         )
 
 
-def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
-    """When the bundled Nous plugin loaded but skipped registration (no
-    env vars set), the gate's fail-closed message should surface the
-    plugin's LAST_SKIP_REASON so the operator knows the config fix is
-    'set JANUS_DASHBOARD_OAUTH_CLIENT_ID', not 'install a plugin'."""
+def test_start_server_surfaces_bundled_skip_reason_when_unconfigured(monkeypatch):
+    """When a bundled dashboard_auth plugin loaded but skipped registration,
+    the gate's fail-closed message should surface the plugin's
+    LAST_SKIP_REASON so the operator sees the specific config fix rather
+    than a generic 'install a plugin' hint."""
     from janus_cli.dashboard_auth import clear_providers
-    from plugins.dashboard_auth import nous as nous_plugin
+    from plugins.dashboard_auth import basic as basic_plugin
 
-    # Simulate the plugin running and skipping for "no client_id".
+    # Simulate the plugin running and skipping for "username but no password".
     clear_providers()
     _stub_uvicorn_run(monkeypatch)
-    monkeypatch.delenv("JANUS_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("JANUS_DASHBOARD_PORTAL_URL", raising=False)
+    monkeypatch.setenv("JANUS_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
+    monkeypatch.delenv("JANUS_DASHBOARD_BASIC_AUTH_PASSWORD", raising=False)
+    monkeypatch.delenv("JANUS_DASHBOARD_BASIC_AUTH_PASSWORD_HASH", raising=False)
     from unittest.mock import MagicMock
-    nous_plugin.register(MagicMock())  # populates LAST_SKIP_REASON
-    assert "JANUS_DASHBOARD_OAUTH_CLIENT_ID" in nous_plugin.LAST_SKIP_REASON
+    basic_plugin.register(MagicMock())  # populates LAST_SKIP_REASON
+    assert "password_hash" in basic_plugin.LAST_SKIP_REASON
 
     web_server.app.state.auth_required = None
     with pytest.raises(SystemExit) as exc_info:
@@ -231,11 +232,9 @@ def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
             host="0.0.0.0", port=9119,
             open_browser=False, allow_public=False,
         )
-    # The error message embeds the plugin's specific skip reason rather
-    # than the generic "Install the default Nous provider" boilerplate.
     msg = str(exc_info.value)
-    assert "JANUS_DASHBOARD_OAUTH_CLIENT_ID" in msg
-    assert "nous:" in msg
+    assert "basic:" in msg
+    assert "password_hash" in msg
 
 
 def test_start_server_loopback_keeps_proxy_headers_off(monkeypatch):

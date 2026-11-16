@@ -3,18 +3,6 @@ from types import SimpleNamespace
 from janus_cli.status import show_status
 
 
-def _status_row(output: str, label: str) -> str:
-    """Return the single status line whose left column is *label*.
-
-    Asserting on whole rows keeps these tests tied to what the row *says*
-    (mark + state + remediation hint) rather than to the column padding,
-    which shifts whenever a provider label is renamed.
-    """
-    matches = [line for line in output.splitlines() if label in line]
-    assert matches, f"no {label!r} row in status output:\n{output}"
-    return matches[0]
-
-
 def test_show_status_includes_tavily_key(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("JANUS_HOME", str(tmp_path))
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-1234567890abcdef")
@@ -39,7 +27,6 @@ def test_show_status_termux_gateway_section_skips_systemctl(monkeypatch, capsys,
     monkeypatch.setattr(status_mod, "resolve_requested_provider", lambda requested=None: "openai-codex", raising=False)
     monkeypatch.setattr(status_mod, "resolve_provider", lambda requested=None, **kwargs: "openai-codex", raising=False)
     monkeypatch.setattr(status_mod, "provider_label", lambda provider: "OpenAI Codex", raising=False)
-    monkeypatch.setattr(auth_mod, "get_nous_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(auth_mod, "get_codex_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(auth_mod, "get_xai_oauth_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(gateway_mod, "find_gateway_pids", lambda exclude_pids=None: [], raising=False)
@@ -55,98 +42,6 @@ def test_show_status_termux_gateway_section_skips_systemctl(monkeypatch, capsys,
     assert "Manager:      Termux / manual process" in output
     assert "Start with:   janus gateway" in output
     assert "systemd (user)" not in output
-
-
-def test_show_status_reports_nous_auth_error(monkeypatch, capsys, tmp_path):
-    from janus_cli import status as status_mod
-    import janus_cli.auth as auth_mod
-    import janus_cli.gateway as gateway_mod
-
-    monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env", raising=False)
-    monkeypatch.setattr(status_mod, "get_janus_home", lambda: tmp_path, raising=False)
-    monkeypatch.setattr(status_mod, "load_config", lambda: {"model": "gpt-5.4"}, raising=False)
-    monkeypatch.setattr(status_mod, "resolve_requested_provider", lambda requested=None: "openai-codex", raising=False)
-    monkeypatch.setattr(status_mod, "resolve_provider", lambda requested=None, **kwargs: "openai-codex", raising=False)
-    monkeypatch.setattr(status_mod, "provider_label", lambda provider: "OpenAI Codex", raising=False)
-    monkeypatch.setattr(
-        auth_mod,
-        "get_nous_auth_status",
-        lambda: {
-            "logged_in": False,
-            "portal_base_url": "https://portal.cloud-industry.com",
-            "access_expires_at": "2026-04-20T01:00:51+00:00",
-            "agent_key_expires_at": "2026-04-20T04:54:24+00:00",
-            "has_refresh_token": True,
-            "error": "Refresh session has been revoked",
-        },
-        raising=False,
-    )
-    monkeypatch.setattr(auth_mod, "get_codex_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(auth_mod, "get_qwen_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(auth_mod, "get_xai_oauth_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(gateway_mod, "find_gateway_pids", lambda exclude_pids=None: [], raising=False)
-
-    status_mod.show_status(SimpleNamespace(all=False, deep=False))
-
-    output = capsys.readouterr().out
-    portal_row = _status_row(output, "Cloud Industry Portal")
-    assert "✗" in portal_row
-    assert "not logged in (run: janus portal)" in portal_row
-    assert "Error:      Refresh session has been revoked" in output
-    assert "Access exp:" in output
-    assert "Key exp:" in output
-
-
-def test_show_status_reports_nous_inference_key_without_portal_login(monkeypatch, capsys, tmp_path):
-    from janus_cli import status as status_mod
-    from janus_cli.nous_account import NousPortalAccountInfo
-    import janus_cli.auth as auth_mod
-    import janus_cli.gateway as gateway_mod
-
-    monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env", raising=False)
-    monkeypatch.setattr(status_mod, "get_janus_home", lambda: tmp_path, raising=False)
-    monkeypatch.setattr(status_mod, "load_config", lambda: {"model": "gpt-5.4"}, raising=False)
-    monkeypatch.setattr(status_mod, "resolve_requested_provider", lambda requested=None: "openai-codex", raising=False)
-    monkeypatch.setattr(status_mod, "resolve_provider", lambda requested=None, **kwargs: "openai-codex", raising=False)
-    monkeypatch.setattr(status_mod, "provider_label", lambda provider: "OpenAI Codex", raising=False)
-    monkeypatch.setattr(
-        auth_mod,
-        "get_nous_auth_status",
-        lambda: {
-            "logged_in": False,
-            "inference_credential_present": True,
-            "credential_source": "pool:manual opaque key",
-            "inference_base_url": "https://inference.example.com/v1",
-            "agent_key_expires_at": "2099-01-01T00:00:00+00:00",
-        },
-        raising=False,
-    )
-    monkeypatch.setattr(
-        status_mod,
-        "get_nous_portal_account_info",
-        lambda: NousPortalAccountInfo(
-            logged_in=False,
-            source="inference_key",
-            fresh=False,
-            inference_credential_present=True,
-            inference_base_url="https://inference.example.com/v1",
-        ),
-        raising=False,
-    )
-    monkeypatch.setattr(status_mod, "managed_nous_tools_enabled", lambda: False, raising=False)
-    monkeypatch.setattr(auth_mod, "get_codex_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(auth_mod, "get_qwen_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(auth_mod, "get_xai_oauth_auth_status", lambda: {}, raising=False)
-    monkeypatch.setattr(gateway_mod, "find_gateway_pids", lambda exclude_pids=None: [], raising=False)
-
-    status_mod.show_status(SimpleNamespace(all=False, deep=False))
-
-    output = capsys.readouterr().out
-    portal_row = _status_row(output, "Cloud Industry Portal")
-    assert "✗" in portal_row
-    assert "not logged in (Nous inference key configured)" in portal_row
-    assert "Inference:  https://inference.example.com/v1" in output
-    assert "Nous inference credentials are configured" in output
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +60,6 @@ def _base_xai_mocks(monkeypatch, tmp_path):
     monkeypatch.setattr(status_mod, "resolve_requested_provider", lambda requested=None: "openai-codex", raising=False)
     monkeypatch.setattr(status_mod, "resolve_provider", lambda requested=None, **kwargs: "openai-codex", raising=False)
     monkeypatch.setattr(status_mod, "provider_label", lambda provider: "OpenAI Codex", raising=False)
-    monkeypatch.setattr(auth_mod, "get_nous_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(auth_mod, "get_codex_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(auth_mod, "get_qwen_auth_status", lambda: {}, raising=False)
     monkeypatch.setattr(auth_mod, "get_minimax_oauth_auth_status", lambda: {}, raising=False)
@@ -327,17 +221,17 @@ class TestShowStatusXaiOAuth:
         assert "◆ Auth Providers" in out
 
     def test_import_failure_does_not_break_other_oauth_providers(self, monkeypatch, capsys, tmp_path):
-        """Nous/Codex/MiniMax rows must still appear when xAI import fails."""
+        """Codex/MiniMax rows must still appear when xAI import fails."""
         import janus_cli.auth as auth_mod
         status_mod = _base_xai_mocks(monkeypatch, tmp_path)
-        monkeypatch.setattr(auth_mod, "get_nous_auth_status",
+        monkeypatch.setattr(auth_mod, "get_codex_auth_status",
                             lambda: {"logged_in": True}, raising=False)
         monkeypatch.delattr(auth_mod, "get_xai_oauth_auth_status", raising=False)
 
         status_mod.show_status(SimpleNamespace(all=False, deep=False))
         out = capsys.readouterr().out
 
-        assert "Cloud Industry Portal" in out
+        assert "OpenAI Codex" in out
         assert "MiniMax OAuth" in out
 
     def test_status_function_exception_does_not_crash(self, monkeypatch, capsys, tmp_path):

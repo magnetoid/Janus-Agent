@@ -1,6 +1,5 @@
 """Tests for setup.py configuration flows."""
 import sys
-import types
 
 
 from janus_cli.config import load_config, save_config
@@ -17,7 +16,6 @@ def _maybe_keep_current_tts(question, choices):
 
 def _clear_provider_env(monkeypatch):
     for key in (
-        "NOUS_API_KEY",
         "OPENROUTER_API_KEY",
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
@@ -94,28 +92,6 @@ def test_setup_syncs_openrouter_from_disk(tmp_path, monkeypatch):
     reloaded = load_config()
     assert isinstance(reloaded["model"], dict)
     assert reloaded["model"]["provider"] == "openrouter"
-
-
-def test_setup_syncs_nous_from_disk(tmp_path, monkeypatch):
-    """Nous OAuth writes config to disk; wizard config dict must pick it up."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    _clear_provider_env(monkeypatch)
-    _stub_tts(monkeypatch)
-
-    config = load_config()
-
-    def fake_select():
-        _write_model_config(tmp_path, "nous", "https://inference.example.com/v1", "gemini-3-flash")
-
-    monkeypatch.setattr("janus_cli.main.select_provider_and_model", fake_select)
-
-    setup_model_provider(config)
-    save_config(config)
-
-    reloaded = load_config()
-    assert isinstance(reloaded["model"], dict)
-    assert reloaded["model"]["provider"] == "nous"
-    assert reloaded["model"]["base_url"] == "https://inference.example.com/v1"
 
 
 def test_setup_custom_providers_synced(tmp_path, monkeypatch):
@@ -396,50 +372,7 @@ def test_codex_setup_uses_runtime_access_token_for_live_model_list(tmp_path, mon
     assert reloaded["model"]["provider"] == "openai-codex"
 
 
-def test_modal_setup_can_use_nous_subscription_without_modal_creds(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("janus_cli.setup.managed_nous_tools_enabled", lambda: True)
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path))
-    config = load_config()
-
-    def fake_prompt_choice(question, choices, default=0):
-        if question == "Select terminal backend:":
-            return 2
-        if question == "Select how Modal execution should be billed:":
-            return 0
-        raise AssertionError(f"Unexpected prompt_choice call: {question}")
-
-    def fake_prompt(message, *args, **kwargs):
-        assert "Modal Token" not in message
-        raise AssertionError(f"Unexpected prompt call: {message}")
-
-    monkeypatch.setattr("janus_cli.setup.prompt_choice", fake_prompt_choice)
-    monkeypatch.setattr("janus_cli.setup.prompt", fake_prompt)
-    monkeypatch.setattr("janus_cli.setup._prompt_container_resources", lambda config: None)
-    monkeypatch.setattr(
-        "janus_cli.setup.get_nous_subscription_features",
-        lambda config: type("Features", (), {"nous_auth_present": True})(),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.managed_tool_gateway",
-        types.SimpleNamespace(
-            is_managed_tool_gateway_ready=lambda vendor: vendor == "modal",
-            resolve_managed_tool_gateway=lambda vendor: None,
-        ),
-    )
-
-    from janus_cli.setup import setup_terminal_backend
-
-    setup_terminal_backend(config)
-
-    out = capsys.readouterr().out
-    assert config["terminal"]["backend"] == "modal"
-    assert config["terminal"]["modal_mode"] == "managed"
-    assert "bill to your subscription" in out
-
-
-def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tmp_path, monkeypatch):
-    monkeypatch.setattr("janus_cli.setup.managed_nous_tools_enabled", lambda: True)
+def test_modal_setup_persists_direct_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("JANUS_HOME", str(tmp_path))
     monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
     monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
@@ -448,8 +381,6 @@ def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tm
     def fake_prompt_choice(question, choices, default=0):
         if question == "Select terminal backend:":
             return 2
-        if question == "Select how Modal execution should be billed:":
-            return 1
         raise AssertionError(f"Unexpected prompt_choice call: {question}")
 
     prompt_values = iter(["token-id", "token-secret", ""])
@@ -457,18 +388,6 @@ def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tm
     monkeypatch.setattr("janus_cli.setup.prompt_choice", fake_prompt_choice)
     monkeypatch.setattr("janus_cli.setup.prompt", lambda *args, **kwargs: next(prompt_values))
     monkeypatch.setattr("janus_cli.setup._prompt_container_resources", lambda config: None)
-    monkeypatch.setattr(
-        "janus_cli.setup.get_nous_subscription_features",
-        lambda config: type("Features", (), {"nous_auth_present": True})(),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.managed_tool_gateway",
-        types.SimpleNamespace(
-            is_managed_tool_gateway_ready=lambda vendor: vendor == "modal",
-            resolve_managed_tool_gateway=lambda vendor: None,
-        ),
-    )
     monkeypatch.setitem(sys.modules, "swe_rex", object())
 
     from janus_cli.setup import setup_terminal_backend

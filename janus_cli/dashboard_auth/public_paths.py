@@ -9,19 +9,17 @@ copies of this list:
   non-loopback mode, gates on the OAuth session cookie.
 
 When the lists drifted, ``/api/status`` ended up public under the legacy
-gate but 401'd under the OAuth gate. That broke the portal's wildcard
-liveness probe (``nous-account-service`` ``fly-provider.ts``
-``getInstanceRuntimeStatus``), which fetches ``/api/status`` without a
-cookie as its sole signal of "agent dashboard is alive": every healthy
-wildcard-subdomain agent surfaced as STARTING/down in the portal UI even
-though the dashboard was serving correctly.
+gate but 401'd under the OAuth gate. That broke hosted liveness probes,
+which fetch ``/api/status`` without a cookie as their sole signal of
+"agent dashboard is alive": every healthy deployment surfaced as down
+even though the dashboard was serving correctly.
 
 Centralising the allowlist here so both middlewares import the same
 frozenset prevents the next drift. Keep this list minimal — only truly
 non-sensitive, read-only endpoints belong here. As a sanity check, every
 entry should be safe to expose to:
 
-  * external uptime probes (Pingdom, Better Stack, NAS),
+  * external uptime probes (Pingdom, Better Stack, ...),
   * the dashboard SPA before the user has logged in,
   * anyone who happens to ``curl`` the hostname.
 
@@ -33,9 +31,7 @@ from __future__ import annotations
 PUBLIC_API_PATHS: frozenset[str] = frozenset({
     # Liveness probe target. Returns version, gateway state, active
     # session count, and the dashboard auth-gate shape. No bodies, no
-    # session content, no secrets. Documented as the portal's wildcard
-    # liveness probe in
-    # ``docs/agent-dashboard-public-url-contract.md`` (NAS side).
+    # session content, no secrets. Used as the hosted liveness probe.
     "/api/status",
     # Read-only config-defaults / schema feeds for the SPA's Config page.
     "/api/config/defaults",
