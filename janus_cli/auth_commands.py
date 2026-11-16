@@ -347,7 +347,7 @@ def auth_add_command(args) -> None:
         # load_pool seeds the pool's loopback_pkce entry from the singleton.
         load_pool(provider)
         # Fixed message: nothing decoded from the token is echoed to stdout.
-        print(f"Saved {provider} OAuth credentials.")
+        print("Saved xai-oauth OAuth credentials.")
         return
 
     if provider == "google-gemini-cli":
