@@ -92,7 +92,7 @@ class TestCliSkinPromptIntegration:
 
 
 class TestCompactBannerSkinIntegration:
-    def test_default_compact_banner_keeps_legacy_nous_janus_branding(self):
+    def test_default_compact_banner_keeps_janus_branding(self):
         set_active_skin("default")
 
         with patch("cli.shutil.get_terminal_size", return_value=SimpleNamespace(columns=90)), \
@@ -101,7 +101,7 @@ class TestCompactBannerSkinIntegration:
 
         assert "JANUS" in banner
 
-    def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_janus(self):
+    def test_poseidon_compact_banner_uses_skin_branding_instead_of_janus(self):
         set_active_skin("poseidon")
 
         with patch("cli.shutil.get_terminal_size", return_value=SimpleNamespace(columns=90)), \

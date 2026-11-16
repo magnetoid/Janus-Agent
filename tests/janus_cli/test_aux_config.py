@@ -73,7 +73,7 @@ def test_aux_tasks_keys_all_exist_in_default_config():
             {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
             "openrouter · google/gemini-2.5-flash",
         ),
-        ({"provider": "nous", "model": "gemini-3-flash"}, "nous · gemini-3-flash"),
+        ({"provider": "deepseek", "model": "deepseek-chat"}, "deepseek · deepseek-chat"),
         (
             {"provider": "custom", "base_url": "http://localhost:11434/v1", "model": ""},
             "custom (localhost:11434/v1)",
@@ -130,7 +130,7 @@ def test_save_aux_choice_preserves_timeout(tmp_path, monkeypatch):
     default_timeout = cfg_before["auxiliary"]["vision"]["timeout"]
     assert default_timeout == 120
 
-    _save_aux_choice("vision", provider="nous", model="gemini-3-flash")
+    _save_aux_choice("vision", provider="deepseek", model="deepseek-chat")
     cfg_after = load_config()
     assert cfg_after["auxiliary"]["vision"]["timeout"] == default_timeout
     # download_timeout also preserved for vision
@@ -185,10 +185,10 @@ def test_save_aux_choice_creates_missing_task_entry(tmp_path, monkeypatch):
     cfg.setdefault("auxiliary", {}).pop("vision", None)
     save_config(cfg)
 
-    _save_aux_choice("vision", provider="nous", model="gemini-3-flash")
+    _save_aux_choice("vision", provider="deepseek", model="deepseek-chat")
     cfg = load_config()
-    assert cfg["auxiliary"]["vision"]["provider"] == "nous"
-    assert cfg["auxiliary"]["vision"]["model"] == "gemini-3-flash"
+    assert cfg["auxiliary"]["vision"]["provider"] == "deepseek"
+    assert cfg["auxiliary"]["vision"]["model"] == "deepseek-chat"
 
 
 # ── _reset_aux_to_auto ──────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypat
 
     # Configure two tasks non-auto, and bump a timeout
     _save_aux_choice("vision", provider="openrouter", model="gpt-4o")
-    _save_aux_choice("compression", provider="nous", model="gemini-3-flash")
+    _save_aux_choice("compression", provider="deepseek", model="deepseek-chat")
     from janus_cli.config import save_config
 
     cfg = load_config()
@@ -233,7 +233,7 @@ def test_reset_aux_to_auto_idempotent(tmp_path, monkeypatch):
     (tmp_path / ".janus").mkdir(exist_ok=True)
 
     assert _reset_aux_to_auto() == 0
-    _save_aux_choice("vision", provider="nous", model="gemini-3-flash")
+    _save_aux_choice("vision", provider="deepseek", model="deepseek-chat")
     assert _reset_aux_to_auto() == 1
     assert _reset_aux_to_auto() == 0
 

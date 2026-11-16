@@ -1,4 +1,4 @@
-"""MCP catalog — curated, Nous-approved MCP servers shipped with the repo.
+"""MCP catalog — curated, maintainer-approved MCP servers shipped with the repo.
 
 Mirrors the optional-skills/ pattern: each catalog entry lives under
 ``optional-mcps/<name>/manifest.yaml`` and ships disabled. Users discover
@@ -8,7 +8,7 @@ picker, which flows them through any required env/OAuth setup).
 
 Catalog policy:
 - Entries are added only by merging a PR into janus-agent. Presence in the
-  ``optional-mcps/`` directory = Nous approval. No community tier, no trust
+  ``optional-mcps/`` directory = maintainer approval. No community tier, no trust
   signals beyond "it's in the catalog".
 - Manifests pin transport details (commands, args, refs). MCPs are never
   auto-updated; users explicitly re-run ``janus mcp install <name>`` to

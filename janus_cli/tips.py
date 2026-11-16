@@ -227,8 +227,8 @@ TIPS = [
     "browser_vision with annotate=true overlays numbered labels on interactive elements.",
 
     # --- MCP ---
-    "janus mcp opens an interactive picker of Nous-approved MCPs you can install in one keystroke.",
-    "janus mcp catalog lists Nous-approved MCP servers shipped with the repo.",
+    "janus mcp opens an interactive picker of bundled MCPs you can install in one keystroke.",
+    "janus mcp catalog lists the MCP servers shipped with the repo.",
     "janus mcp install <name> installs a catalog entry, prompts for credentials, and lets you pick which of its tools to enable.",
     "MCP servers are configured in config.yaml — both stdio and HTTP transports supported.",
     "Per-server tool filtering: tools.include whitelists and tools.exclude blacklists specific tools.",
@@ -263,7 +263,7 @@ TIPS = [
     "Custom providers: save named endpoints in config.yaml under custom_providers.",
     "JANUS_EPHEMERAL_SYSTEM_PROMPT injects a system prompt that's never persisted to history.",
     "credential_pool_strategies supports fill_first, round_robin, least_used, and random rotation.",
-    "janus auth add nous or janus auth add openai-codex sets up OAuth-based providers.",
+    "janus auth add openai-codex or janus auth add xai-oauth sets up OAuth-based providers.",
     "The API server supports both Chat Completions and Responses API with server-side state.",
     "tool_preview_length: 0 in config shows full file paths in the spinner's activity feed.",
     "janus status --deep runs deeper diagnostic checks across all components.",
@@ -371,7 +371,6 @@ TIPS = [
     # --- Credential Pools & Routing ---
     'janus auth reset <provider> clears all cooldowns and exhaustion flags on a credential pool.',
     'credential_pool_strategies.<provider>: round_robin cycles keys evenly instead of the fill_first default.',
-    'use_gateway: true per-tool routes web, image, tts, or browser through your Nous subscription — no extra keys.',
     'provider_routing.data_collection: deny excludes data-storing providers on OpenRouter.',
     'provider_routing.require_parameters: true only routes to providers that support every param in your request.',
 
@@ -448,7 +447,6 @@ TIPS = [
     'JANUS_OPTIONAL_SKILLS=name1,name2 auto-installs extra optional-catalog skills on first run per profile.',
     'JANUS_BUNDLED_SKILLS points at a custom bundled-skill tree — used by Homebrew and Nix packaging.',
     'JANUS_DUMP_REQUEST_STDOUT=1 dumps every API request payload to stdout instead of log files.',
-    'JANUS_OAUTH_TRACE=1 logs redacted OAuth token exchange and refresh attempts for debugging provider auth.',
     'JANUS_STREAM_RETRIES (default 3) controls mid-stream reconnect attempts on transient network errors.',
 
     # --- Gateway Behavior Env Vars ---

@@ -40,7 +40,7 @@ def test_session_has_required_fields():
 
 def test_login_start_has_redirect_and_state():
     ls = LoginStart(
-        redirect_url="https://portal/authorize?...",
+        redirect_url="https://idp.example/authorize?...",
         cookie_payload={"janus_session_pkce": "verifier=abc;state=xyz"},
     )
     assert ls.redirect_url.startswith("https://")

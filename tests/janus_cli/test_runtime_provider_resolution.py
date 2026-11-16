@@ -881,30 +881,28 @@ def test_named_custom_provider_does_not_shadow_builtin_provider(monkeypatch):
         lambda: {
             "custom_providers": [
                 {
-                    "name": "nous",
+                    "name": "openrouter",
                     "base_url": "http://localhost:1234/v1",
                     "api_key": "shadow-key",
                 }
             ]
         },
     )
-    monkeypatch.setattr(
-        rp,
-        "resolve_nous_runtime_credentials",
-        lambda **kwargs: {
-            "base_url": "https://inference-api.cloud-industry.com/v1",
-            "api_key": "nous-runtime-key",
-            "source": "portal",
-            "expires_at": None,
-        },
-    )
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+    monkeypatch.setattr(rp, "load_pool", lambda p: type("P", (), {
+        "has_credentials": lambda self: False,
+    })())
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-runtime-key")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    resolved = rp.resolve_runtime_provider(requested="nous")
+    resolved = rp.resolve_runtime_provider(requested="openrouter")
 
-    assert resolved["provider"] == "nous"
-    assert resolved["base_url"] == "https://inference-api.cloud-industry.com/v1"
-    assert resolved["api_key"] == "nous-runtime-key"
-    assert resolved["requested_provider"] == "nous"
+    assert resolved["provider"] == "openrouter"
+    assert "openrouter.ai" in resolved["base_url"]
+    assert resolved["api_key"] == "or-runtime-key"
+    assert resolved["requested_provider"] == "openrouter"
 
 
 def test_named_custom_provider_wins_over_builtin_alias(monkeypatch):
@@ -936,9 +934,9 @@ def test_named_custom_provider_wins_over_builtin_alias(monkeypatch):
 
 
 def test_named_custom_provider_skipped_for_canonical_built_in(monkeypatch):
-    """Companion to the test above: ``nous`` is a canonical provider name
-    (``resolve_provider('nous') == 'nous'``), so a custom entry with that name
-    should NOT be returned — the built-in wins as before.
+    """Companion to the test above: ``openrouter`` is a canonical provider
+    name (``resolve_provider('openrouter') == 'openrouter'``), so a custom
+    entry with that name should NOT be returned — the built-in wins as before.
     """
     monkeypatch.setattr(
         rp,
@@ -946,7 +944,7 @@ def test_named_custom_provider_skipped_for_canonical_built_in(monkeypatch):
         lambda: {
             "custom_providers": [
                 {
-                    "name": "nous",
+                    "name": "openrouter",
                     "base_url": "http://localhost:1234/v1",
                     "api_key": "shadow-key",
                 }
@@ -954,7 +952,7 @@ def test_named_custom_provider_skipped_for_canonical_built_in(monkeypatch):
         },
     )
 
-    entry = rp._get_named_custom_provider("nous")
+    entry = rp._get_named_custom_provider("openrouter")
 
     assert entry is None
 
@@ -1011,13 +1009,13 @@ def test_explicit_openrouter_honors_openrouter_base_url_over_pool(monkeypatch):
 
 
 def test_resolve_requested_provider_precedence(monkeypatch):
-    monkeypatch.setenv("JANUS_INFERENCE_PROVIDER", "nous")
+    monkeypatch.setenv("JANUS_INFERENCE_PROVIDER", "deepseek")
     monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "openai-codex"})
     assert rp.resolve_requested_provider("openrouter") == "openrouter"
     assert rp.resolve_requested_provider() == "openai-codex"
 
     monkeypatch.setattr(rp, "_get_model_config", lambda: {})
-    assert rp.resolve_requested_provider() == "nous"
+    assert rp.resolve_requested_provider() == "deepseek"
 
     monkeypatch.delenv("JANUS_INFERENCE_PROVIDER", raising=False)
     assert rp.resolve_requested_provider() == "auto"
@@ -1476,37 +1474,6 @@ def test_custom_provider_no_key_gets_placeholder(monkeypatch):
     assert resolved["base_url"] == "http://localhost:8080/v1"
 
 
-def test_auto_detected_nous_auth_failure_falls_through_to_openrouter(monkeypatch):
-    """When auto-detect picks Nous but credentials are revoked, fall through to OpenRouter."""
-    from janus_cli.auth import AuthError
-
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-or-key")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
-    monkeypatch.setattr(rp, "load_config", lambda: {})
-
-    # resolve_provider returns "nous" (stale active_provider in auth.json)
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "nous")
-    # load_pool returns empty pool so we hit the direct credential resolution
-    monkeypatch.setattr(rp, "load_pool", lambda p: type("P", (), {
-        "has_credentials": lambda self: False,
-    })())
-    # Nous credential resolution fails with revoked token
-    monkeypatch.setattr(
-        rp, "resolve_nous_runtime_credentials",
-        lambda **kw: (_ for _ in ()).throw(
-            AuthError("Refresh session has been revoked",
-                      provider="nous", code="invalid_grant", relogin_required=True)
-        ),
-    )
-
-    # With requested="auto", should fall through to OpenRouter
-    resolved = rp.resolve_runtime_provider(requested="auto")
-    assert resolved["provider"] == "openrouter"
-    assert resolved["api_key"] == "test-or-key"
-
-
 def test_auto_detected_codex_auth_failure_falls_through_to_openrouter(monkeypatch):
     """When auto-detect picks Codex but credentials are revoked, fall through to OpenRouter."""
     from janus_cli.auth import AuthError
@@ -1534,29 +1501,29 @@ def test_auto_detected_codex_auth_failure_falls_through_to_openrouter(monkeypatc
     assert resolved["api_key"] == "test-or-key"
 
 
-def test_explicit_nous_auth_failure_still_raises(monkeypatch):
-    """When user explicitly requests Nous and auth fails, the error should propagate."""
+def test_explicit_codex_auth_failure_still_raises(monkeypatch):
+    """When user explicitly requests Codex and auth fails, the error should propagate."""
     from janus_cli.auth import AuthError
     import pytest
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-or-key")
     monkeypatch.setattr(rp, "load_config", lambda: {})
 
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "nous")
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
     monkeypatch.setattr(rp, "load_pool", lambda p: type("P", (), {
         "has_credentials": lambda self: False,
     })())
     monkeypatch.setattr(
-        rp, "resolve_nous_runtime_credentials",
+        rp, "resolve_codex_runtime_credentials",
         lambda **kw: (_ for _ in ()).throw(
-            AuthError("Refresh session has been revoked",
-                      provider="nous", code="invalid_grant", relogin_required=True)
+            AuthError("Codex token refresh failed: session revoked",
+                      provider="openai-codex", code="invalid_grant", relogin_required=True)
         ),
     )
 
-    # With explicit "nous", should raise — don't silently switch providers
-    with pytest.raises(AuthError, match="Refresh session has been revoked"):
-        rp.resolve_runtime_provider(requested="nous")
+    # With explicit "openai-codex", should raise — don't silently switch providers
+    with pytest.raises(AuthError, match="session revoked"):
+        rp.resolve_runtime_provider(requested="openai-codex")
 
 
 def test_openrouter_provider_not_affected_by_custom_fix(monkeypatch):

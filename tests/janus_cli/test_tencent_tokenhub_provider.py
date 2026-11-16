@@ -186,12 +186,12 @@ class TestTencentTokenhubCanonicalProvider:
 
 
 # =============================================================================
-# OpenRouter / Cloud Industry Portal curated lists
+# OpenRouter curated list
 # =============================================================================
 
 
-class TestTencentInOpenRouterAndNous:
-    """tencent/hy3-preview:free and tencent/hy3-preview should appear in OpenRouter and Nous curated lists."""
+class TestTencentInOpenRouter:
+    """tencent/hy3-preview:free and tencent/hy3-preview should appear in the OpenRouter curated list."""
 
     def test_in_openrouter_fallback(self):
         from janus_cli.models import OPENROUTER_MODELS
@@ -203,10 +203,6 @@ class TestTencentInOpenRouterAndNous:
         from janus_cli.models import OPENROUTER_MODELS
         ids = [mid for mid, _ in OPENROUTER_MODELS]
         assert "tencent/hy3-preview" in ids
-
-    def test_in_nous_provider_models(self):
-        from janus_cli.models import _PROVIDER_MODELS
-        assert "tencent/hy3-preview" in _PROVIDER_MODELS["nous"]
 
 
 # =============================================================================

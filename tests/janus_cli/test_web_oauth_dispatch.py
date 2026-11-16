@@ -19,45 +19,17 @@ The fix:
 
 These tests pin the corrected behavior.
 """
-import asyncio
 import time
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 from janus_cli.web_server import _SESSION_TOKEN, app
 
 client = TestClient(app)
 HEADERS = {"X-Janus-Session-Token": _SESSION_TOKEN}
-
-
-def _fake_nous_device_data():
-    return {
-        "device_code": "device-code",
-        "user_code": "NOUS-1234",
-        "verification_uri": "https://portal.cloud-industry.com/device",
-        "verification_uri_complete": (
-            "https://portal.cloud-industry.com/device?user_code=NOUS-1234"
-        ),
-        "expires_in": 600,
-        "interval": 5,
-    }
-
-
-def _invoke_scope_refusal():
-    request = httpx.Request("POST", "https://portal.cloud-industry.com/oauth/device/code")
-    response = httpx.Response(
-        400,
-        json={
-            "error": "invalid_scope",
-            "error_description": "unsupported scope inference:invoke",
-        },
-        request=request,
-    )
-    return httpx.HTTPStatusError("invalid scope", request=request, response=response)
 
 
 def test_minimax_login_does_not_launch_anthropic_flow():
@@ -98,52 +70,6 @@ def test_minimax_login_does_not_launch_anthropic_flow():
     assert "minimax" in body["verification_url"].lower()
     assert body["user_code"] == "ABCD-1234"
     assert body["expires_in"] == 600
-
-
-def test_nous_dashboard_device_flow_ignores_legacy_scope_override(monkeypatch):
-    from janus_cli import auth as auth_mod
-    from janus_cli import web_server as ws
-
-    requested_scopes = []
-
-    def fake_request_device_code(**kwargs):
-        requested_scopes.append(kwargs["scope"])
-        return _fake_nous_device_data()
-
-    monkeypatch.setenv("JANUS_AGENT_USE_LEGACY_SESSION_KEYS", "true")
-    monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
-    monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
-
-    result = asyncio.run(ws._start_device_code_flow("nous"))
-    try:
-        assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
-        assert result["flow"] == "device_code"
-        assert result["user_code"] == "NOUS-1234"
-        assert (
-            ws._oauth_sessions[result["session_id"]]["scope"]
-            == auth_mod.DEFAULT_NOUS_SCOPE
-        )
-    finally:
-        ws._oauth_sessions.pop(result["session_id"], None)
-
-
-def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusal(monkeypatch):
-    from janus_cli import auth as auth_mod
-    from janus_cli import web_server as ws
-
-    requested_scopes = []
-
-    def fake_request_device_code(**kwargs):
-        requested_scopes.append(kwargs["scope"])
-        raise _invoke_scope_refusal()
-
-    monkeypatch.delenv("JANUS_AGENT_USE_LEGACY_SESSION_KEYS", raising=False)
-    monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
-    monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
-
-    with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(ws._start_device_code_flow("nous"))
-    assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
 
 
 def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch):
@@ -205,56 +131,6 @@ def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch)
         assert runtime["api_mode"] == "codex_responses"
     finally:
         ws._oauth_sessions.pop(sid, None)
-
-
-def test_nous_dashboard_poller_preserves_effective_scope_when_token_omits_scope(monkeypatch):
-    from janus_cli import auth as auth_mod
-    from janus_cli import web_server as ws
-
-    session_id = "nous-effective-scope-test"
-    ws._oauth_sessions[session_id] = {
-        "session_id": session_id,
-        "provider": "nous",
-        "flow": "device_code",
-        "created_at": time.time(),
-        "status": "pending",
-        "error_message": None,
-        "portal_base_url": "https://portal.cloud-industry.com",
-        "client_id": "janus-cli",
-        "device_code": "device-code",
-        "interval": 5,
-        "expires_at": time.time() + 600,
-        "scope": auth_mod.DEFAULT_NOUS_SCOPE,
-    }
-    captured_state = {}
-
-    def fake_refresh_nous_oauth_from_state(state, **kwargs):
-        captured_state.update(state)
-        return {**state, "agent_key": "jwt-agent-key"}
-
-    monkeypatch.setattr(
-        auth_mod,
-        "_poll_for_token",
-        lambda **kwargs: {
-            "access_token": "access-token",
-            "refresh_token": "refresh-token",
-            "expires_in": 3600,
-            "token_type": "Bearer",
-        },
-    )
-    monkeypatch.setattr(
-        auth_mod,
-        "refresh_nous_oauth_from_state",
-        fake_refresh_nous_oauth_from_state,
-    )
-    monkeypatch.setattr(auth_mod, "persist_nous_credentials", lambda state: None)
-
-    try:
-        ws._nous_poller(session_id)
-        assert captured_state["scope"] == auth_mod.DEFAULT_NOUS_SCOPE
-        assert ws._oauth_sessions[session_id]["status"] == "approved"
-    finally:
-        ws._oauth_sessions.pop(session_id, None)
 
 
 def test_minimax_dashboard_poller_accepts_absolute_ms_expired_in():

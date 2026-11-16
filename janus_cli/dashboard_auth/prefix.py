@@ -135,7 +135,7 @@ def _load_dashboard_section() -> dict:
 def resolve_public_url() -> str:
     """Resolve the operator-declared dashboard public URL.
 
-    Precedence (mirrors ``dashboard.oauth.client_id``):
+    Precedence:
 
       1. ``JANUS_DASHBOARD_PUBLIC_URL`` env var (when non-empty after
          strip — empty values are treated as unset so a provisioned-but-
