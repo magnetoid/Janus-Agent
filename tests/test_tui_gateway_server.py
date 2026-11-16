@@ -809,30 +809,30 @@ def test_resolve_model_strips_config_model(monkeypatch):
     monkeypatch.delenv("JANUS_MODEL", raising=False)
     monkeypatch.delenv("JANUS_INFERENCE_MODEL", raising=False)
     monkeypatch.setattr(
-        server, "_load_cfg", lambda: {"model": {"default": " nous/janus-test "}}
+        server, "_load_cfg", lambda: {"model": {"default": " openrouter/janus-test "}}
     )
 
-    assert server._resolve_model() == "nous/janus-test"
+    assert server._resolve_model() == "openrouter/janus-test"
 
 
 def test_startup_runtime_uses_tui_provider_env(monkeypatch):
-    monkeypatch.setenv("JANUS_MODEL", "nous/janus-test")
-    monkeypatch.setenv("JANUS_TUI_PROVIDER", "nous")
+    monkeypatch.setenv("JANUS_MODEL", "openrouter/janus-test")
+    monkeypatch.setenv("JANUS_TUI_PROVIDER", "openrouter")
     monkeypatch.delenv("JANUS_INFERENCE_PROVIDER", raising=False)
 
-    assert server._resolve_startup_runtime() == ("nous/janus-test", "nous")
+    assert server._resolve_startup_runtime() == ("openrouter/janus-test", "openrouter")
 
 
 def test_startup_runtime_does_not_treat_inference_provider_as_explicit(monkeypatch):
-    monkeypatch.setenv("JANUS_MODEL", "nous/janus-test")
+    monkeypatch.setenv("JANUS_MODEL", "openrouter/janus-test")
     monkeypatch.delenv("JANUS_TUI_PROVIDER", raising=False)
-    monkeypatch.setenv("JANUS_INFERENCE_PROVIDER", "nous")
+    monkeypatch.setenv("JANUS_INFERENCE_PROVIDER", "openrouter")
     monkeypatch.setattr(
         "janus_cli.models.detect_static_provider_for_model",
         lambda model, provider: None,
     )
 
-    assert server._resolve_startup_runtime() == ("nous/janus-test", None)
+    assert server._resolve_startup_runtime() == ("openrouter/janus-test", None)
 
 
 def test_startup_runtime_detects_provider_for_model_env(monkeypatch):
@@ -4090,13 +4090,13 @@ def test_model_options_does_not_overwrite_curated_models(monkeypatch):
     Regression: earlier versions of this handler unconditionally replaced
     each provider's curated ``models`` field with ``provider_model_ids()``
     (live /models catalog).  That pulled in hundreds of non-agentic models
-    for providers like Nous whose /models endpoint returns image/video
+    for aggregators whose /models endpoint returns image/video
     generators, rerankers, embeddings, and TTS models alongside chat models.
     """
     curated_providers = [
         {
-            "slug": "nous",
-            "name": "Nous",
+            "slug": "openrouter",
+            "name": "OpenRouter",
             "models": ["moonshotai/kimi-k2.5", "anthropic/claude-opus-4.7"],
             "total_models": 30,
             "source": "built-in",
@@ -4123,13 +4123,13 @@ def test_model_options_does_not_overwrite_curated_models(monkeypatch):
 
     assert "result" in resp, resp
     providers = resp["result"]["providers"]
-    nous = next((p for p in providers if p.get("slug") == "nous"), None)
-    assert nous is not None
-    assert nous["models"] == [
+    curated = next((p for p in providers if p.get("slug") == "openrouter"), None)
+    assert curated is not None
+    assert curated["models"] == [
         "moonshotai/kimi-k2.5",
         "anthropic/claude-opus-4.7",
     ]
-    assert nous["total_models"] == 30
+    assert curated["total_models"] == 30
     # Handler must not consult the live catalog — curated is the truth.
     live_fetch.assert_not_called()
     # list_authenticated_providers is the single source.

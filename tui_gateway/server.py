@@ -724,15 +724,6 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 pass
 
             _wire_callbacks(sid)
-            # Hydrate credits notices at session OPEN (not just on the first
-            # message), so depletion / usage-band warnings show at "ready". Runs
-            # off the build thread, after the notice_callback is wired. Fail-open.
-            try:
-                from agent.credits_tracker import seed_credits_at_session_start
-
-                seed_credits_at_session_start(agent)
-            except Exception:
-                pass
             with _sessions_lock:
                 if sid in _sessions:
                     _sessions[sid]["_notif_stop"] = _start_notification_poller(sid, _sessions[sid])
@@ -1762,15 +1753,6 @@ def _get_usage(agent) -> dict:
             usage["cost_usd"] = float(cost.amount_usd)
     except Exception:
         pass
-    # Dev-only live credits-spent readout (L0 usage-aware-credits). Gated on
-    # JANUS_DEV_CREDITS so the payload stays clean when the flag is off.
-    if is_truthy_value(os.environ.get("JANUS_DEV_CREDITS")):
-        try:
-            spent = agent.get_credits_spent_micros()
-            if spent is not None:
-                usage["dev_credits_spent_micros"] = int(spent)
-        except Exception:
-            pass
     return usage
 
 
@@ -2247,7 +2229,7 @@ def _agent_cbs(sid: str) -> dict:
         "status_callback": lambda kind, text=None: _status_update(
             sid, str(kind), None if text is None else str(text)
         ),
-        # Credits/notice spine (L1): an AgentNotice fired by the agent becomes a
+        # Notice spine: an AgentNotice fired by the agent becomes a
         # notification.show WS event; a recovery clear becomes notification.clear.
         # Snake_case payload to match the existing gateway-event convention.
         "notice_callback": lambda n: _emit(
@@ -3753,18 +3735,6 @@ def _(rid, params: dict) -> dict:
         if agent is not None
         else {"calls": 0, "input": 0, "output": 0, "total": 0}
     )
-    # Nous credits block — agent-independent (a portal fetch), so it shows even
-    # with zero API calls or on a resumed session. The TUI /usage panel renders
-    # these lines regardless of `calls`. Fail-open: [] when not logged into Nous
-    # or on any portal hiccup.
-    try:
-        from agent.account_usage import nous_credits_lines
-
-        credits = nous_credits_lines()
-        if credits:
-            usage["credits_lines"] = credits
-    except Exception:
-        pass
     return _ok(rid, usage)
 
 

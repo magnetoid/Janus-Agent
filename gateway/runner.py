@@ -9816,7 +9816,7 @@ class GatewayRunner:
         lines.append(t("gateway.model.cache_switch_warning"))
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
-        # Copilot, and Nous-enforced caps win over the raw models.dev entry.
+        # and Copilot-enforced caps win over the raw models.dev entry.
         mi = result.model_info
         from janus_cli.model_switch import resolve_display_context_length
         _sw2_config_ctx = None
@@ -12565,7 +12565,6 @@ class GatewayRunner:
         # Fetch account usage off the event loop so slow provider APIs don't
         # block the gateway. Failures are non-fatal -- account_lines stays [].
         account_lines: list[str] = []
-        credits_lines: list[str] = []
         if provider:
             try:
                 account_snapshot = await asyncio.to_thread(
@@ -12578,21 +12577,6 @@ class GatewayRunner:
                 account_snapshot = None
             if account_snapshot:
                 account_lines = render_account_usage_lines(account_snapshot, markdown=True)
-
-        # ── Nous credits magnitudes + monthly-grant % gauge ─────────────
-        # Shared with the CLI / TUI /usage block via nous_credits_lines(): a single
-        # auth-gate + portal-fetch + render path (which also honors the dev fixture).
-        # Run off the event loop. The helper gates on "a Nous account is logged in"
-        # — NOT the inference provider and NOT nested under `if provider:` — so a
-        # Nous-credentialled user running inference elsewhere (or with none resident)
-        # still sees their balance. NO recovery trigger: messaging binds no notice
-        # consumer, so /usage only displays. Fail-open: never break /usage.
-        try:
-            from agent.account_usage import nous_credits_lines
-
-            credits_lines = await asyncio.to_thread(nous_credits_lines, markdown=True)
-        except Exception:
-            credits_lines = []  # fail-open: never break /usage
 
         if agent and hasattr(agent, "session_total_tokens") and agent.session_api_calls > 0:
             lines = []
@@ -12654,9 +12638,6 @@ class GatewayRunner:
             if account_lines:
                 lines.append("")
                 lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
 
             return "\n".join(lines)
 
@@ -12676,18 +12657,9 @@ class GatewayRunner:
             if account_lines:
                 lines.append("")
                 lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
             return "\n".join(lines)
-        if account_lines or credits_lines:
-            # account-only, credits-only, or both — joined with a blank divider.
-            parts = list(account_lines)
-            if credits_lines:
-                if parts:
-                    parts.append("")
-                parts.extend(credits_lines)
-            return "\n".join(parts)
+        if account_lines:
+            return "\n".join(account_lines)
         return t("gateway.usage.no_data")
 
     async def _handle_insights_command(self, event: MessageEvent) -> str:
@@ -16606,18 +16578,14 @@ class GatewayRunner:
             agent.interim_assistant_callback = _interim_assistant_cb if _want_interim_messages else None
             agent.status_callback = _status_callback_sync
 
-            # Credits / out-of-band notices (usage bands, depletion, restored).
-            # Messaging has no persistent status bar, so each notice is a
-            # standalone push: render to a single plaintext line and deliver via
-            # the shared _deliver_platform_notice rail (honors private/public +
-            # thread metadata). Fires from the agent's sync worker thread, so we
-            # hop onto the gateway loop with safe_schedule_threadsafe — same
-            # pattern as _status_callback_sync. The fired-once latch lives on the
-            # cached agent and persists across turns, so a band crosses → one
-            # push (no per-turn re-nag). Recovery ("✓ Credit access restored")
-            # rides the same show path (it's emitted as a success notice, not a
-            # clear). The clear callback is a no-op: a sent platform message
-            # can't be cleanly retracted, and the band already fired once.
+            # Out-of-band agent notices. Messaging has no persistent status
+            # bar, so each notice is a standalone push: render to a single
+            # plaintext line and deliver via the shared _deliver_platform_notice
+            # rail (honors private/public + thread metadata). Fires from the
+            # agent's sync worker thread, so we hop onto the gateway loop with
+            # safe_schedule_threadsafe — same pattern as _status_callback_sync.
+            # The clear callback is a no-op: a sent platform message can't be
+            # cleanly retracted.
             def _notice_callback_sync(notice) -> None:
                 if not _status_adapter or not _run_still_current():
                     return

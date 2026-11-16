@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import time
-from datetime import datetime, timezone
 
 import pytest
 
@@ -915,7 +914,6 @@ def test_pooled_credential_to_dict_strips_borrowed_secret_fields():
         source="vault:openrouter/api-key",
         access_token=sentinel,
         refresh_token=f"refresh-{sentinel}",
-        agent_key=f"agent-{sentinel}",
         request_count=7,
         last_status="ok",
         extra={
@@ -937,7 +935,6 @@ def test_pooled_credential_to_dict_strips_borrowed_secret_fields():
     assert sentinel not in serialized
     assert "access_token" not in payload
     assert "refresh_token" not in payload
-    assert "agent_key" not in payload
     assert "api_key" not in payload
     assert "client_secret" not in payload
     assert "secret_key" not in payload
@@ -1102,23 +1099,21 @@ def test_write_credential_pool_preserves_known_provider_owned_oauth_state(tmp_pa
 
     from janus_cli.auth import write_credential_pool
 
-    write_credential_pool("nous", [
+    write_credential_pool("openai-codex", [
         {
-            "id": "nous-device",
+            "id": "codex-device",
             "label": "device-code",
             "auth_type": "oauth",
             "priority": 0,
             "source": "device_code",
             "access_token": sentinel,
             "refresh_token": f"refresh-{sentinel}",
-            "agent_key": f"agent-{sentinel}",
         }
     ])
 
-    persisted = json.loads((tmp_path / "janus" / "auth.json").read_text())["credential_pool"]["nous"][0]
+    persisted = json.loads((tmp_path / "janus" / "auth.json").read_text())["credential_pool"]["openai-codex"][0]
     assert persisted["access_token"] == sentinel
     assert persisted["refresh_token"] == f"refresh-{sentinel}"
-    assert persisted["agent_key"] == f"agent-{sentinel}"
 
 
 
@@ -1212,238 +1207,6 @@ def test_load_pool_removes_stale_seeded_env_entry(tmp_path, monkeypatch):
     assert auth_payload["credential_pool"]["openrouter"] == []
 
 
-def test_load_pool_migrates_nous_provider_state(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-token",
-                    "refresh_token": "refresh-token",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entry = pool.select()
-
-    assert entry is not None
-    assert entry.source == "device_code"
-    assert entry.portal_base_url == "https://portal.example.com"
-    assert entry.agent_key == "agent-key"
-
-
-def test_load_pool_mirrors_nous_invoke_jwt_agent_key_runtime_api_key(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    expires_at = datetime.fromtimestamp(time.time() + 3600, tz=timezone.utc).isoformat()
-    token = _jwt_with_claims({
-        "sub": "test-user",
-        "scope": ["inference:invoke"],
-        "exp": int(time.time() + 3600),
-    })
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": token,
-                    "refresh_token": "refresh-token",
-                    "expires_at": expires_at,
-                    "agent_key": token,
-                    "agent_key_expires_at": expires_at,
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entry = pool.select()
-
-    assert entry is not None
-    assert entry.source == "device_code"
-    assert entry.agent_key == token
-    assert entry.runtime_api_key == token
-
-    auth_payload = json.loads((tmp_path / "janus" / "auth.json").read_text())
-    pool_entry = auth_payload["credential_pool"]["nous"][0]
-    assert pool_entry["agent_key"] == token
-    assert pool_entry["agent_key_expires_at"] == expires_at
-
-
-def test_nous_runtime_api_key_rejects_opaque_agent_key():
-    from agent.credential_pool import PooledCredential
-
-    entry = PooledCredential(
-        provider="nous",
-        id="nous-opaque",
-        label="opaque",
-        auth_type="oauth",
-        priority=0,
-        source="device_code",
-        access_token="opaque-access-token",
-        refresh_token="refresh-token",
-        agent_key="opaque-agent-key",
-        agent_key_expires_at=datetime.fromtimestamp(
-            time.time() + 3600,
-            tz=timezone.utc,
-        ).isoformat(),
-        extra={"scope": "inference:invoke"},
-    )
-
-    assert entry.runtime_api_key == ""
-
-
-def test_nous_pool_terminal_refresh_removes_device_code_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    monkeypatch.setenv("JANUS_SHARED_AUTH_DIR", str(tmp_path / "shared"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-token",
-                    "refresh_token": "refresh-token",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import PooledCredential, load_pool
-    from janus_cli import auth as auth_mod
-    from janus_cli.auth import AuthError
-
-    refresh_calls = {"count": 0}
-
-    def _terminal_refresh_failure(*_args, **_kwargs):
-        refresh_calls["count"] += 1
-        raise AuthError(
-            "Refresh session has been revoked",
-            provider="nous",
-            code="invalid_grant",
-            relogin_required=True,
-        )
-
-    pool = load_pool("nous")
-    selected = pool.select()
-    assert selected is not None
-    assert selected.source == "device_code"
-    pool.add_entry(PooledCredential.from_dict("nous", {
-        "id": "legacy-seeded",
-        "source": "manual:device_code",
-        "auth_type": "oauth",
-        "access_token": "old-access-token",
-        "refresh_token": "old-refresh-token",
-        "agent_key": "old-agent-key",
-    }))
-    pool.add_entry(PooledCredential.from_dict("nous", {
-        "id": "manual-key",
-        "source": "manual",
-        "auth_type": "api_key",
-        "access_token": "manual-nous-key",
-    }))
-
-    monkeypatch.setattr(auth_mod, "resolve_nous_runtime_credentials", _terminal_refresh_failure)
-
-    assert pool.try_refresh_current() is None
-
-    assert [entry.id for entry in pool.entries()] == ["manual-key"]
-
-    auth_payload = json.loads((tmp_path / "janus" / "auth.json").read_text())
-    nous_state = auth_payload["providers"]["nous"]
-    assert not nous_state.get("refresh_token")
-    assert not nous_state.get("access_token")
-    assert not nous_state.get("agent_key")
-    assert nous_state["last_auth_error"]["code"] == "invalid_grant"
-    assert [entry["id"] for entry in auth_payload["credential_pool"]["nous"]] == ["manual-key"]
-
-    assert pool.try_refresh_current() is None
-    assert refresh_calls["count"] == 1
-
-
-def test_load_pool_removes_nous_device_code_when_singleton_quarantined(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "last_auth_error": {"code": "invalid_grant"},
-                }
-            },
-            "credential_pool": {
-                "nous": [
-                    {
-                        "id": "seeded-current",
-                        "source": "device_code",
-                        "auth_type": "oauth",
-                        "access_token": "stale-access",
-                        "refresh_token": "stale-refresh",
-                        "agent_key": "stale-agent",
-                    },
-                    {
-                        "id": "seeded-legacy",
-                        "source": "manual:device_code",
-                        "auth_type": "oauth",
-                        "access_token": "older-stale-access",
-                    },
-                    {
-                        "id": "manual-key",
-                        "source": "manual",
-                        "auth_type": "api_key",
-                        "access_token": "manual-nous-key",
-                    },
-                ]
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-
-    assert [entry.id for entry in pool.entries()] == ["manual-key"]
-    auth_payload = json.loads((tmp_path / "janus" / "auth.json").read_text())
-    assert [entry["id"] for entry in auth_payload["credential_pool"]["nous"]] == ["manual-key"]
-
-
 def test_load_pool_removes_stale_file_backed_singleton_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -1487,52 +1250,6 @@ def test_load_pool_removes_stale_file_backed_singleton_entry(tmp_path, monkeypat
 
     auth_payload = json.loads((tmp_path / "janus" / "auth.json").read_text())
     assert auth_payload["credential_pool"]["anthropic"] == []
-
-
-def test_load_pool_migrates_nous_provider_state_preserves_tls(tmp_path, monkeypatch):
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-token",
-                    "refresh_token": "refresh-token",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                    "tls": {
-                        "insecure": True,
-                        "ca_bundle": "/tmp/nous-ca.pem",
-                    },
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entry = pool.select()
-
-    assert entry is not None
-    assert entry.tls == {
-        "insecure": True,
-        "ca_bundle": "/tmp/nous-ca.pem",
-    }
-
-    auth_payload = json.loads((tmp_path / "janus" / "auth.json").read_text())
-    assert auth_payload["credential_pool"]["nous"][0]["tls"] == {
-        "insecure": True,
-        "ca_bundle": "/tmp/nous-ca.pem",
-    }
 
 
 def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatch):
@@ -2313,74 +2030,6 @@ def test_load_pool_does_not_seed_qwen_oauth_when_no_token(tmp_path, monkeypatch)
     assert pool.entries() == []
 
 
-def test_nous_seed_from_singletons_preserves_obtained_at_timestamps(tmp_path, monkeypatch):
-    """Regression test for #15099 secondary issue.
-
-    When ``_seed_from_singletons`` materialises a device_code pool entry from
-    the ``providers.nous`` singleton, it must carry the mint/refresh
-    timestamps (``obtained_at``, ``agent_key_obtained_at``, ``expires_in``,
-    etc.) into the pool entry.  Without them, freshness-sensitive consumers
-    (self-heal hooks, pool pruning by age) treat just-minted credentials as
-    older than they actually are and evict them.
-    """
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "providers": {
-                "nous": {
-                    "access_token": "at_XXXXXXXX",
-                    "refresh_token": "rt_YYYYYYYY",
-                    "client_id": "janus-cli",
-                    "portal_base_url": "https://portal.cloud-industry.com",
-                    "inference_base_url": "https://inference.cloud-industry.com/v1",
-                    "token_type": "Bearer",
-                    "scope": "openid profile",
-                    "obtained_at": "2026-04-24T10:00:00+00:00",
-                    "expires_at": "2026-04-24T11:00:00+00:00",
-                    "expires_in": 3600,
-                    "agent_key": "sk-nous-AAAA",
-                    "agent_key_id": "ak_123",
-                    "agent_key_expires_at": "2026-04-25T10:00:00+00:00",
-                    "agent_key_expires_in": 86400,
-                    "agent_key_reused": False,
-                    "agent_key_obtained_at": "2026-04-24T10:00:05+00:00",
-                    "tls": {"insecure": False, "ca_bundle": None},
-                },
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entries = pool.entries()
-
-    device_entries = [e for e in entries if e.source == "device_code"]
-    assert len(device_entries) == 1, f"expected single device_code entry; got {len(device_entries)}"
-    e = device_entries[0]
-
-    # Direct dataclass fields — must survive the singleton → pool copy.
-    assert e.access_token == "at_XXXXXXXX"
-    assert e.refresh_token == "rt_YYYYYYYY"
-    assert e.expires_at == "2026-04-24T11:00:00+00:00"
-    assert e.agent_key == "sk-nous-AAAA"
-    assert e.agent_key_expires_at == "2026-04-25T10:00:00+00:00"
-
-    # Extra fields — this is what regressed.  These must be carried through
-    # via ``extra`` dict or __getattr__, NOT silently dropped.
-    assert e.obtained_at == "2026-04-24T10:00:00+00:00", (
-        f"obtained_at was dropped during seed; got {e.obtained_at!r}. This breaks "
-        f"downstream pool-freshness consumers (#15099)."
-    )
-    assert e.agent_key_obtained_at == "2026-04-24T10:00:05+00:00"
-    assert e.expires_in == 3600
-    assert e.agent_key_id == "ak_123"
-    assert e.agent_key_expires_in == 86400
-    assert e.agent_key_reused is False
-
-
 class TestLeastUsedStrategy:
     """Regression: least_used strategy must increment request_count on select."""
 
@@ -2410,175 +2059,6 @@ class TestLeastUsedStrategy:
         assert e2.id != e1.id or e2.request_count == 2, (
             "least_used should alternate or increment"
         )
-
-
-# ── PR #10160 salvage: Nous OAuth cross-process sync tests ─────────────────
-
-def test_sync_nous_entry_from_auth_store_adopts_newer_tokens(tmp_path, monkeypatch):
-    """When auth.json has a newer refresh token, the pool entry should adopt it."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-OLD",
-                    "refresh_token": "refresh-OLD",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key-OLD",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entry = pool.select()
-    assert entry is not None
-    assert entry.refresh_token == "refresh-OLD"
-
-    # Simulate another process refreshing the token in auth.json
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-NEW",
-                    "refresh_token": "refresh-NEW",
-                    "expires_at": "2026-03-24T12:30:00+00:00",
-                    "agent_key": "agent-key-NEW",
-                    "agent_key_expires_at": "2026-03-24T14:00:00+00:00",
-                }
-            },
-        },
-    )
-
-    synced = pool._sync_nous_entry_from_auth_store(entry)
-    assert synced is not entry
-    assert synced.access_token == "access-NEW"
-    assert synced.refresh_token == "refresh-NEW"
-    assert synced.agent_key == "agent-key-NEW"
-    assert synced.agent_key_expires_at == "2026-03-24T14:00:00+00:00"
-
-def test_sync_nous_entry_noop_when_tokens_match(tmp_path, monkeypatch):
-    """When auth.json has the same refresh token, sync should be a no-op."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-token",
-                    "refresh_token": "refresh-token",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                }
-            },
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("nous")
-    entry = pool.select()
-    assert entry is not None
-
-    synced = pool._sync_nous_entry_from_auth_store(entry)
-    assert synced is entry
-
-def test_nous_exhausted_entry_recovers_via_auth_store_sync(tmp_path, monkeypatch):
-    """An exhausted Nous entry should recover when auth.json has newer tokens."""
-    monkeypatch.setenv("JANUS_HOME", str(tmp_path / "janus"))
-    from agent.credential_pool import load_pool, STATUS_EXHAUSTED
-    from dataclasses import replace as dc_replace
-
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-OLD",
-                    "refresh_token": "refresh-OLD",
-                    "expires_at": "2026-03-24T12:00:00+00:00",
-                    "agent_key": "agent-key",
-                    "agent_key_expires_at": "2026-03-24T13:30:00+00:00",
-                }
-            },
-        },
-    )
-
-    pool = load_pool("nous")
-    entry = pool.select()
-    assert entry is not None
-
-    # Mark entry as exhausted (simulating a failed refresh)
-    exhausted = dc_replace(
-        entry,
-        last_status=STATUS_EXHAUSTED,
-        last_status_at=time.time(),
-        last_error_code=401,
-    )
-    pool._replace_entry(entry, exhausted)
-    pool._persist()
-
-    # Simulate another process having successfully refreshed
-    _write_auth_store(
-        tmp_path,
-        {
-            "version": 1,
-            "active_provider": "nous",
-            "providers": {
-                "nous": {
-                    "portal_base_url": "https://portal.example.com",
-                    "inference_base_url": "https://inference.example.com/v1",
-                    "client_id": "janus-cli",
-                    "token_type": "Bearer",
-                    "scope": "inference:invoke",
-                    "access_token": "access-FRESH",
-                    "refresh_token": "refresh-FRESH",
-                    "expires_at": "2026-03-24T12:30:00+00:00",
-                    "agent_key": "agent-key-FRESH",
-                    "agent_key_expires_at": "2026-03-24T14:00:00+00:00",
-                }
-            },
-        },
-    )
-
-    available = pool._available_entries(clear_expired=True)
-    assert len(available) == 1
-    assert available[0].refresh_token == "refresh-FRESH"
-    assert available[0].last_status is None
 
 
 # ── OpenAI Codex OAuth cross-process sync tests ────────────────────────────
@@ -2756,9 +2236,9 @@ def test_is_terminal_xai_oauth_refresh_error():
     assert not _is_terminal_xai_oauth_refresh_error(
         AuthError("Rate limit", provider="xai-oauth", code="xai_refresh_failed", relogin_required=False)
     )
-    # Nous error does not trigger xAI check
+    # Another provider's error does not trigger xAI check
     assert not _is_terminal_xai_oauth_refresh_error(
-        AuthError("Revoked", provider="nous", code="invalid_grant", relogin_required=True)
+        AuthError("Revoked", provider="openai-codex", code="invalid_grant", relogin_required=True)
     )
     # Generic exception
     assert not _is_terminal_xai_oauth_refresh_error(ValueError("oops"))
