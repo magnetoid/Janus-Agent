@@ -702,7 +702,9 @@ class HindsightMemoryProvider(MemoryProvider):
             print("\n  Get your API key at https://ui.hindsight.vectorize.io\n")
             existing_key = os.environ.get("HINDSIGHT_API_KEY", "")
             if existing_key:
-                masked = f"...{existing_key[-4:]}" if len(existing_key) > 4 else "set"
+                from agent.redact import mask_secret
+
+                masked = mask_secret(existing_key, head=0, tail=4)
                 sys.stdout.write(f"  API key (current: {masked}, blank to keep): ")
                 sys.stdout.flush()
                 api_key = masked_secret_prompt("") if sys.stdin.isatty() else sys.stdin.readline().strip()
