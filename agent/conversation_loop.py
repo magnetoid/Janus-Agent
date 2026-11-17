@@ -2686,7 +2686,7 @@ def run_conversation(
                     else:
                         auth_method = "Bearer (OAuth/setup-token)" if _is_oauth_token(key) else "x-api-key (API key)"
                         print(f"{agent.log_prefix}   Auth method: {auth_method}")
-                        print(f"{agent.log_prefix}   Token: {agent._mask_api_key_for_logs(key) or '(empty)'}")
+                        print(f"{agent.log_prefix}   Token: {'set' if key else '(empty)'}")
                     print(f"{agent.log_prefix}   Troubleshooting:")
                     from janus_constants import display_janus_home as _dhh_fn
                     _dhh = _dhh_fn()
