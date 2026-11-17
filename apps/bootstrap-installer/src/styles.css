@@ -13,15 +13,13 @@
  *     against apps/bootstrap-installer/src/. Since both apps live two levels
  *     deep under the same repo root, `../../../node_modules` lands in the
  *     same place. (Verify if either app ever moves.)
- *   - The desktop's `@font-face url('../../../node_modules/...')` references
- *     are baked into the *imported* stylesheet; CSS resolves url()s relative
- *     to the file that contains them, so they continue to point at the
- *     correct node_modules path even from here.
+ *   - Any url() in the desktop stylesheet resolves relative to that file,
+ *     not this one, so it keeps pointing at the right place from here.
  *
  * Forced light mode: the desktop ships with a runtime theme switcher
  * (ThemeProvider + applyTheme) that can flip to dark via document.documentElement.
  * The installer has no UI for theme switching, so we stay on the desktop's
- * default light surface (Nous-blue accent on near-white chrome).
+ * default light surface (blue accent on near-white chrome).
  */
 @import '../../desktop/src/styles.css';
 
