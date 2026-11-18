@@ -54,7 +54,7 @@ ntfy 没有原生的已认证用户身份。已发布消息中的 `title` 字段
 
 - **自托管 ntfy** 并通过[访问控制](https://docs.ntfy.sh/config/#access-control)锁定 topic。只有持有读/写 token 的授权客户端才能发布。
 - 或**在 ntfy.sh 上使用私有 topic**（[保留 topic](https://docs.ntfy.sh/publish/#reserved-topics) 需要账户），并通过 `NTFY_TOKEN` 保护。
-- 或**选择一个长且难以猜测的 topic 名称**（`hermes-7d4f9c8b-2026`），将其视为共享密钥。这是最轻量的方案，但 topic 名称可能通过日志或截图泄露。
+- 或**选择一个长且难以猜测的 topic 名称**（`janus-7d4f9c8b-2026`），将其视为共享密钥。这是最轻量的方案，但 topic 名称可能通过日志或截图泄露。
 
 在任何情况下，除非底层 topic 已启用访问控制，否则不要通过 ntfy 传输敏感数据。
 
