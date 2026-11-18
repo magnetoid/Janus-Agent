@@ -10,4 +10,10 @@ Currently shipped:
   - ``bitwarden`` — Bitwarden Secrets Manager (`bws` CLI).  See
     ``agent.secret_sources.bitwarden`` for the integration and
     ``janus_cli.secrets_cli`` for the user-facing setup wizard.
+
+Also here, but not an env-var source:
+
+  - ``logins`` — site logins from 1Password (``op``) or Bitwarden (``bw``)
+    for the ``browser_fill_credential`` tool. Looked up on demand, never
+    loaded into the environment.
 """
