@@ -15,9 +15,16 @@ T0 = 1_800_000_000.0
 
 
 @pytest.fixture()
-def db(tmp_path):
+def db(tmp_path, release):
     session_db = SessionDB(db_path=tmp_path / "state.db")
     yield session_db
+    # Worker and poller threads still write to the DB after a test returns;
+    # closing the SQLite connection under them segfaults the process.  Let
+    # the stub children finish and wait for every delegation thread first.
+    release.set()
+    for thread in threading.enumerate():
+        if thread.name.startswith("bg-delegation"):
+            thread.join(timeout=5)
     session_db.close()
 
 
