@@ -906,6 +906,11 @@ DEFAULT_CONFIG = {
         # on flaky primaries; raise it if you prefer to tolerate longer
         # provider hiccups on a single provider.
         "api_max_retries": 3,
+        # Provider outage recovery: when every retry and fallback fails with
+        # an overload/5xx/timeout error, wait (30s, 60s, 120s … capped at
+        # 300s) and run the retry block again, up to this many times per
+        # turn, instead of ending the turn.  0 = end the turn (default).
+        "auto_recovery_cycles": 0,
         "service_tier": "",
         # Tool-use enforcement: injects system prompt guidance that tells the
         # model to actually call tools instead of describing intended actions.

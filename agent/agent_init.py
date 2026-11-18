@@ -1268,6 +1268,14 @@ def init_agent(
         _api_retries = 3
     agent._api_max_retries = _api_retries
 
+    # Outage recovery: after retries and fallbacks are exhausted on a
+    # 503/529/5xx/timeout, wait and rerun the retry block up to N times
+    # instead of ending the turn.  0 (default) = end the turn as before.
+    try:
+        agent._auto_recovery_cycles = max(int(_agent_section.get("auto_recovery_cycles", 0)), 0)
+    except (TypeError, ValueError):
+        agent._auto_recovery_cycles = 0
+
     # Initialize context compressor for automatic context management
     # Compresses conversation when approaching model's context limit
     # Configuration via config.yaml (compression section)
