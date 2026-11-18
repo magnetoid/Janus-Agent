@@ -24,7 +24,7 @@ export const badgeVariants = cva(
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {
-  /** nous-compat alias for `variant`. */
+  /** Legacy-DS-compat alias for `variant`. */
   tone?: "default" | "destructive" | "outline" | "secondary" | "success" | "warning";
 }
 

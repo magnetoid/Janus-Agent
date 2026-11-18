@@ -98,7 +98,7 @@ janus chat [flags]
   -q, --query TEXT          Single query, non-interactive
   -m, --model MODEL         Model (e.g. anthropic/claude-sonnet-4)
   -t, --toolsets LIST       Comma-separated toolsets
-  --provider PROVIDER       Force provider (openrouter, anthropic, nous, etc.)
+  --provider PROVIDER       Force provider (openrouter, anthropic, xai, etc.)
   -v, --verbose             Verbose output
   -Q, --quiet               Suppress banner, spinner, tool previews
   --checkpoints             Enable filesystem checkpoints (/rollback)
@@ -119,7 +119,7 @@ janus config env-path      Print .env path
 janus config check         Check for missing/outdated config
 janus config migrate       Update config with new options
 janus auth                 Interactive credential manager
-janus auth add PROVIDER    Add OAuth or API-key credential (e.g. nous, openai-codex, qwen-oauth)
+janus auth add PROVIDER    Add OAuth or API-key credential (e.g. anthropic, openai-codex, qwen-oauth)
 janus auth list            List stored credentials
 janus auth remove PROVIDER Remove a stored credential
 janus doctor [--fix]       Check dependencies and config
@@ -400,7 +400,6 @@ Full config reference: https://github.com/magnetoid/janus
 |----------|------|-------------|
 | OpenRouter | API key | `OPENROUTER_API_KEY` |
 | Anthropic | API key | `ANTHROPIC_API_KEY` |
-| Cloud Industry Portal | OAuth | `janus auth` |
 | OpenAI Codex | OAuth | `janus auth` |
 | GitHub Copilot | Token | `COPILOT_GITHUB_TOKEN` |
 | Google Gemini | API key | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |

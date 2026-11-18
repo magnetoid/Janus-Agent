@@ -213,8 +213,8 @@ def is_moonshot_model(model: str | None) -> bool:
     """True for any Kimi / Moonshot model slug, regardless of aggregator prefix.
 
     Matches bare names (``kimi-k2.6``, ``moonshotai/Kimi-K2.6``) and aggregator-
-    prefixed slugs (``nous/moonshotai/kimi-k2.6``, ``openrouter/moonshotai/...``).
-    Detection by model name covers Nous / OpenRouter / other aggregators that
+    prefixed slugs (``openrouter/moonshotai/kimi-k2.6``).
+    Detection by model name covers OpenRouter / other aggregators that
     route to Moonshot's inference, where the base URL is the aggregator's, not
     ``api.moonshot.ai``.
     """

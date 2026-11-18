@@ -39,13 +39,6 @@ export const CONTROL_TEXT = 'text-xs'
 
 export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
-    prefix: 'NOUS_',
-    name: 'Cloud Industry Portal',
-    description: 'Hosted Janus & Nous-trained models',
-    docsUrl: 'https://portal.cloud-industry.com',
-    priority: 0
-  },
-  {
     prefix: 'OPENROUTER_',
     name: 'OpenRouter',
     description: 'Aggregator for hundreds of frontier models',

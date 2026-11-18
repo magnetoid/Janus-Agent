@@ -504,7 +504,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       }
 
       case 'notification.show': {
-        // Credits/usage notice from the gateway. Payload is snake_case on the
+        // Status-bar notice from the gateway. Payload is snake_case on the
         // wire and stays snake_case in UiState.notice (no mapping layer). The
         // text already carries its own glyph; turnController decides whether to
         // show now or hold until turn end (FaceTicker wins while busy).

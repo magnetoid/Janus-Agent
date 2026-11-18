@@ -8,7 +8,7 @@ test asserts both shapes (gated and loopback).
 The AuthWidget itself is .tsx — no Python test here. The widget's
 behaviour (renders nothing on 401, shows truncated user_id, etc.) is
 documented in AuthWidget.tsx; covered manually via the Phase 4.2
-smoke test against staging Portal.
+smoke test against a staging deploy.
 """
 
 from __future__ import annotations
@@ -76,8 +76,8 @@ def test_status_reports_auth_disabled_in_loopback_mode(loopback_client):
     assert r.status_code == 200
     body = r.json()
     assert body["auth_required"] is False
-    # Loopback mode has no registered providers (the Nous plugin's env
-    # vars aren't set in test).
+    # Loopback mode has no registered providers (no dashboard_auth plugin
+    # is configured in test).
     assert body["auth_providers"] == []
 
 

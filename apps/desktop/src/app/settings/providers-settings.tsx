@@ -1,13 +1,7 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useState } from 'react'
 
-import {
-  FEATURED_ID,
-  FeaturedProviderRow,
-  KeyProviderRow,
-  ProviderRow,
-  sortProviders
-} from '@/components/desktop-onboarding-overlay'
+import { KeyProviderRow, ProviderRow, sortProviders } from '@/components/desktop-onboarding-overlay'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 import { listOAuthProviders } from '@/janus'
@@ -78,10 +72,9 @@ function buildProviderKeyGroups(vars: Record<string, EnvVarInfo>): ProviderKeyGr
 }
 
 // Deliberately a near-1:1 replica of the first-run onboarding picker
-// (`Picker` in desktop-onboarding-overlay): same recommended card, same
-// provider rows, same "Other providers" disclosure, same OpenRouter quick-key
-// row, and the same bottom-right "I have an API key" affordance. The leaf cards
-// are the exact shared components, so the two surfaces stay visually identical.
+// (`Picker` in desktop-onboarding-overlay): same provider rows, same OpenRouter
+// quick-key row, and the same "I have an API key" affordance. The leaf cards are
+// the exact shared components, so the two surfaces stay visually identical.
 // Selecting a provider hands off to the shared onboarding overlay, which runs
 // that provider's real sign-in flow; the key affordances open the API-key
 // catalog below.
@@ -97,12 +90,10 @@ function OAuthPicker({ onWantApiKey, providers }: { onWantApiKey: () => void; pr
 
   const select = (p: OAuthProvider) => startManualProviderOAuth(p.id)
 
-  const featured = ordered.find(p => p.id === FEATURED_ID) ?? null
-  const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
   // Keep connected accounts grouped and always visible; only the unconnected
   // providers hide behind the disclosure, so the page leads with what's set up.
-  const connected = rest.filter(p => p.status?.logged_in)
-  const others = rest.filter(p => !p.status?.logged_in)
+  const connected = ordered.filter(p => p.status?.logged_in)
+  const others = ordered.filter(p => !p.status?.logged_in)
   const collapsible = others.length > 0
   const showOthers = !collapsible || showAll
 
@@ -123,7 +114,6 @@ function OAuthPicker({ onWantApiKey, providers }: { onWantApiKey: () => void; pr
       <p className="-mt-2 mb-1 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
         {p.intro}
       </p>
-      {featured && <FeaturedProviderRow onSelect={select} provider={featured} />}
       {connected.length > 0 && (
         <>
           <p className="mt-1 px-0.5 text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-tertiary)">

@@ -114,7 +114,6 @@ def should_offer_first_run(args: Any = None) -> bool:
 
 def _print_skip_hints() -> None:
     print("  Skipped. Configure anytime with:        janus setup")
-    print("  Fastest start (free OAuth, no API keys): janus setup --portal")
     print("  Or export OPENROUTER_API_KEY / OPENAI_API_KEY and run janus again.")
     print()
 
@@ -149,7 +148,7 @@ def maybe_offer_first_run(
         from janus_cli.setup import run_setup_wizard
         run_setup_wizard(Namespace(
             section=None, non_interactive=False, reset=False,
-            reconfigure=False, quick=False, portal=False,
+            reconfigure=False, quick=False,
         ))
         return True
     except (EOFError, KeyboardInterrupt):

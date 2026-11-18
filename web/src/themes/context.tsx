@@ -46,10 +46,7 @@ const FONT_STORAGE_KEY = "janus-dashboard-font";
  *  because the lookup in `resolveTheme` no longer finds the stale key.
  *  Keep entries here until enough release cycles have passed that we can
  *  reasonably assume nobody still has the old value persisted. */
-const THEME_NAME_ALIASES: Record<string, string> = {
-  // Renamed during the LENS_5I port + Nous-blue rebrand.
-  "lens-5i": "nous-blue",
-};
+const THEME_NAME_ALIASES: Record<string, string> = {};
 
 function migrateThemeName(name: string): string {
   return THEME_NAME_ALIASES[name] ?? name;
@@ -211,8 +208,9 @@ function assetVars(assets: ThemeAssets | undefined): Record<string, string> {
     if (/^(url\(|linear-gradient|radial-gradient|conic-gradient|none$)/i.test(trimmed)) {
       return trimmed;
     }
-    // Bare path / http(s) URL / data: URL → wrap in url().
-    return `url("${trimmed.replace(/"/g, '\\"')}")`;
+    // Bare path / http(s) URL / data: URL → wrap in url(). Escape the
+    // backslash first so a trailing `\` can't swallow the escaped quote.
+    return `url("${trimmed.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")`;
   };
   for (const key of NAMED_ASSET_KEYS) {
     const val = assets[key];
@@ -355,8 +353,8 @@ function applyTheme(theme: DashboardTheme) {
     root.style.removeProperty(cssVar);
   }
   // Same clear-then-set for series colors so a theme that defines them
-  // (e.g. Nous Blue) doesn't leave its values behind when the user
-  // switches to a theme that inherits the `:root` defaults.
+  // doesn't leave its values behind when the user switches to a theme that
+  // inherits the `:root` defaults.
   for (const cssVar of ALL_SERIES_VARS) {
     root.style.removeProperty(cssVar);
   }

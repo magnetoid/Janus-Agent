@@ -219,7 +219,7 @@ class TestGetConfig:
 
     @pytest.mark.asyncio
     async def test_an_oauth_provider_is_not_fetched(self, adapter, monkeypatch):
-        _write_config("model:\n  provider: nous\n")
+        _write_config("model:\n  provider: openai-codex\n")
         calls = []
 
         def fake(provider_id, *, timeout=10.0):

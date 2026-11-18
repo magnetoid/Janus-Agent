@@ -104,7 +104,7 @@ async def set_mcp_server_enabled(name: str, body: web_server_mod.MCPEnabledToggl
 
 @router.get("/api/mcp/catalog")
 async def list_mcp_catalog():
-    """Browse the Nous-approved MCP catalog (the optional-mcps/ manifests).
+    """Browse the bundled MCP catalog (the optional-mcps/ manifests).
 
     Each entry reports whether it's already installed and enabled so the UI
     can show install / enabled state inline.  This is the same catalog

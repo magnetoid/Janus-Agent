@@ -173,7 +173,7 @@ Janus 已经可以通过自定义 provider 路径与任何 OpenAI 兼容的端�
 - 简单 API key 路径：Z.AI、MiniMax
 - 带端点检测的 API key 路径：Kimi、Z.AI
 - 原生 token 解析：Anthropic
-- OAuth / auth-store 路径：Nous、OpenAI Codex
+- OAuth / auth-store 路径：OpenAI Codex、Qwen OAuth
 
 需要在此回答的问题：
 
@@ -219,7 +219,7 @@ kimi:model-name
     "api_mode": "chat_completions",  # or your native mode
     "base_url": "https://...",
     "api_key": "...",
-    "source": "env|portal|auth-store|explicit",
+    "source": "env|auth-store|explicit",
     "requested_provider": requested_provider,
 }
 ```

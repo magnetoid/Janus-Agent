@@ -1,12 +1,12 @@
 ---
 sidebar_position: 11
 title: Model Catalog
-description: Remotely-hosted manifest driving curated model picker lists for OpenRouter and Cloud Industry Portal.
+description: Remotely-hosted manifest driving curated model picker lists (currently OpenRouter).
 ---
 
 # Model Catalog
 
-Janus fetches curated model lists for **OpenRouter** and **Cloud Industry Portal** from a JSON manifest hosted alongside the docs site. This lets maintainers update picker lists without shipping a new `janus-agent` release.
+Janus fetches curated model lists (currently for **OpenRouter**) from a JSON manifest hosted alongside the docs site. This lets maintainers update picker lists without shipping a new `janus-agent` release.
 
 When the manifest is unreachable (offline, network blocked, hosting failure), Janus silently falls back to the in-repo snapshot that ships with the CLI. The manifest never breaks the picker — worst case you see whatever list was bundled with your installed version.
 
@@ -32,13 +32,6 @@ Published on every merge to `main` via the existing `deploy-site.yml` GitHub Pag
         {"id": "moonshotai/kimi-k2.6", "description": "recommended", "metadata": {}},
         {"id": "openai/gpt-5.4",       "description": ""}
       ]
-    },
-    "nous": {
-      "metadata": {},
-      "models": [
-        {"id": "anthropic/claude-opus-4.7"},
-        {"id": "moonshotai/kimi-k2.6"}
-      ]
     }
   }
 }
@@ -48,7 +41,7 @@ Field notes:
 
 - **`version`** — integer schema version. Future schemas bump this; Janus refuses manifests with versions it doesn't understand and falls back to the hardcoded snapshot.
 - **`metadata`** — free-form dict at the manifest, provider, and model level. Any keys. Janus ignores unknown fields, so you can annotate entries (`"tier": "paid"`, `"tags": [...]`, etc.) without coordinating a schema change.
-- **`description`** — OpenRouter-only. Drives picker badge text (`"recommended"`, `"free"`, or empty). Cloud Industry Portal doesn't use this — free-tier gating is determined live from the Portal's pricing endpoint.
+- **`description`** — Drives picker badge text (`"recommended"`, `"free"`, or empty).
 - **Pricing and context length** are NOT in the manifest. Those come from live provider APIs (`/v1/models` endpoints, models.dev) at fetch time.
 
 ## Fetch behavior
@@ -94,7 +87,7 @@ Maintainers:
 
 ```bash
 # Re-generate from the in-repo hardcoded lists (keeps manifest in sync after
-# editing OPENROUTER_MODELS or _PROVIDER_MODELS["nous"] in janus_cli/models.py).
+# editing OPENROUTER_MODELS in janus_cli/models.py).
 python scripts/build_model_catalog.py
 ```
 

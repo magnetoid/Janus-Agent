@@ -26,12 +26,6 @@ Janus Agent 通过 FAL.ai 根据文字提示生成图像。默认内置 8 个模
 
 ## 配置
 
-:::tip Nous 订阅用户
-若你持有付费 [Cloud Industry Portal](https://portal.cloud-industry.com) 订阅，可通过 **[Tool Gateway](tool-gateway.md)** 使用文生图，**无需** `FAL_KEY`。模型选择在「直连 FAL」与「订阅网关」两条路径下保持一致。
-
-若托管网关对某一模型返回 `HTTP 4xx`，通常表示该模型尚未在 Portal 侧代理——智能体会给出处理建议（例如配置 `FAL_KEY` 直连，或换用其他模型）。
-:::
-
 ### 获取 FAL API Key
 
 1. 在 [fal.ai](https://fal.ai/) 注册  
@@ -45,7 +39,7 @@ Janus Agent 通过 FAL.ai 根据文字提示生成图像。默认内置 8 个模
 janus tools
 ```
 
-进入 **🎨 Image Generation**，选择后端（Nous Subscription 或 FAL.ai），随后在表格中用方向键选择模型，回车确认：
+进入 **🎨 Image Generation**，选择后端（例如 FAL.ai），随后在表格中用方向键选择模型，回车确认：
 
 ```
   Model                          Speed    Strengths                    Price
@@ -60,12 +54,11 @@ janus tools
 ```yaml
 image_gen:
   model: fal-ai/flux-2/klein/9b
-  use_gateway: false            # 使用 Nous Subscription 时为 true
 ```
 
 ### GPT-Image 画质档位
 
-`fal-ai/gpt-image-1.5` 的请求画质固定为 `medium`（约 1024×1024 下 $0.034/张）。面向用户**不开放** `low` / `high` 档位，以便 Cloud Industry Portal 侧计费在全体用户间更可预期（档位价差约 22×）。若需要更便宜的 GPT-Image 路线，请换其他模型；若追求更高画质，可考虑 Klein 9B 或同类 Imagen 系模型。
+`fal-ai/gpt-image-1.5` 的请求画质固定为 `medium`（约 1024×1024 下 $0.034/张）。面向用户**不开放** `low` / `high` 档位，以便计费在全体用户间更可预期（档位价差约 22×）。若需要更便宜的 GPT-Image 路线，请换其他模型；若追求更高画质，可考虑 Klein 9B 或同类 Imagen 系模型。
 
 ## 使用方式
 
@@ -120,7 +113,7 @@ Make me a futuristic cityscape, landscape orientation
 
 1. **模型解析** — `_resolve_fal_model()` 读取 `config.yaml` 的 `image_gen.model`，否则看 `FAL_IMAGE_MODEL` 环境变量，再否则默认 `fal-ai/flux-2/klein/9b`。  
 2. **构造请求体** — `_build_fal_payload()` 将 `aspect_ratio` 转为各模型枚举或字面量，合并默认参数与调用方覆盖，并按 `supports` 白名单过滤非法字段。  
-3. **提交** — `_submit_fal_request()` 根据凭据走直连 FAL 或 Nous 托管网关。  
+3. **提交** — `_submit_fal_request()` 使用你的 `FAL_KEY` 凭据提交到 FAL。  
 4. **超分** — 仅当模型元数据标记 `upscale: True` 时执行。  
 5. **交付** — 最终图像 URL 返回给智能体，并发出 `MEDIA:<url>`，由各平台适配器转为原生媒体消息。  
 
@@ -147,7 +140,7 @@ export IMAGE_TOOLS_DEBUG=true
 
 ## 限制
 
-- **需要 FAL 凭据**（直连 `FAL_KEY` 或 Nous 订阅网关）  
+- **需要 FAL 凭据**（`FAL_KEY`）  
 - **仅文生图** — 不支持局部重绘、图生图或编辑类工作流  
 - **临时 URL** — FAL 托管链接会在数小时至数天后过期；请自行落盘保存  
 - **按模型能力裁剪** — 部分模型不支持 `seed`、`num_inference_steps` 等；`supports` 会静默丢弃不支持的参数，属预期行为  

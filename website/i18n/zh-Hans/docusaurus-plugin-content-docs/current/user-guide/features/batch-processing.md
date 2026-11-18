@@ -34,10 +34,6 @@ python batch_runner.py \
 python batch_runner.py --list_distributions
 ```
 
-:::tip 大规模运行下的可预测成本
-批量运行会启动大量并发 agent 会话，每个会话都会调用模型和工具。[Cloud Industry Portal](/user-guide/features/tool-gateway) 订阅将模型访问、网页搜索、图像生成、TTS 以及云端浏览器统一计费——当你希望在不同供应商账户间稳定控制每条轨迹成本、避免触碰速率限制时非常实用。使用 `janus setup --portal` 完成配置，然后将 `--model` 指向 Nous 模型。
-:::
-
 ## 数据集格式
 
 输入数据集为 JSONL 文件（每行一个 JSON 对象）。每条记录必须包含 `prompt` 字段：

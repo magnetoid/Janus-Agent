@@ -3409,8 +3409,9 @@ function installMediaPermissions() {
 //   * WebSocket upgrades require a single-use ``?ticket=`` minted at
 //     ``POST /api/auth/ws-ticket`` (cookie-authed). The legacy ``?token=``
 //     path is unconditionally rejected by gated gateways.
-//   * Cloud Industry Portal now issues a 24h ROTATING, reuse-detected refresh token
-//     alongside the ~15-min access token (Portal NAS #293 / janus #37247).
+//   * The identity provider may issue a long-lived (e.g. 24h) ROTATING,
+//     reuse-detected refresh token alongside the ~15-min access token
+//     (janus #37247).
 //     Both are set as HttpOnly cookies (``janus_session_at`` ~15 min,
 //     ``janus_session_rt`` 24h). When the AT cookie lapses but the RT cookie
 //     is still alive, the gateway middleware transparently rotates a fresh AT
@@ -3939,7 +3940,7 @@ async function buildRemoteConnection(rawUrl, authMode, token, source) {
   if (authMode === 'oauth') {
     // OAuth gateway: auth comes from the session cookies in the OAuth
     // partition. Liveness is NOT "is the access-token cookie present?" —
-    // Portal issues a 24h rotating refresh token (janus #37247), and the
+    // the IDP may issue a 24h rotating refresh token (janus #37247), and the
     // gateway middleware transparently rotates a fresh ~15-min access token
     // from it on the next authenticated request. So a session with an expired
     // AT cookie but a live RT cookie is still perfectly connectable. We
@@ -4076,7 +4077,7 @@ async function requestJsonForProfile(profile, path, method, body) {
 async function probeRemoteAuthMode(rawUrl) {
   // Determine how a remote gateway expects callers to authenticate, WITHOUT
   // sending any credentials. ``/api/status`` is public on every Janus
-  // gateway (it backs the portal liveness probe) and reports:
+  // gateway (it backs the liveness probe) and reports:
   //   auth_required: true  → OAuth gate is engaged (cookie + ws-ticket auth)
   //   auth_required: false → loopback/--insecure: legacy session-token auth
   // ``/api/auth/providers`` (also public, only meaningful when gated) gives

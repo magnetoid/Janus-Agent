@@ -37,7 +37,7 @@ class JanusOverlay:
 
     transport: str = "openai_chat"        # openai_chat | anthropic_messages | codex_responses
     is_aggregator: bool = False
-    auth_type: str = "api_key"            # api_key | oauth_device_code | oauth_external | external_process
+    auth_type: str = "api_key"            # api_key | oauth_external | external_process
     extra_env_vars: Tuple[str, ...] = ()  # env vars models.dev doesn't list
     base_url_override: str = ""           # override if models.dev URL is wrong/missing
     base_url_env_var: str = ""            # env var for user-custom base URL
@@ -48,11 +48,6 @@ JANUS_OVERLAYS: Dict[str, JanusOverlay] = {
         transport="openai_chat",
         is_aggregator=True,
         base_url_env_var="OPENROUTER_BASE_URL",
-    ),
-    "nous": JanusOverlay(
-        transport="openai_chat",
-        auth_type="oauth_device_code",
-        base_url_override="https://inference-api.cloud-industry.com/v1",
     ),
     "openai-codex": JanusOverlay(
         transport="codex_responses",
@@ -365,7 +360,6 @@ ALIASES: Dict[str, str] = {
 # not in the catalog.
 
 _LABEL_OVERRIDES: Dict[str, str] = {
-    "nous": "Cloud Industry Portal",
     "openai-codex": "OpenAI Codex",
     "copilot-acp": "GitHub Copilot ACP",
     "stepfun": "StepFun Step Plan",
@@ -406,7 +400,7 @@ def get_provider(name: str) -> Optional[ProviderDef]:
     """Look up a built-in provider by id or alias.
 
     Resolution order:
-      1. Janus overlays (for providers not in models.dev: nous, openai-codex, etc.)
+      1. Janus overlays (for providers not in models.dev: openai-codex, etc.)
       2. models.dev catalog + Janus overlay
 
     User-defined providers from config.yaml (``providers:`` / ``custom_providers:``)

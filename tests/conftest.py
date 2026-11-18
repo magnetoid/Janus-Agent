@@ -83,7 +83,6 @@ _CREDENTIAL_NAMES = frozenset({
     "GITHUB_TOKEN",
     "OPENAI_API_KEY",
     "OPENROUTER_API_KEY",
-    "NOUS_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GROQ_API_KEY",
@@ -213,14 +212,6 @@ _JANUS_BEHAVIORAL_VARS = frozenset({
     "JANUS_KANBAN_CLAIM_LOCK",
     "JANUS_KANBAN_DISPATCH_IN_GATEWAY",
     "JANUS_TENANT",
-    # Dashboard OAuth auth gate (PR #30156). When set, the bundled
-    # dashboard-auth `nous` plugin auto-registers itself on plugin discovery,
-    # which is triggered by any `/api/status` call. That leaks a provider
-    # into the dashboard_auth registry across tests in the same worker and
-    # makes assertions like `auth_providers == []` flaky. CI never sets
-    # these, so production tests must not see them either.
-    "JANUS_DASHBOARD_OAUTH_CLIENT_ID",
-    "JANUS_DASHBOARD_PORTAL_URL",
     "TERMINAL_CWD",
     "TERMINAL_ENV",
     "TERMINAL_CONTAINER_CPU",

@@ -990,17 +990,6 @@
     "id": "hn-flere-imsaho-im-using-janus"
   },
   {
-    "id": "andrew-gordon-5-apps",
-    "source": "linkedin",
-    "author": "Andrew W. Gordon",
-    "url": "https://www.linkedin.com/posts/andrewwgordon_janus-agent-the-agent-that-grows-with-activity-7449351350800429056-Alw0",
-    "date": "2026",
-    "category": "dev-workflow",
-    "headline": "5 apps built and launched in a single day",
-    "quote": "I've switched to Nous-Research Janus-Agent from previous Agents I've been experimenting with. Janus is unique in that it self-learns. Within a single day, I built and launched five small applications.",
-    "size": "sm"
-  },
-  {
     "id": "firecrawl-integration",
     "source": "linkedin",
     "author": "Firecrawl",
@@ -1749,17 +1738,6 @@
     "size": "sm"
   },
   {
-    "id": "discord-denis-skripnik-nvda-translator",
-    "source": "discord",
-    "author": "@denis_skripnik",
-    "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/community-projects-showcase/1477982563099349036-AI-translater-NVDA-addon-with-Nous-research.txt",
-    "date": "",
-    "category": "general",
-    "headline": "Blind since birth, I built an NVDA translator addon with Nous",
-    "quote": "I have been blind since birth. I use a screen reader program. It vocalizes all my actions. Today I created an add-on that translates texts into the languages I need by pressing Insert+Shift+T (selected text), Insert+Shift+Y - from the clipboard. Now I translated this text using Nous! Thank you for this opportunity!",
-    "size": "lg"
-  },
-  {
     "id": "kisztof-modal",
     "source": "blog",
     "author": "Krzysztof Słomka (Medium)",
@@ -2090,17 +2068,6 @@
     "size": "sm"
   },
   {
-    "id": "discord-mikebirdtech-janus-mini-doc",
-    "source": "discord",
-    "author": "@mikebirdtech",
-    "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/community-projects-showcase/1493649462122381394-Janus-Agent-Mini-Documentary.txt",
-    "date": "",
-    "category": "content-creation",
-    "headline": "Made a Janus Agent mini-documentary with hackathon finalists",
-    "quote": "I did a deep dive on Janus Agent. Was able to talk to a bunch of the hackathon finalists as well as one of the co-founders of Nous!",
-    "size": "sm"
-  },
-  {
     "source": "x",
     "author": "@hypepartners",
     "url": "https://x.com/hypepartners/status/2033578968612233606",
@@ -2352,17 +2319,6 @@
     "quote": "Secondary Janus install yesterday on a spare laptop. Introduced it to the network, gave it two targets: RenPy and ComfyUI. It found ComfyUI, figured out how to generate images locally with LM Studio, then asked me to turn on the internet to install RenPy. About 10 minutes later there popped up a small but complete RenPy novel with 10 images and a little story.",
     "size": "lg",
     "id": "x-exileai-0-janus-iris"
-  },
-  {
-    "id": "discord-misswuhanliang-translator-extension",
-    "source": "discord",
-    "author": "@misswuhanliang",
-    "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/community-projects-showcase/1484856405424078980-JanusAI-Translator.txt",
-    "date": "",
-    "category": "content-creation",
-    "headline": "Built a browser extension for translation and summarization on Hermes-4-70B",
-    "quote": "I've developed and released JanusAI Translator, an open-source, AI-powered browser extension for seamless translation, reading assistance, text polishing, and summarization directly within the browser, driven by Hermes-4-70B.",
-    "size": "sm"
   },
   {
     "id": "discord-luminousix-claude-orchestrator",

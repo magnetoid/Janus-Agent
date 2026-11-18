@@ -33,10 +33,6 @@ Key capabilities:
 
 ## Setup
 
-:::tip Nous Subscribers
-If you have a paid [Cloud Industry Portal](https://portal.cloud-industry.com) subscription, you can use browser automation through the **[Tool Gateway](tool-gateway.md)** without any separate API keys. New installs can run `janus setup --portal` to log in and turn on every gateway tool at once; existing installs can pick **Nous Subscription** as the browser provider via `janus model` or `janus tools`.
-:::
-
 ### Browserbase cloud mode
 
 To use Browserbase-managed cloud browsers, add:

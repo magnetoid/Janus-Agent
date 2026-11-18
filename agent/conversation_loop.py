@@ -118,43 +118,6 @@ def _ra():
     return run_agent
 
 
-def _nous_entitlement_message(capability: str) -> str:
-    try:
-        from janus_cli.nous_account import (
-            format_nous_portal_entitlement_message,
-            get_nous_portal_account_info,
-        )
-
-        account_info = get_nous_portal_account_info(force_fresh=True)
-        message = format_nous_portal_entitlement_message(
-            account_info,
-            capability=capability,
-        )
-        return message or ""
-    except Exception:
-        return ""
-
-
-def _print_nous_entitlement_guidance(agent, capability: str) -> bool:
-    message = _nous_entitlement_message(capability)
-    if not message:
-        return False
-    for line in message.splitlines():
-        agent._vprint(f"{agent.log_prefix}   💡 {line}", force=True)
-    return True
-
-
-def _is_nous_inference_route(provider: str, base_url: str) -> bool:
-    provider = (provider or "").strip().lower()
-    if provider == "nous":
-        return True
-    base = str(base_url or "")
-    return (
-        base_url_host_matches(base, "inference-api.cloud-industry.com")
-        or base_url_host_matches(base, "inference.cloud-industry.com")
-    )
-
-
 def _billing_or_entitlement_message(
     *,
     capability: str,
@@ -162,9 +125,6 @@ def _billing_or_entitlement_message(
     base_url: str,
     model: str,
 ) -> str:
-    if _is_nous_inference_route(provider, base_url):
-        return _nous_entitlement_message(capability)
-
     provider_label = (provider or "").strip() or "the selected provider"
     model_label = (model or "").strip() or "the selected model"
     lines = [
@@ -199,21 +159,6 @@ def _print_billing_or_entitlement_guidance(
     for line in message.splitlines():
         agent._vprint(f"{agent.log_prefix}   💡 {line}", force=True)
     return True
-
-
-def _try_refresh_nous_paid_entitlement_credentials(agent) -> bool:
-    """Refresh Nous runtime credentials after a fresh paid-entitlement check."""
-    try:
-        from janus_cli.nous_account import get_nous_portal_account_info
-
-        account_info = get_nous_portal_account_info(force_fresh=True)
-        if account_info.paid_service_access is not True:
-            return False
-        return agent._try_refresh_nous_client_credentials(
-            force=True,
-        )
-    except Exception:
-        return False
 
 
 def _restore_or_build_system_prompt(agent, system_message, conversation_history):
@@ -301,19 +246,6 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
         )
     except Exception as exc:
         logger.warning("on_session_start hook failed: %s", exc)
-
-    # Cold-start credits seed (L3) — fallback for the first-turn path. The TUI/
-    # desktop build seeds at session OPEN (see seed_credits_at_session_start in
-    # tui_gateway), so this call is usually a no-op there (idempotent: skips when
-    # _credits_state already exists). For the plain CLI / any path that didn't seed
-    # at build, it primes credits state from /api/oauth/account (or a fixture) on the
-    # first turn so depletion / usage-band warnings fire. Fail-open inside the helper.
-    try:
-        from agent.credits_tracker import seed_credits_at_session_start
-
-        seed_credits_at_session_start(agent)
-    except Exception:
-        logger.debug("cold-start credits seed failed (fail-open)", exc_info=True)
 
     # Persist the system prompt snapshot in SQLite.  Failure here used
     # to log at DEBUG, which silently broke prefix-cache reuse on the
@@ -1254,8 +1186,6 @@ def run_conversation(
         max_compression_attempts = 3
         codex_auth_retry_attempted=False
         anthropic_auth_retry_attempted=False
-        nous_auth_retry_attempted=False
-        nous_paid_entitlement_refresh_attempted=False
         copilot_auth_retry_attempted=False
         thinking_sig_retry_attempted = False
         invalid_encrypted_content_retry_attempted = False
@@ -1275,54 +1205,6 @@ def run_conversation(
         set_turn_context(request_id=api_request_id)
 
         while retry_count < max_retries:
-            # ── Cloud Industry Portal rate limit guard ──────────────────────
-            # If another session already recorded that Nous is rate-
-            # limited, skip the API call entirely.  Each attempt
-            # (including SDK-level retries) counts against RPH and
-            # deepens the rate limit hole.
-            if agent.provider == "nous":
-                try:
-                    from agent.nous_rate_guard import (
-                        nous_rate_limit_remaining,
-                        format_remaining as _fmt_nous_remaining,
-                    )
-                    _nous_remaining = nous_rate_limit_remaining()
-                    if _nous_remaining is not None and _nous_remaining > 0:
-                        _nous_msg = (
-                            f"Cloud Industry Portal rate limit active — "
-                            f"resets in {_fmt_nous_remaining(_nous_remaining)}."
-                        )
-                        agent._buffer_vprint(
-                            f"⏳ {_nous_msg} Trying fallback..."
-                        )
-                        agent._buffer_status(f"⏳ {_nous_msg}")
-                        if agent._try_activate_fallback():
-                            retry_count = 0
-                            compression_attempts = 0
-                            primary_recovery_attempted = False
-                            continue
-                        # No fallback available — surface buffered context
-                        # so user sees the rate-limit message that led here.
-                        agent._flush_status_buffer()
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "final_response": (
-                                f"⏳ {_nous_msg}\n\n"
-                                "No fallback provider available. "
-                                "Try again after the reset, or add a "
-                                "fallback provider in config.yaml."
-                            ),
-                            "messages": messages,
-                            "api_calls": api_call_count,
-                            "completed": False,
-                            "failed": True,
-                            "error": _nous_msg,
-                        }
-                except ImportError:
-                    pass
-                except Exception:
-                    pass  # Never let rate guard break the agent loop
-
             try:
                 agent._reset_stream_delivery_tracking()
                 # api_messages is built once, before this retry loop, while the
@@ -2184,15 +2066,6 @@ def run_conversation(
                 # usable content. Empty responses still loop through the
                 # empty-retry path below; the buffer is cleared when
                 # genuinely successful content is detected later (~L4127).
-                # Clear Nous rate limit state on successful request —
-                # proves the limit has reset and other sessions can
-                # resume hitting Nous.
-                if agent.provider == "nous":
-                    try:
-                        from agent.nous_rate_guard import clear_nous_rate_limit
-                        clear_nous_rate_limit()
-                    except Exception:
-                        pass
                 agent._touch_activity(f"API call #{api_call_count} completed")
                 break  # Success, exit retry loop
 
@@ -2502,23 +2375,6 @@ def run_conversation(
                     reason=classified.reason.value,
                 )
 
-                if (
-                    classified.reason == FailoverReason.billing
-                    and _is_nous_inference_route(
-                        getattr(agent, "provider", "") or "",
-                        getattr(agent, "base_url", "") or "",
-                    )
-                    and not nous_paid_entitlement_refresh_attempted
-                ):
-                    nous_paid_entitlement_refresh_attempted = True
-                    if _try_refresh_nous_paid_entitlement_credentials(agent):
-                        agent._vprint(
-                            f"{agent.log_prefix}🔐 Nous paid access verified — "
-                            "refreshed runtime credentials and retrying request...",
-                            force=True,
-                        )
-                        continue
-
                 recovered_with_pool, has_retried_429 = agent._recover_with_credential_pool(
                     status_code=status_code,
                     has_retried_429=has_retried_429,
@@ -2618,38 +2474,6 @@ def run_conversation(
                         _label = "xAI OAuth" if agent.provider == "xai-oauth" else "Codex"
                         agent._buffer_vprint(f"🔐 {_label} auth refreshed after 401. Retrying request...")
                         continue
-                if (
-                    agent.api_mode == "chat_completions"
-                    and agent.provider == "nous"
-                    and status_code == 401
-                    and not nous_auth_retry_attempted
-                ):
-                    nous_auth_retry_attempted = True
-                    if agent._try_refresh_nous_client_credentials(force=True):
-                        print(f"{agent.log_prefix}🔐 Nous agent key refreshed after 401. Retrying request...")
-                        continue
-                    # Credential refresh didn't help — show diagnostic info.
-                    # Most common causes: Portal OAuth expired/revoked,
-                    # account out of credits, or agent key blocked.
-                    from janus_constants import display_janus_home as _dhh_fn
-                    _dhh = _dhh_fn()
-                    _body_text = ""
-                    try:
-                        _body = getattr(api_error, "body", None) or getattr(api_error, "response", None)
-                        if _body is not None:
-                            _body_text = str(_body)[:200]
-                    except Exception:
-                        pass
-                    print(f"{agent.log_prefix}🔐 Nous 401 — Portal authentication failed.")
-                    if _body_text:
-                        print(f"{agent.log_prefix}   Response: {_body_text}")
-                    if not _print_nous_entitlement_guidance(agent, "Nous model access"):
-                        print(f"{agent.log_prefix}   Most likely: Portal OAuth expired, account out of credits, or agent key revoked.")
-                    print(f"{agent.log_prefix}   Troubleshooting:")
-                    print(f"{agent.log_prefix}     • Re-authenticate: janus auth add nous")
-                    print(f"{agent.log_prefix}     • Check credits / billing: https://portal.cloud-industry.com")
-                    print(f"{agent.log_prefix}     • Verify stored credentials: {_dhh}/auth.json")
-                    print(f"{agent.log_prefix}     • Switch providers temporarily: /model <model> --provider openrouter")
                 if (
                     agent.provider == "copilot"
                     and status_code == 401
@@ -3027,71 +2851,6 @@ def run_conversation(
                             primary_recovery_attempted = False
                             continue
 
-                # ── Cloud Industry Portal: record rate limit & skip retries ─────
-                # When Nous returns a 429 that is a genuine account-
-                # level rate limit, record the reset time to a shared
-                # file so ALL sessions (cron, gateway, auxiliary) know
-                # not to pile on, then skip further retries -- each
-                # one burns another RPH request and deepens the hole.
-                # The retry loop's top-of-iteration guard will catch
-                # this on the next pass and try fallback or bail.
-                #
-                # IMPORTANT: Cloud Industry Portal multiplexes multiple upstream
-                # providers (DeepSeek, Kimi, MiMo, Janus).  A 429 can
-                # also mean an UPSTREAM provider is out of capacity
-                # for one specific model -- transient, clears in
-                # seconds, nothing to do with the caller's quota.
-                # Tripping the cross-session breaker on that would
-                # block every Nous model for minutes.  We use
-                # ``is_genuine_nous_rate_limit`` to tell the two
-                # apart via the 429's own x-ratelimit-* headers and
-                # the last-known-good state captured on the previous
-                # successful response.
-                if (
-                    is_rate_limited
-                    and agent.provider == "nous"
-                    and classified.reason == FailoverReason.rate_limit
-                    and not recovered_with_pool
-                ):
-                    _genuine_nous_rate_limit = False
-                    try:
-                        from agent.nous_rate_guard import (
-                            is_genuine_nous_rate_limit,
-                            record_nous_rate_limit,
-                        )
-                        _err_resp = getattr(api_error, "response", None)
-                        _err_hdrs = (
-                            getattr(_err_resp, "headers", None)
-                            if _err_resp else None
-                        )
-                        _genuine_nous_rate_limit = is_genuine_nous_rate_limit(
-                            headers=_err_hdrs,
-                            last_known_state=agent._rate_limit_state,
-                        )
-                        if _genuine_nous_rate_limit:
-                            record_nous_rate_limit(
-                                headers=_err_hdrs,
-                                error_context=error_context,
-                            )
-                        else:
-                            logger.info(
-                                "Nous 429 looks like upstream capacity "
-                                "(no exhausted bucket in headers or "
-                                "last-known state) -- not tripping "
-                                "cross-session breaker."
-                            )
-                    except Exception:
-                        pass
-                    if _genuine_nous_rate_limit:
-                        # Skip straight to max_retries -- the
-                        # top-of-loop guard will handle fallback or
-                        # bail cleanly.
-                        retry_count = max_retries
-                        continue
-                    # Upstream capacity 429: fall through to normal
-                    # retry logic.  A different model (or the same
-                    # model a moment later) will typically succeed.
-
                 is_payload_too_large = (
                     classified.reason == FailoverReason.payload_too_large
                 )
@@ -3456,31 +3215,15 @@ def run_conversation(
                             model=_model,
                         ):
                             pass
-                        elif _provider == "nous" and _print_nous_entitlement_guidance(
-                            agent,
-                            "Nous model access",
-                        ):
-                            pass
-                        elif _provider in {"openai-codex", "xai-oauth", "nous"} and status_code == 401:
+                        elif _provider in {"openai-codex", "xai-oauth"} and status_code == 401:
                             if _provider == "openai-codex":
                                 agent._vprint(f"{agent.log_prefix}   💡 Codex OAuth token was rejected (HTTP 401). Your token may have been", force=True)
                                 agent._vprint(f"{agent.log_prefix}      refreshed by another client (Codex CLI, VS Code). To fix:", force=True)
                                 agent._vprint(f"{agent.log_prefix}      1. Run `codex` in your terminal to generate fresh tokens.", force=True)
                                 agent._vprint(f"{agent.log_prefix}      2. Then run `janus auth` to re-authenticate.", force=True)
-                            elif _provider == "xai-oauth":
+                            else:
                                 agent._vprint(f"{agent.log_prefix}   💡 xAI OAuth token was rejected (HTTP 401). To fix:", force=True)
                                 agent._vprint(f"{agent.log_prefix}      re-authenticate with xAI Grok OAuth (SuperGrok / Premium+) from `janus model`.", force=True)
-                            else:  # nous
-                                agent._vprint(f"{agent.log_prefix}   💡 Cloud Industry Portal OAuth token was rejected (HTTP 401). Your token may be", force=True)
-                                agent._vprint(f"{agent.log_prefix}      expired, revoked, or your account may be out of credits. To fix:", force=True)
-                                agent._vprint(f"{agent.log_prefix}      1. Re-authenticate: janus portal", force=True)
-                                agent._vprint(f"{agent.log_prefix}      2. Check your portal account: https://portal.cloud-industry.com", force=True)
-                                # ``:free`` is OpenRouter slug syntax; Cloud Industry Portal will reject
-                                # the model name even after a successful re-auth.
-                                if isinstance(_model, str) and _model.endswith(":free"):
-                                    agent._vprint(f"{agent.log_prefix}      ⚠️  Note: `{_model}` looks like an OpenRouter slug (`:free` suffix).", force=True)
-                                    agent._vprint(f"{agent.log_prefix}         Cloud Industry Portal won't recognize that model name. Either switch to a", force=True)
-                                    agent._vprint(f"{agent.log_prefix}         Nous catalog model, or run `/model openrouter:{_model}` to use OpenRouter.", force=True)
                         else:
                             agent._vprint(f"{agent.log_prefix}   💡 Your API key was rejected by the provider. Check:", force=True)
                             agent._vprint(f"{agent.log_prefix}      • Is the key valid? Run: janus setup", force=True)

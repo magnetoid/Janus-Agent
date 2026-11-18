@@ -41,9 +41,6 @@ def _clear_web_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PARALLEL_SEARCH_MODE",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
-        "FIRECRAWL_GATEWAY_URL",
-        "TOOL_GATEWAY_DOMAIN",
-        "TOOL_GATEWAY_USER_TOKEN",
         "XAI_API_KEY",
     ):
         monkeypatch.delenv(k, raising=False)
@@ -449,41 +446,15 @@ class TestErrorResponseShapes:
         if result:  # if anything came back, it should be an error entry
             assert "error" in result[0]
 
-    def test_firecrawl_config_error_points_paid_users_to_nous_subscription(self, monkeypatch):
+    def test_firecrawl_config_error_names_direct_credentials(self):
         from plugins.web.firecrawl import provider as firecrawl_provider
-
-        monkeypatch.setattr(
-            "tools.web_tools.managed_nous_tools_enabled",
-            lambda: True,
-            raising=False,
-        )
 
         with pytest.raises(ValueError) as exc_info:
             firecrawl_provider._raise_web_backend_configuration_error()
 
         message = str(exc_info.value)
-        assert "With your Nous subscription you can also use the Tool Gateway" in message
-        assert "select Nous Subscription as the web provider" in message
-        assert "managed Firecrawl web tools is unavailable" not in message
-
-    def test_firecrawl_config_error_uses_entitlement_message_when_not_paid(self, monkeypatch):
-        from plugins.web.firecrawl import provider as firecrawl_provider
-
-        monkeypatch.setattr(
-            "tools.web_tools.managed_nous_tools_enabled",
-            lambda: False,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            "tools.web_tools.nous_tool_gateway_unavailable_message",
-            lambda capability: f"{capability} denied by test entitlement.",
-            raising=False,
-        )
-
-        with pytest.raises(ValueError) as exc_info:
-            firecrawl_provider._raise_web_backend_configuration_error()
-
-        assert "managed Firecrawl web tools denied by test entitlement" in str(exc_info.value)
+        assert "FIRECRAWL_API_KEY" in message
+        assert "FIRECRAWL_API_URL" in message
 
     def test_xai_search_returns_error_dict_when_unconfigured(self) -> None:
         """xAI returns a typed error dict (no XAI_API_KEY)."""

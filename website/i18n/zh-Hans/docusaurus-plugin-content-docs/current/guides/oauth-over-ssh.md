@@ -52,7 +52,7 @@ Janus 对两种路径使用**相同的 PKCE verifier、state 和 nonce**，因�
 | Spotify | `43827` | 是，当 Janus 在远程时 |
 | `anthropic`（Claude Pro/Max） | 不适用 | 否——粘贴代码流程 |
 | `openai-codex`（ChatGPT Plus/Pro） | 不适用 | 否——设备码流程 |
-| `minimax`、`nous-portal` | 不适用 | 否——设备码流程 |
+| `minimax` | 不适用 | 否——设备码流程 |
 
 如果你的提供商不在表中，则不需要隧道。
 

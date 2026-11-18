@@ -71,7 +71,7 @@ async def list_oauth_providers():
         name            human label
         flow            "pkce" | "device_code" | "external" | "loopback"
         cli_command     fallback CLI command for users to run manually
-        docs_url        external docs/portal link for the "Learn more" link
+        docs_url        external docs link for the "Learn more" link
         status:
           logged_in        bool — currently has usable creds
           source           short slug ("janus_pkce", "claude_code", ...)
@@ -185,7 +185,7 @@ async def submit_oauth_code(provider_id: str, body: web_server_mod.OAuthSubmitBo
 async def poll_oauth_session(provider_id: str, session_id: str):
     """Poll a session's status (no auth — read-only state).
 
-    Shared by the device-code flows (Nous, OpenAI Codex, MiniMax) and the
+    Shared by the device-code flows (OpenAI Codex, MiniMax) and the
     loopback flow (xAI Grok). Both surface progress through the same
     background-worker-updated ``status`` field, so a single poll endpoint
     serves them all.

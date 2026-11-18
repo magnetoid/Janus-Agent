@@ -30,7 +30,7 @@ class LoginStart:
     """First leg of the OAuth round trip.
 
     ``redirect_url`` is the URL the browser must navigate to (e.g. the
-    Portal's ``/oauth/authorize``). ``cookie_payload`` is a dict of cookie
+    IDP's ``/oauth/authorize``). ``cookie_payload`` is a dict of cookie
     name → serialised value that the auth route will ``Set-Cookie`` on the
     response. Used for PKCE state, CSRF nonces, etc. Cookies set here MUST
     be HttpOnly + Secure (when over HTTPS) + SameSite=Lax with a TTL ≤ 10

@@ -96,7 +96,7 @@ async def get_toolset_config(name: str):
     providers = []
     active_provider = None
     if cat:
-        for prov in _visible_providers(cat, config, force_fresh=True):
+        for prov in _visible_providers(cat, config):
             env_vars = [
                 {
                     "key": e["key"],
@@ -111,7 +111,7 @@ async def get_toolset_config(name: str):
             # uses (``_is_provider_active``) so the GUI highlights the provider
             # actually written to config (e.g. web.backend), not just the first
             # keyless one in the list.
-            is_active = _is_provider_active(prov, config, force_fresh=True)
+            is_active = _is_provider_active(prov, config)
             if is_active and active_provider is None:
                 active_provider = prov["name"]
             providers.append({
@@ -120,7 +120,6 @@ async def get_toolset_config(name: str):
                 "tag": prov.get("tag", ""),
                 "env_vars": env_vars,
                 "post_setup": prov.get("post_setup"),
-                "requires_nous_auth": bool(prov.get("requires_nous_auth")),
                 "is_active": is_active,
             })
     return {
@@ -184,7 +183,7 @@ async def save_toolset_env(name: str, body: web_server_mod.ToolsetEnvUpdate):
     cat = TOOL_CATEGORIES.get(name)
     allowed: set[str] = set()
     if cat:
-        for prov in _visible_providers(cat, config, force_fresh=True):
+        for prov in _visible_providers(cat, config):
             for e in prov.get("env_vars", []):
                 allowed.add(e["key"])
 

@@ -1,7 +1,0 @@
-name: nous
-version: 1.0.0
-description: "Dashboard auth provider — OAuth 2.0 (authorization-code + PKCE) against Cloud Industry Portal. Auto-activates when a client_id is configured via either dashboard.oauth.client_id in config.yaml (canonical surface) or JANUS_DASHBOARD_OAUTH_CLIENT_ID env var (operator override; Portal injects this at Fly.io provisioning). dashboard.oauth.portal_url / JANUS_DASHBOARD_PORTAL_URL are optional and default to https://portal.cloud-industry.com."
-author: ImbaLabs
-kind: backend
-requires_env:
-  - JANUS_DASHBOARD_OAUTH_CLIENT_ID

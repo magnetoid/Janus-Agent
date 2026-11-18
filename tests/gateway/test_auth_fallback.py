@@ -79,8 +79,8 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
             "  - provider: openrouter\n"
             "    model: anthropic/claude-sonnet-4.6\n"
             "fallback_model:\n"
-            "  provider: nous\n"
-            "  model: Hermes-4\n"
+            "  provider: anthropic\n"
+            "  model: claude-sonnet-4-6\n"
         )
 
         monkeypatch.setattr("gateway.core._janus_home", tmp_path)
@@ -93,9 +93,9 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
             if requested == "openrouter":
                 raise RuntimeError("openrouter unavailable")
             return {
-                "api_key": "nous-key",
-                "base_url": "https://portal.cloud-industry.com/v1",
-                "provider": "nous",
+                "api_key": "ant-key",
+                "base_url": "https://api.anthropic.com",
+                "provider": "anthropic",
                 "api_mode": "chat_completions",
                 "command": None,
                 "args": None,
@@ -110,6 +110,6 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
 
             result = _try_resolve_fallback_provider()
 
-        assert calls == ["openrouter", "nous"]
-        assert result["provider"] == "nous"
-        assert result["model"] == "Hermes-4"
+        assert calls == ["openrouter", "anthropic"]
+        assert result["provider"] == "anthropic"
+        assert result["model"] == "claude-sonnet-4-6"

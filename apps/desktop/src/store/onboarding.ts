@@ -186,36 +186,6 @@ function notifyReady(provider: string) {
   notify({ kind: 'success', title: 'Janus is ready', message: `${provider} connected.` })
 }
 
-// Human-friendly labels for tools auto-routed through the Nous Tool Gateway,
-// mirroring janus_cli/nous_subscription._GATEWAY_TOOL_LABELS so the GUI and
-// CLI describe the same thing.
-const GATEWAY_TOOL_LABELS: Record<string, string> = {
-  browser: 'browser automation',
-  image_gen: 'image generation',
-  tts: 'text-to-speech',
-  video_gen: 'video generation',
-  web: 'web search & extract'
-}
-
-// When switching to Nous auto-routes unconfigured tools through the Tool
-// Gateway, tell the user which ones — same information the CLI prints. Silent
-// when nothing changed (subscriber already configured, has own keys, etc.).
-function notifyGatewayTools(tools: string[] | undefined) {
-  if (!tools || tools.length === 0) {
-    return
-  }
-
-  const labels = tools.map(t => GATEWAY_TOOL_LABELS[t] ?? t)
-  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
-
-  notify({
-    durationMs: 8000,
-    kind: 'info',
-    message: `${list} now run through your Nous subscription — no separate API keys needed.`,
-    title: 'Tool Gateway enabled'
-  })
-}
-
 // After credentials are persisted, ask the backend which provider+models
 // are now authenticated. Pick the first curated model for the matching
 // provider as a sensible default, persist it via /api/model/set, and
@@ -257,9 +227,8 @@ async function fetchProviderDefaultModel(
   }
 
   // Prefer the backend's recommended default — it mirrors the curation
-  // `janus model` does (for Nous it honors the user's free/paid tier, so a
-  // free user gets a free model rather than a paid default like opus). Fall
-  // back to the first curated model if the endpoint can't resolve one.
+  // `janus model` does. Fall back to the first curated model if the endpoint
+  // can't resolve one.
   let defaultModel = String(models[0])
 
   try {
@@ -268,8 +237,7 @@ async function fetchProviderDefaultModel(
     if (recommended.model && models.map(String).includes(recommended.model)) {
       defaultModel = recommended.model
     } else if (recommended.model) {
-      // Recommended model isn't in the curated options list (e.g. a Portal
-      // free-recommendation the picker list didn't include); trust it anyway.
+      // Recommended model isn't in the curated options list; trust it anyway.
       defaultModel = recommended.model
     }
   } catch {
@@ -328,13 +296,11 @@ async function completeWithModelConfirm(
   // (3) If they bail out (e.g., refresh the page), they still end up
   //     with a working config, not an empty-model fallback.
   try {
-    const res = await setModelAssignment({
+    await setModelAssignment({
       scope: 'main',
       provider: defaults.providerSlug,
       model: defaults.defaultModel
     })
-
-    notifyGatewayTools(res.gateway_tools)
   } catch {
     // Persistence failed — still show the confirm card so the user can
     // pick something explicitly. The backend will pick its own default

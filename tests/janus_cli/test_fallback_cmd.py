@@ -46,12 +46,12 @@ class TestReadChain:
         cfg = {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+                {"provider": "deepseek", "model": "deepseek-reasoner"},
             ]
         }
         assert _read_chain(cfg) == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-            {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+            {"provider": "deepseek", "model": "deepseek-reasoner"},
         ]
 
     def test_merges_new_and_legacy_formats(self):
@@ -60,11 +60,11 @@ class TestReadChain:
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
             ],
-            "fallback_model": {"provider": "nous", "model": "Hermes-4"},
+            "fallback_model": {"provider": "deepseek", "model": "deepseek-chat"},
         }
         assert _read_chain(cfg) == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-            {"provider": "nous", "model": "Hermes-4"},
+            {"provider": "deepseek", "model": "deepseek-chat"},
         ]
 
     def test_legacy_duplicate_is_deduplicated_after_merge(self):
@@ -90,18 +90,18 @@ class TestReadChain:
             "fallback_providers": [
                 {"provider": "openrouter"},            # missing model
                 {"model": "gpt-5.4"},                  # missing provider
-                {"provider": "nous", "model": "foo"},  # valid
+                {"provider": "deepseek", "model": "foo"},  # valid
                 "not-a-dict",                          # noise
             ]
         }
-        assert _read_chain(cfg) == [{"provider": "nous", "model": "foo"}]
+        assert _read_chain(cfg) == [{"provider": "deepseek", "model": "foo"}]
 
     def test_returns_copies_not_aliases(self):
         from janus_cli.fallback_cmd import _read_chain
-        cfg = {"fallback_providers": [{"provider": "nous", "model": "foo"}]}
+        cfg = {"fallback_providers": [{"provider": "deepseek", "model": "foo"}]}
         result = _read_chain(cfg)
         result[0]["provider"] = "mutated"
-        assert cfg["fallback_providers"][0]["provider"] == "nous"
+        assert cfg["fallback_providers"][0]["provider"] == "deepseek"
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ class TestListCommand:
             "model": {"provider": "anthropic", "default": "claude-sonnet-4-6"},
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "deepseek", "model": "deepseek-chat"},
             ],
         })
         from janus_cli.fallback_cmd import cmd_fallback_list
@@ -172,7 +172,7 @@ class TestListCommand:
         out = capsys.readouterr().out
         assert "Fallback chain (2 entries)" in out
         assert "anthropic/claude-sonnet-4.6" in out
-        assert "Hermes-4" in out
+        assert "deepseek-chat" in out
         # Primary should be shown too
         assert "claude-sonnet-4-6" in out
 
@@ -372,12 +372,12 @@ class TestRemoveCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "deepseek", "model": "deepseek-chat"},
                 {"provider": "anthropic", "model": "claude-sonnet-4-6"},
             ],
         })
 
-        # Picker returns index 1 (the middle entry, "nous / Hermes-4")
+        # Picker returns index 1 (the middle entry, "deepseek / deepseek-chat")
         with patch("janus_cli.setup._curses_prompt_choice", return_value=1):
             from janus_cli.fallback_cmd import cmd_fallback_remove
             cmd_fallback_remove(types.SimpleNamespace())
@@ -389,7 +389,7 @@ class TestRemoveCommand:
         ]
         out = capsys.readouterr().out
         assert "Removed fallback" in out
-        assert "Hermes-4" in out
+        assert "deepseek-chat" in out
 
     def test_remove_cancel_keeps_chain(self, isolated_home):
         _write_config(isolated_home, {
@@ -423,7 +423,7 @@ class TestClearCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "deepseek", "model": "deepseek-chat"},
             ],
         })
         monkeypatch.setattr("builtins.input", lambda *a, **kw: "y")

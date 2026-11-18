@@ -32,10 +32,6 @@ High-level categories:
 
 For the authoritative code-derived registry, see [Built-in Tools Reference](/reference/tools-reference) and [Toolsets Reference](/reference/toolsets-reference).
 
-:::tip Nous Tool Gateway
-Paid [Cloud Industry Portal](https://portal.cloud-industry.com) subscribers can use web search, image generation, TTS, and browser automation through the **[Tool Gateway](tool-gateway.md)** — no separate API keys needed. Run `janus model` to enable it, or configure individual tools with `janus tools`.
-:::
-
 ## Using Toolsets
 
 ```bash

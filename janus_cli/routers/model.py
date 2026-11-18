@@ -119,60 +119,14 @@ def get_model_options():
 def get_recommended_default_model(provider: str = ""):
     """Return the recommended default model for a freshly-authenticated provider.
 
-    Mirrors the model-curation `janus model` does so GUI onboarding lands on a
-    sensible default instead of blindly taking the first curated entry. For
-    Nous this honors the user's free/paid tier: free users get a free model,
-    paid users get the full curated default. For any other provider it falls
-    back to the first curated model (same as before).
+    Returns the first curated model for the provider, matching the model
+    curation `janus model` does.
 
-    Response: {"provider": str, "model": str, "free_tier": bool | None}
-    where free_tier is True/False for Nous and None otherwise. `model` may be
-    empty if nothing could be resolved (caller degrades gracefully).
+    Response: {"provider": str, "model": str}. `model` may be empty if
+    nothing could be resolved (caller degrades gracefully).
     """
     slug = (provider or "").strip().lower()
 
-    if slug == "nous":
-        try:
-            from janus_cli.models import (
-                get_curated_nous_model_ids,
-                get_pricing_for_provider,
-                check_nous_free_tier,
-                partition_nous_models_by_tier,
-                union_with_portal_free_recommendations,
-                union_with_portal_paid_recommendations,
-            )
-            from janus_cli.auth import get_provider_auth_state
-
-            model_ids = get_curated_nous_model_ids()
-            pricing = get_pricing_for_provider("nous") or {}
-            free_tier = check_nous_free_tier(force_fresh=True)
-
-            portal_url = ""
-            try:
-                state = get_provider_auth_state("nous") or {}
-                portal_url = state.get("portal_base_url", "") or ""
-            except Exception:
-                portal_url = ""
-
-            if free_tier:
-                model_ids, pricing = union_with_portal_free_recommendations(
-                    model_ids, pricing, portal_url
-                )
-                model_ids, _unavailable = partition_nous_models_by_tier(
-                    model_ids, pricing, free_tier=True
-                )
-            else:
-                model_ids, pricing = union_with_portal_paid_recommendations(
-                    model_ids, pricing, portal_url
-                )
-
-            model = model_ids[0] if model_ids else ""
-            return {"provider": "nous", "model": model, "free_tier": bool(free_tier)}
-        except Exception:
-            web_server_mod._log.exception("GET /api/model/recommended-default (nous) failed")
-            return {"provider": "nous", "model": "", "free_tier": None}
-
-    # Non-Nous: first curated model for the provider, matching prior behaviour.
     try:
         from janus_cli.inventory import build_models_payload, load_picker_context
 
@@ -180,11 +134,11 @@ def get_recommended_default_model(provider: str = ""):
         for row in payload.get("providers", []):
             if str(row.get("slug", "")).lower() == slug:
                 models = row.get("models") or []
-                return {"provider": slug, "model": models[0] if models else "", "free_tier": None}
-        return {"provider": slug, "model": "", "free_tier": None}
+                return {"provider": slug, "model": models[0] if models else ""}
+        return {"provider": slug, "model": ""}
     except Exception:
         web_server_mod._log.exception("GET /api/model/recommended-default failed")
-        return {"provider": slug, "model": "", "free_tier": None}
+        return {"provider": slug, "model": ""}
 
 @router.get("/api/model/auxiliary")
 def get_auxiliary_models():
@@ -257,42 +211,13 @@ async def set_model_assignment(body: web_server_mod.ModelAssignment):
             )
             cfg["model"] = model_cfg
 
-            # When switching the main provider to Nous, mirror the CLI's
-            # post-model-selection behaviour (janus_cli/main.py
-            # prompt_enable_tool_gateway / tools_config apply_nous_managed_defaults):
-            # auto-route any *unconfigured* tools through the Nous Tool Gateway.
-            # This is purely additive — apply_nous_managed_defaults skips every
-            # tool where the user already has a direct key (FIRECRAWL_API_KEY,
-            # FAL_KEY, etc.) or an explicit backend/provider in config, so it
-            # never overwrites a user's own setup. GUI users thus land on the
-            # gateway the same way CLI users do, without a separate prompt.
-            gateway_tools: list[str] = []
-            if provider.strip().lower() == "nous":
-                try:
-                    from janus_cli.nous_subscription import apply_nous_managed_defaults
-                    from janus_cli.tools_config import _get_platform_tools
-
-                    enabled = _get_platform_tools(
-                        cfg, "cli", include_default_mcp_servers=False
-                    )
-                    changed = apply_nous_managed_defaults(
-                        cfg,
-                        enabled_toolsets=enabled,
-                        force_fresh=True,
-                    )
-                    gateway_tools = sorted(changed)
-                except Exception:
-                    # Portal lookup hiccups / non-subscriber / non-nous gating
-                    # must never block saving the model assignment.
-                    web_server_mod._log.debug("apply_nous_managed_defaults skipped", exc_info=True)
-
             web_server_mod.save_config(cfg)
 
             # Surface auxiliary slots still pinned to a *different* provider than
             # the new main one. Switching the main model does NOT touch aux pins
             # (they're independent, sticky per-task overrides — see
             # auxiliary_client._resolve_auto). A user who switches main away from
-            # a now-unpaid provider (e.g. nous with $0 balance) keeps paying 402s
+            # a now-unpaid provider (e.g. one with a $0 balance) keeps paying 402s
             # on every background aux call until they reset those pins. We never
             # auto-clear them — pinning aux to a cheaper/different model is a
             # legitimate config — but we tell the caller so the UI can offer a
@@ -323,7 +248,6 @@ async def set_model_assignment(body: web_server_mod.ModelAssignment):
                 "provider": provider,
                 "model": model,
                 "base_url": model_cfg.get("base_url", ""),
-                "gateway_tools": gateway_tools,
                 "stale_aux": stale_aux,
             }
 
