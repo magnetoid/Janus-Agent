@@ -1207,6 +1207,7 @@ Subcommands:
 | `setup` | Interactive provider selection and configuration. |
 | `status` | Show current memory provider config. |
 | `off` | Disable external provider (built-in only). |
+| `log` | Browse the daily memory journal (`--date YYYY-MM-DD`, `--days N`). With `--digest`, show the sleep-cycle digest from `memories/DREAMS.md` instead (`--cycles N`, default 5; 0 = all). |
 | `lint` | Read-only report of contradicted, duplicate, stale or doubtful-origin built-in memory entries. Flags: `--target memory\|user\|all`, `--offline` (no model call), `--stale-days N`, `--json`, `--strict` (exit 1 on findings). Origin and staleness checks need `memory.provenance: true`. |
 
 :::info Provider-specific subcommands

@@ -15229,6 +15229,14 @@ Examples:
         "--days", type=int, default=7,
         help="How many recent days to show (default 7; 0 = all)",
     )
+    _log_parser.add_argument(
+        "--digest", action="store_true",
+        help="Show the sleep-cycle digest (DREAMS.md) instead of the journal",
+    )
+    _log_parser.add_argument(
+        "--cycles", type=int, default=5,
+        help="With --digest: how many recent cycles to show (default 5; 0 = all)",
+    )
     _mine_parser = memory_sub.add_parser(
         "mine",
         help="Distill durable facts from a past session into memory",
@@ -15317,6 +15325,20 @@ Examples:
                 f"\n  Memory reset complete. New sessions will start with a blank slate."
             )
             print(f"  Files were in: {display_janus_home()}/memories/\n")
+        elif sub == "log" and getattr(args, "digest", False):
+            from agent.sleep import read_dream_digest
+            from janus_constants import display_janus_home
+
+            sections = read_dream_digest(cycles=getattr(args, "cycles", 5))
+            if not sections:
+                print(
+                    f"\n  No sleep cycles recorded yet — each completed cycle is "
+                    f"summarised in {display_janus_home()}/memories/DREAMS.md "
+                    f"(run one now: janus sleep --now).\n"
+                )
+                return
+            for section in sections:
+                print(section.rstrip() + "\n")
         elif sub == "log":
             from tools.memory_tool import read_daily_snapshots
             from janus_constants import display_janus_home
@@ -16442,6 +16464,8 @@ Examples:
             print(f"  synthesized: {len(rep['lessons'])} cross-session lesson(s)")
             for lesson in rep["lessons"]:
                 print(f"    • {lesson}")
+            if not dry:
+                print("  digest:      janus memory log --digest")
             print()
             return
         # status (default)
