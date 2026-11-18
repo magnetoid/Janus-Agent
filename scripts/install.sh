@@ -20,11 +20,11 @@ set -e
 # can force pip/entrypoints to import a different checkout than the one being
 # installed, which makes fresh installs appear broken or stale.
 if [ -n "${PYTHONPATH:-}" ]; then
-    echo "⚠ Ignoring inherited PYTHONPATH during install to avoid module shadowing"
+    echo "! Ignoring inherited PYTHONPATH during install to avoid module shadowing"
     unset PYTHONPATH
 fi
 if [ -n "${PYTHONHOME:-}" ]; then
-    echo "⚠ Ignoring inherited PYTHONHOME during install"
+    echo "! Ignoring inherited PYTHONHOME during install"
     unset PYTHONHOME
 fi
 
@@ -32,15 +32,34 @@ fi
 # wrong user's home directory when running under sudo -u <user>.  See #21269.
 export UV_NO_CONFIG=1
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-BOLD='\033[1m'
+# Colors (off for NO_COLOR, TERM=dumb, or when stdout is not a terminal)
+if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ] && [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    MAGENTA='\033[0;35m'
+    CYAN='\033[0;36m'
+    GOLD='\033[38;5;178m'   # the Janus skin's gold, as a 256-colour code
+    DIM='\033[2m'
+    NC='\033[0m' # No Color
+    BOLD='\033[1m'
+else
+    RED='' GREEN='' YELLOW='' BLUE='' MAGENTA='' CYAN='' GOLD='' DIM='' NC='' BOLD=''
+fi
+
+# Glyphs: Unicode on UTF-8 terminals, ASCII on the Linux text console or a
+# non-UTF-8 locale, where check marks and arrows print as garbage.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf-8*|*UTF8*|*utf8*) _janus_utf8=true ;;
+    *) _janus_utf8=false ;;
+esac
+if [ "$_janus_utf8" = true ] && [ "${TERM:-}" != "linux" ]; then
+    GLYPH_INFO='→' GLYPH_OK='✓' GLYPH_WARN='!' GLYPH_ERR='✗' RULE_CHAR='─'
+else
+    GLYPH_INFO='>' GLYPH_OK='+' GLYPH_WARN='!' GLYPH_ERR='x' RULE_CHAR='-'
+fi
+unset _janus_utf8
 
 # Configuration
 REPO_URL_SSH="git@github.com:magnetoid/janus.git"
@@ -213,31 +232,43 @@ done
 # Helper functions
 # ============================================================================
 
+# A horizontal rule N characters wide.
+rule() {
+    local n="${1:-48}" out=""
+    while [ "$n" -gt 0 ]; do out="$out$RULE_CHAR"; n=$((n - 1)); done
+    printf '%s' "$out"
+}
+
+# No boxes: a frame's right edge only lines up when every glyph is exactly
+# one column wide, which fonts and terminals don't agree on.
 print_banner() {
     echo ""
-    echo -e "${MAGENTA}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│             ⚕ Janus Agent Installer                    │"
-    echo "├─────────────────────────────────────────────────────────┤"
-    echo "│  An open source AI agent by Cloud Industry.              │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
+    echo -e "  ${GOLD}${BOLD}Janus Agent${NC}  ${DIM}installer${NC}"
+    echo -e "  ${DIM}An open-source AI agent by Cloud Industry${NC}"
+    echo -e "  ${GOLD}$(rule 48)${NC}"
+    echo ""
 }
 
 log_info() {
-    echo -e "${CYAN}→${NC} $1"
+    echo -e "  ${CYAN}${GLYPH_INFO}${NC} $1"
 }
 
 log_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "  ${GREEN}${GLYPH_OK}${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "  ${YELLOW}${GLYPH_WARN} $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "  ${RED}${GLYPH_ERR} $1${NC}"
+}
+
+# A two-column row: label padded to a fixed width, then the value.
+print_row() {
+    local label="$1" value="$2" colour="$3" width="${4:-11}"
+    printf "    ${colour}%-${width}s${NC} %s\n" "$label" "$value"
 }
 
 json_escape() {
@@ -2070,82 +2101,62 @@ maybe_start_gateway() {
 
 print_success() {
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│              ✓ Installation Complete!                   │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo -e "${NC}"
+    echo -e "  ${GOLD}$(rule 48)${NC}"
+    echo -e "  ${GREEN}${BOLD}${GLYPH_OK} Janus is installed${NC}"
     echo ""
 
-    # Show file locations
-    echo -e "${CYAN}${BOLD}📁 Your files:${NC}"
-    echo ""
-    echo -e "   ${YELLOW}Config:${NC}    $JANUS_HOME/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  $JANUS_HOME/.env"
-    echo -e "   ${YELLOW}Data:${NC}      $JANUS_HOME/cron/, sessions/, logs/"
-    echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
+    echo -e "  ${BOLD}Your files${NC}"
+    print_row "Config" "$JANUS_HOME/config.yaml" "$DIM"
+    print_row "API keys" "$JANUS_HOME/.env" "$DIM"
+    print_row "Data" "$JANUS_HOME/{cron,sessions,logs}" "$DIM"
+    print_row "Code" "$INSTALL_DIR" "$DIM"
     echo ""
 
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
-    echo ""
-    echo -e "   ${GREEN}janus${NC}              Start chatting (a fresh install offers the setup wizard)"
-    echo -e "   ${GREEN}janus setup${NC}        Configure API keys & settings"
-    echo -e "   ${GREEN}janus config${NC}       View/edit configuration"
-    echo -e "   ${GREEN}janus config edit${NC}  Open config in editor"
-    echo -e "   ${GREEN}janus gateway install${NC} Install gateway service (messaging + cron)"
-    echo -e "   ${GREEN}janus update${NC}       Update to latest version"
+    echo -e "  ${BOLD}Get started${NC}"
+    print_row "janus" "Start chatting (a fresh install offers the setup wizard)" "$GOLD" 22
+    print_row "janus setup" "Configure API keys and settings" "$GOLD" 22
+    print_row "janus config edit" "Open the config in your editor" "$GOLD" 22
+    print_row "janus gateway install" "Install the messaging gateway service" "$GOLD" 22
+    print_row "janus update" "Update to the latest version" "$GOLD" 22
     echo ""
 
-    echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
-    echo ""
     if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'janus' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
+        echo -e "  ${BOLD}janus${NC} is linked into $(get_command_link_display_dir), already on PATH in Termux."
         echo ""
     elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'janus' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
+        echo -e "  ${BOLD}janus${NC} is linked into /usr/local/bin and ready to use."
         echo ""
     else
-        echo -e "${YELLOW}⚡ Reload your shell to use 'janus' command:${NC}"
-        echo ""
         LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
-        if [ "$LOGIN_SHELL" = "zsh" ]; then
-            echo "   source ~/.zshrc"
-        elif [ "$LOGIN_SHELL" = "bash" ]; then
-            echo "   source ~/.bashrc"
-        elif [ "$LOGIN_SHELL" = "fish" ]; then
-            echo "   source ~/.config/fish/config.fish"
-        else
-            echo "   source ~/.bashrc   # or ~/.zshrc"
-        fi
+        case "$LOGIN_SHELL" in
+            zsh)  RELOAD_CMD="source ~/.zshrc" ;;
+            bash) RELOAD_CMD="source ~/.bashrc" ;;
+            fish) RELOAD_CMD="source ~/.config/fish/config.fish" ;;
+            *)    RELOAD_CMD="source ~/.bashrc   # or ~/.zshrc" ;;
+        esac
+        echo -e "  ${YELLOW}${GLYPH_WARN}${NC} Open a new terminal, or reload this one:  ${BOLD}${RELOAD_CMD}${NC}"
         echo ""
     fi
 
     # Show Node.js warning if auto-install failed
     if [ "$HAS_NODE" = false ]; then
-        echo -e "${YELLOW}"
-        echo "Note: Node.js could not be installed automatically."
-        echo "Browser tools need Node.js. Install manually:"
         if [ "$DISTRO" = "termux" ]; then
-            echo "  pkg install nodejs"
+            log_warn "Node.js could not be installed automatically; browser tools need it: pkg install nodejs"
         else
-            echo "  https://nodejs.org/en/download/"
+            log_warn "Node.js could not be installed automatically; browser tools need it: https://nodejs.org/en/download/"
         fi
-        echo -e "${NC}"
     fi
 
     # Show ripgrep note if not installed
     if [ "$HAS_RIPGREP" = false ]; then
-        echo -e "${YELLOW}"
-        echo "Note: ripgrep (rg) was not found. File search will use"
-        echo "grep as a fallback. For faster search in large codebases,"
         if [ "$DISTRO" = "termux" ]; then
-            echo "install ripgrep: pkg install ripgrep"
+            log_warn "ripgrep (rg) not found; file search falls back to grep. Faster: pkg install ripgrep"
         else
-            echo "install ripgrep: sudo apt install ripgrep (or brew install ripgrep)"
+            log_warn "ripgrep (rg) not found; file search falls back to grep. Faster: brew install ripgrep (or apt install ripgrep)"
         fi
-        echo -e "${NC}"
+    fi
+    if [ "$HAS_NODE" = false ] || [ "$HAS_RIPGREP" = false ]; then
+        echo ""
     fi
 }
 
