@@ -1677,7 +1677,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     webhook_url=webhook_url,
                     secret_token=webhook_secret,
                     allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True,
+                    drop_pending_updates=self._telegram_drop_pending_on_cold_boot(),
                 )
                 self._webhook_mode = True
                 logger.info(
@@ -1710,7 +1710,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
                 await self._app.updater.start_polling(
                     allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True,
+                    drop_pending_updates=self._telegram_drop_pending_on_cold_boot(),
                     error_callback=_polling_error_callback,
                 )
             
@@ -4531,6 +4531,41 @@ class TelegramAdapter(BasePlatformAdapter):
             return bool(configured)
         return os.getenv("TELEGRAM_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
 
+    def _telegram_bots_require_mention(self) -> bool:
+        """Return whether messages sent by other bots need an explicit @mention.
+
+        Two bots in one group that answer each other's messages (or replies)
+        loop forever.  With this on, a bot sender is only heard when it
+        @mentions this bot directly; replies, ``free_response_chats``, wake-word
+        patterns and ``require_mention: false`` do not count for bots.
+        """
+        configured = self.config.extra.get("bots_require_mention")
+        if configured is not None:
+            if isinstance(configured, str):
+                return configured.lower() in {"true", "1", "yes", "on"}
+            return bool(configured)
+        return os.getenv("TELEGRAM_BOTS_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+
+    def _telegram_drop_pending_on_cold_boot(self) -> bool:
+        """Return whether updates queued while the gateway was down are dropped.
+
+        Default ``True`` keeps the long-standing behaviour (a cold start does
+        not answer a backlog).  ``False`` delivers messages sent while offline.
+        Reconnects within a running gateway never drop pending updates.
+        """
+        configured = self.config.extra.get("drop_pending_on_cold_boot")
+        if configured is not None:
+            if isinstance(configured, str):
+                return configured.lower() in {"true", "1", "yes", "on"}
+            return bool(configured)
+        return os.getenv("TELEGRAM_DROP_PENDING_ON_COLD_BOOT", "true").lower() in {"true", "1", "yes", "on"}
+
+    def _is_from_other_bot(self, message: Message) -> bool:
+        sender = getattr(message, "from_user", None)
+        if not sender or getattr(sender, "is_bot", False) is not True:
+            return False
+        return getattr(sender, "id", None) != getattr(self._bot, "id", None)
+
     def _telegram_observe_unmentioned_group_messages(self) -> bool:
         """Return whether skipped unmentioned group messages are stored as context.
 
@@ -5148,6 +5183,8 @@ class TelegramAdapter(BasePlatformAdapter):
 
         if guest_mention:
             return True
+        if self._is_from_other_bot(message) and self._telegram_bots_require_mention():
+            return self._message_mentions_bot(message)
         if chat_id_str in self._telegram_free_response_chats():
             return True
         if not self._telegram_require_mention():
