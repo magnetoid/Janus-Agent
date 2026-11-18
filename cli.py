@@ -8145,6 +8145,8 @@ class JanusCLI:
         provider_label = result.provider_label or result.target_provider
         _cprint(f"  ✓ Model switched: {result.new_model}")
         _cprint(f"    Provider: {provider_label}")
+        from janus_cli.model_switch import training_data_line
+        _cprint(f"    {training_data_line(result.target_provider, result.base_url or '')}")
         if self.conversation_history:
             # Cache economics: the provider prompt cache keys on (model, prefix)
             # — a mid-conversation switch re-bills the ENTIRE context at
@@ -8416,6 +8418,8 @@ class JanusCLI:
         provider_label = result.provider_label or result.target_provider
         _cprint(f"  ✓ Model switched: {result.new_model}")
         _cprint(f"    Provider: {provider_label}")
+        from janus_cli.model_switch import training_data_line
+        _cprint(f"    {training_data_line(result.target_provider, result.base_url or '')}")
         if self.conversation_history:
             # Cache economics: the provider prompt cache keys on (model, prefix)
             # — a mid-conversation switch re-bills the ENTIRE context at

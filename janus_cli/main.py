@@ -2495,7 +2495,25 @@ def cmd_model(args):
             print("  Cleared model picker cache.")
         except Exception:
             pass
+    before = _current_model_choice()
     select_provider_and_model(args=args)
+    after = _current_model_choice()
+    if after != before and after[0]:
+        from janus_cli.model_switch import training_data_line
+        print(f"  {training_data_line(after[1], after[2])}")
+
+
+def _current_model_choice() -> tuple:
+    """``(model, provider, base_url)`` from config.yaml; empty on any error."""
+    try:
+        from janus_cli.config import load_config
+        model_cfg = load_config().get("model") or {}
+        if not isinstance(model_cfg, dict):
+            return (str(model_cfg), "", "")
+        return (str(model_cfg.get("default") or ""), str(model_cfg.get("provider") or ""),
+                str(model_cfg.get("base_url") or ""))
+    except Exception:
+        return ("", "", "")
 
 
 def _is_profile_api_key_provider(provider_id: str) -> bool:
