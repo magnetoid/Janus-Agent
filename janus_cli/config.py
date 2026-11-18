@@ -865,6 +865,12 @@ DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
     "fallback_providers": [],
+    # Free-tier presets (`janus fallback add --free`) whose tier may train on
+    # your conversations are skipped at fallback time unless you said yes
+    # when adding them; true allows every such preset without asking.
+    "fallback": {
+        "allow_training_providers": False,
+    },
     "credential_pool_strategies": {},
     "toolsets": ["janus-cli"],
     # Sections below are owned by their own tools/commands. Empty means
@@ -3141,6 +3147,14 @@ OPTIONAL_ENV_VARS = {
         "prompt": "xAI base URL (leave empty for default)",
         "url": None,
         "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
+    "GROQ_API_KEY": {
+        "description": "Groq API key (free-tier fallback via `janus fallback add --free`)",
+        "prompt": "Groq API key",
+        "url": "https://console.groq.com/keys",
+        "password": True,
         "category": "provider",
         "advanced": True,
     },
@@ -6196,21 +6210,15 @@ def _check_non_ascii_credential(key: str, value: str) -> str:
     except UnicodeEncodeError:
         pass
 
-    # Build a readable list of the offending characters
-    bad_chars: list[str] = []
-    for i, ch in enumerate(value):
-        if ord(ch) > 127:
-            bad_chars.append(f"  position {i}: {ch!r} (U+{ord(ch):04X})")
     sanitized = value.encode("ascii", errors="ignore").decode("ascii")
 
+    # Name the variable only: nothing derived from the secret (characters,
+    # code points, positions) is printed, since terminals and logs keep it.
     print(
         f"\n  Warning: {key} contains non-ASCII characters that will break API requests.\n"
         f"  This usually happens when copy-pasting from a PDF, rich-text editor,\n"
         f"  or web page that substitutes lookalike Unicode glyphs for ASCII letters.\n"
-        f"\n"
-        + "\n".join(f"  {line}" for line in bad_chars[:5])
-        + ("\n  ... and more" if len(bad_chars) > 5 else "")
-        + f"\n\n  The non-ASCII characters have been stripped automatically.\n"
+        f"\n  The non-ASCII characters have been stripped automatically.\n"
         f"  If authentication fails, re-copy the key from the provider's dashboard.\n",
         file=sys.stderr,
     )

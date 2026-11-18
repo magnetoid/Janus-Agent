@@ -1169,7 +1169,7 @@ Manage the fallback provider chain. Fallback providers are tried in order when t
 | Subcommand | Description |
 |------------|-------------|
 | `list` (alias: `ls`) | Show the current fallback chain (default when no subcommand) |
-| `add` | Pick a provider + model (same picker as `janus model`) and append to the chain |
+| `add` | Pick a provider + model (same picker as `janus model`) and append to the chain. With `--free`, pick from curated free tiers instead (see [Free-tier fallbacks](../user-guide/features/fallback-providers.md#free-tier-fallbacks)). |
 | `remove` (alias: `rm`) | Pick an entry to delete from the chain |
 | `clear` | Remove all fallback entries |
 
