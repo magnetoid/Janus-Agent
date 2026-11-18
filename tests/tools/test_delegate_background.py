@@ -27,16 +27,19 @@ def sink():
 
 
 @pytest.fixture()
-def manager(db, sink, monkeypatch):
-    mgr = BackgroundDelegationManager(db=db, sink=sink.append, clock=lambda: T0,
-                                      poll_interval=0.02, max_running=2)
-    monkeypatch.setattr(bg, "get_manager", lambda *a, **k: mgr)
-    return mgr
+def release():
+    return threading.Event()
 
 
 @pytest.fixture()
-def release():
-    return threading.Event()
+def manager(db, sink, monkeypatch, release):
+    mgr = BackgroundDelegationManager(db=db, sink=sink.append, clock=lambda: T0,
+                                      poll_interval=0.02, max_running=2)
+    monkeypatch.setattr(bg, "get_manager", lambda *a, **k: mgr)
+    yield mgr
+    # Don't let worker threads outlive the db fixture: finish them first.
+    release.set()
+    assert _wait(lambda: mgr.running_count() == 0)
 
 
 @pytest.fixture(autouse=True)
