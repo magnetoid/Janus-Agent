@@ -1825,7 +1825,9 @@ class AIAgent:
             return None
         if len(key) <= 12:
             return "***"
-        return f"{key[:8]}...{key[-4:]}"
+        from agent.redact import mask_secret
+
+        return mask_secret(key)
 
     def _clean_error_message(self, error_msg: str) -> str:
         """

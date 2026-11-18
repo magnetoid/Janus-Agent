@@ -724,9 +724,10 @@ class TestMaskApiKey:
     def test_long_key_masked(self, agent):
         key = "sk-or-v1-abcdefghijklmnop"
         result = agent._mask_api_key_for_logs(key)
-        assert result.startswith("sk-or-v1")
+        assert result.startswith(key[:4])
         assert result.endswith("mnop")
         assert "..." in result
+        assert key[4:-4] not in result
 
 
 # ===================================================================

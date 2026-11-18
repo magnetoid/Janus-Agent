@@ -8478,7 +8478,9 @@ def _(rid, params: dict) -> dict:
         cfg = _load_cfg()
         model = _resolve_model()
         api_key = os.environ.get("JANUS_API_KEY", "") or cfg.get("api_key", "")
-        masked = f"****{api_key[-4:]}" if len(api_key) > 4 else "(not set)"
+        from agent.redact import mask_secret
+
+        masked = mask_secret(api_key, head=0, tail=4, empty="(not set)")
         base_url = os.environ.get("JANUS_BASE_URL", "") or cfg.get("base_url", "")
 
         sections = [
