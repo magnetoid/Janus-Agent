@@ -48,6 +48,7 @@ from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
+from gateway.session import SessionSource
 import re
 
 from gateway.platforms.helpers import MessageDeduplicator, ThreadParticipationTracker
@@ -4146,6 +4147,59 @@ class DiscordAdapter(BasePlatformAdapter):
                         f"Direct error: {direct_error}. Fallback error: {fallback_error}"
                     )
                 }
+
+    async def open_branch_thread(
+        self,
+        source: "SessionSource",
+        title: str,
+        intro: str,
+    ) -> Optional["SessionSource"]:
+        """Open a public thread for ``/branch`` beside the current channel.
+
+        From inside a thread the branch becomes a sibling in the same parent
+        channel.  Forum channels get a new post.  DMs can't hold threads.
+        """
+        if not self._client or source.chat_type == "dm":
+            return None
+        try:
+            channel = self._client.get_channel(int(source.chat_id))
+            if channel is None:
+                channel = await self._client.fetch_channel(int(source.chat_id))
+        except Exception as e:
+            logger.debug("[%s] /branch could not resolve channel %s: %s", self.name, source.chat_id, e)
+            return None
+        dm_cls = getattr(discord, "DMChannel", None)
+        if channel is None or (dm_cls and isinstance(channel, dm_cls)):
+            return None
+
+        parent = self._thread_parent_channel(channel)
+        name = (title or "Branch").strip()[:100] or "Branch"
+        try:
+            if self._is_forum_parent(parent):
+                created = await parent.create_thread(name=name, content=intro)
+                thread = getattr(created, "thread", created)
+            else:
+                seed = await parent.send(intro)
+                thread = await seed.create_thread(name=name, auto_archive_duration=1440)
+        except Exception as e:
+            logger.warning("[%s] /branch could not open a thread in %s: %s", self.name, getattr(parent, "id", "?"), e)
+            return None
+
+        thread_id = str(thread.id)
+        # The bot started this thread: follow-ups don't need an @mention.
+        self._threads.mark(thread_id)
+        guild = getattr(thread, "guild", None) or getattr(parent, "guild", None)
+        return self.build_source(
+            chat_id=thread_id,
+            chat_name=self._format_thread_chat_name(thread),
+            chat_type="thread",
+            user_id=source.user_id,
+            user_name=source.user_name,
+            thread_id=thread_id,
+            chat_topic=self._get_effective_topic(thread, is_thread=True),
+            guild_id=str(guild.id) if guild is not None else source.guild_id,
+            parent_chat_id=str(getattr(parent, "id", "") or "") or None,
+        )
 
     # ------------------------------------------------------------------
     # Auto-thread helpers

@@ -12429,11 +12429,17 @@ class GatewayRunner:
         return t("gateway.resume.resumed_many", title=title, count=msg_count)
 
     async def _handle_branch_command(self, event: MessageEvent) -> str:
-        """Handle /branch [name] — fork the current session into a new independent copy.
+        """Handle /branch [--thread|--here] [name] — fork the current session.
 
         Copies conversation history to a new session so the user can explore
         a different approach without losing the original.
         Inspired by Claude Code's /branch command.
+
+        By default the branch replaces this chat's session (``--here``).  With
+        ``--thread`` (or ``branch_in_thread: true`` in config.yaml) the adapter
+        opens a sibling thread and the branch lives there, while this chat
+        keeps the original session.  Platforms or chats that can't hold a new
+        thread fall back to branching in place.
         """
         import uuid as _uuid
 
@@ -12450,7 +12456,15 @@ class GatewayRunner:
         if not history:
             return t("gateway.branch.no_conversation")
 
-        branch_name = event.get_command_args().strip()
+        tokens = event.get_command_args().split()
+        flags = {tok for tok in tokens if tok in ("--thread", "--here")}
+        branch_name = " ".join(tok for tok in tokens if tok not in flags).strip()
+        if "--here" in flags:
+            want_thread = False
+        elif "--thread" in flags:
+            want_thread = True
+        else:
+            want_thread = bool(getattr(self.config, "branch_in_thread", False))
 
         # Generate the new session ID
         from datetime import datetime as _dt
@@ -12512,6 +12526,34 @@ class GatewayRunner:
         except Exception:
             pass
 
+        msg_count = len([m for m in history if m.get("role") == "user"])
+
+        fallback_note = ""
+        if want_thread:
+            adapter = (getattr(self, "adapters", None) or {}).get(source.platform)
+            thread_source = None
+            if adapter is not None:
+                intro = t(
+                    "gateway.branch.thread_intro",
+                    title=branch_title,
+                    parent=parent_session_id,
+                )
+                try:
+                    thread_source = await adapter.open_branch_thread(source, branch_title, intro)
+                except Exception as e:
+                    logger.warning("Could not open a thread for /branch: %s", e)
+            if thread_source is not None:
+                # The thread gets the branch; this chat keeps its session.
+                self.session_store.bind_session(thread_source, new_session_id)
+                return t(
+                    "gateway.branch.branched_thread",
+                    title=branch_title,
+                    count=msg_count,
+                    parent=parent_session_id,
+                    new=new_session_id,
+                )
+            fallback_note = t("gateway.branch.thread_unavailable") + "\n"
+
         # Switch the session store entry to the new session
         new_entry = self.session_store.switch_session(session_key, new_session_id)
         if not new_entry:
@@ -12521,9 +12563,10 @@ class GatewayRunner:
         # Evict any cached agent for this session
         self._evict_cached_agent(session_key)
 
-        msg_count = len([m for m in history if m.get("role") == "user"])
         key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
-        return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
+        return fallback_note + t(
+            key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id
+        )
 
     async def _handle_usage_command(self, event: MessageEvent) -> str:
         """Handle /usage command -- show token usage for the current session.

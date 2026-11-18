@@ -76,6 +76,9 @@ gateway:
     switch_failed:         "Az ág létrejött, de nem sikerült rá váltani."
     branched_one:          "⑂ Új ág: **{title}** ({count} üzenet másolva)\nEredeti: `{parent}`\nÁg: `{new}`\nHasználd a `/resume` parancsot az eredetihez való visszatéréshez."
     branched_many:         "⑂ Új ág: **{title}** ({count} üzenet másolva)\nEredeti: `{parent}`\nÁg: `{new}`\nHasználd a `/resume` parancsot az eredetihez való visszatéréshez."
+    branched_thread:       "⑂ Elágaztatva ide: **{title}**, egy új szálban.\nEz a csevegés a(z) `{parent}` munkameneten marad; az ág (`{new}`) a szálban folytatódik."
+    thread_intro:          "⑂ **{title}** ág, elágaztatva innen: `{parent}`. Válaszolj itt a folytatáshoz."
+    thread_unavailable:    "(Itt nem sikerült szálat nyitni, ezért az ág lecseréli ennek a csevegésnek a munkamenetét.)"
 
   commands:
     usage:                 "Használat: `/commands [page]`"
