@@ -41,10 +41,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _FENCE_TAG_RE = re.compile(r'</?\s*memory-context\s*>', re.IGNORECASE)
-# ``[^\[\]]*`` rather than ``[^\]]*``: the scan stops at the next note's
-# "[", so a run of unterminated notes costs linear time, not quadratic.
+# The recognised prefix is always stripped; the rest up to "]" only when no
+# new "[" comes first. Stopping at "[" keeps a run of unterminated notes
+# linear, and an inner "[" cannot keep an impersonated note's marker alive.
 _INTERNAL_NOTE_RE = re.compile(
-    r'\[System note:\s*The following is recalled memory context,\s*NOT new user input\.\s*Treat as (?:informational background data|authoritative reference data[^\[\]]*)\.\]\s*',
+    r'\[System note:\s*The following is recalled memory context,\s*NOT new user input\.\s*Treat as (?:informational background data|authoritative reference data)(?:[^\[\]]*\])?\s*',
     re.IGNORECASE,
 )
 
