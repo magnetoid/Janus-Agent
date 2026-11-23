@@ -401,6 +401,26 @@ def _isolate_janus_home(_hermetic_environment):
     return None
 
 
+@pytest.fixture(autouse=True)
+def _no_real_browser(monkeypatch):
+    """Keep ``webbrowser`` from opening real windows during tests.
+
+    OAuth login tests that forgot to stub it opened the real consent page
+    (xAI, Google, MCP servers) in the developer's browser on every local run;
+    CI has no display, so it never showed there. The stand-ins report
+    "could not open", as a headless box does, so callers fall back to printing
+    the URL. Tests that care about the launch still monkeypatch
+    ``webbrowser.open`` themselves, which overrides this.
+    """
+    import webbrowser
+
+    def _not_opened(url, *_args, **_kwargs):
+        return False
+
+    for name in ("open", "open_new", "open_new_tab"):
+        monkeypatch.setattr(webbrowser, name, _not_opened)
+
+
 # ── Module-level state reset — replaced by per-file process isolation ──────
 #
 # Each test FILE runs in a freshly-spawned ``python -m pytest <file>``
