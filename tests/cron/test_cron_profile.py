@@ -447,3 +447,101 @@ class TestTickProfilePartition:
             assert seq_thread.startswith("cron-seq"), seq_thread
         par_thread = next(t for job_id, t in calls if job_id == "c")
         assert par_thread.startswith("cron-parallel"), par_thread
+
+
+class TestProfileJobDoesNotLeakIntoConcurrentJobs:
+    """A profile job's home must stay inside that job's context.
+
+    tick() runs a profile job on the single-thread cron-seq pool while the
+    other due jobs run on the cron-parallel pool, each under its own
+    ``copy_context()``. While the profile job is inside its context, every
+    other job (and the ticker itself, whose context those jobs copy) must
+    still resolve the scheduler's own home: its .env, config.yaml, scripts
+    dir, JANUS_HOME for pre-run scripts and tick lock.
+    """
+
+    @pytest.mark.parametrize("module_hook", ["unset", "scheduler-root"])
+    def test_concurrent_default_job_keeps_scheduler_home(
+        self, isolated_cron_profile_home, monkeypatch, module_hook
+    ):
+        import threading
+        import cron.scheduler as sched
+
+        root, profile_home = isolated_cron_profile_home
+        profile_home = profile_home.resolve()
+        # "scheduler-root" exercises the module-level test/emergency hook:
+        # pointing it at the scheduler's own home must not stop a profile job
+        # from seeing its profile, nor let that profile reach other jobs.
+        monkeypatch.setattr(
+            sched, "_janus_home", None if module_hook == "unset" else root
+        )
+
+        # Same-named pre-run script in both homes, each saying which home it
+        # was resolved from and which JANUS_HOME it was handed.
+        for home, label in ((root, "root"), (profile_home, "support")):
+            (home / "scripts").mkdir(parents=True, exist_ok=True)
+            (home / "scripts" / "which_home.py").write_text(
+                "import os\n"
+                f"print({label!r} + ':' + os.environ.get('JANUS_HOME', ''))\n",
+                encoding="utf-8",
+            )
+
+        profile_job = {"id": "prof", "name": "profile-job", "profile": "support"}
+        default_job = {"id": "dflt", "name": "default-job", "profile": None}
+
+        monkeypatch.setattr(sched, "get_due_jobs", lambda: [profile_job, default_job])
+        monkeypatch.setattr(sched, "advance_next_run", lambda *_a, **_kw: None)
+        monkeypatch.setattr(sched, "save_job_output", lambda _jid, _o: None)
+        monkeypatch.setattr(sched, "mark_job_run", lambda *_a, **_kw: None)
+        monkeypatch.setattr(sched, "_deliver_result", lambda *_a, **_kw: None)
+        monkeypatch.setattr(
+            "agent.outbound_webhooks.emit_cron_complete", lambda **_kw: None
+        )
+
+        profile_inside = threading.Event()
+        default_looked = threading.Event()
+        seen: dict = {}
+
+        def _view() -> dict:
+            ok, script_out = sched._run_job_script("which_home.py")
+            return {
+                "thread": threading.current_thread().name,
+                "home": sched._get_janus_home(),
+                "lock_file": sched._get_lock_paths()[1],
+                "script": script_out.strip() if ok else f"FAILED: {script_out}",
+            }
+
+        def fake_run_job_impl(job):
+            # Runs inside run_job(), i.e. inside _job_profile_context().
+            if job["id"] == "prof":
+                seen["profile"] = _view()
+                profile_inside.set()
+                # Hold the profile context open until the other job has looked.
+                default_looked.wait(timeout=20)
+            else:
+                if profile_inside.wait(timeout=20):
+                    seen["default"] = _view()
+                default_looked.set()
+            return True, "doc", "ok", None
+
+        monkeypatch.setattr(sched, "_run_job_impl", fake_run_job_impl)
+
+        sched.tick(verbose=False)
+
+        assert "default" in seen, "default job never overlapped the profile job"
+        # The scenario is the real one: two pools, running at the same time.
+        assert seen["profile"]["thread"].startswith("cron-seq"), seen["profile"]
+        assert seen["default"]["thread"].startswith("cron-parallel"), seen["default"]
+
+        # The concurrent default job keeps the scheduler's own home.
+        assert seen["default"]["home"] == root
+        assert seen["default"]["lock_file"] == root / "cron" / ".tick.lock"
+        assert seen["default"]["script"] == f"root:{root}"
+
+        # Guard: the profile job itself still runs under its profile.
+        assert seen["profile"]["home"] == profile_home
+        assert seen["profile"]["script"] == f"support:{profile_home}"
+
+        # And nothing is left pointing at the profile afterwards.
+        assert sched._get_janus_home() == root
+        assert sched._get_lock_paths()[1] == root / "cron" / ".tick.lock"

@@ -38,7 +38,7 @@ from typing import Any, List, Optional
 # the module) fail with ModuleNotFoundError for janus_time et al.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from janus_constants import get_janus_home
+from janus_constants import get_janus_home, get_janus_home_override
 from janus_cli._subprocess_compat import windows_hide_flags
 from janus_cli.config import load_config, _expand_env_vars
 from janus_time import now as _janus_now
@@ -222,11 +222,20 @@ atexit.register(_shutdown_parallel_pool)
 
 
 # Backward-compatible module override used by tests and emergency monkeypatches.
+# The scheduler never assigns it per job: it is process-wide, so a per-job value
+# here would reach every job running at the same time (see _job_profile_context).
 _janus_home: Path | None = None
 
 
 def _get_janus_home() -> Path:
-    """Resolve Janus home dynamically while preserving test monkeypatch hooks."""
+    """Resolve Janus home for the calling job's context.
+
+    A per-job profile (the context-local override set by _job_profile_context)
+    wins over the module hook, which wins over the ambient get_janus_home().
+    """
+    override = get_janus_home_override()
+    if override:
+        return Path(override)
     return _janus_home or get_janus_home()
 
 
@@ -242,24 +251,27 @@ def _job_profile_context(job_id: str, profile: Optional[str]):
     """Temporarily run a job under a specific Janus profile.
 
     Cron jobs are stored and scheduled by the profile running the scheduler, but
-    an individual job can opt into a different runtime profile. While active,
-    the scheduler's test/override hook and a context-local Janus home override
-    both point at the resolved profile directory so _get_janus_home(),
-    .env/config loading, script resolution, AIAgent construction, and downstream
-    get_janus_home() callers agree on the same home.
+    an individual job can opt into a different runtime profile. While active, a
+    context-local Janus home override points at the resolved profile directory
+    so _get_janus_home() (.env/config loading, script resolution, prefill),
+    AIAgent construction, and downstream get_janus_home() callers agree on the
+    same home. tick() runs each job in its own copy_context(), so the override
+    stays with this job: other jobs and the ticker (tick lock) keep the
+    scheduler's home. Never mirror it into a module global, which every
+    thread would see.
 
     Some existing provider/config paths still load profile .env values through
     os.environ, so profile jobs also snapshot and restore the process
-    environment on exit. tick() runs profile jobs sequentially to keep that
-    temporary mutation isolated from other scheduled jobs.
+    environment on exit. os.environ is process-wide: tick() runs profile jobs
+    sequentially, which keeps them from overlapping each other, but jobs on the
+    parallel pool and gateway chat turns share that environment while a profile
+    job runs.
     """
     raw_profile = str(profile or "").strip()
     if not raw_profile:
         yield None
         return
 
-    global _janus_home
-    prior_override = _janus_home
     env_snapshot = os.environ.copy()
 
     from janus_cli.profiles import normalize_profile_name, resolve_profile_env
@@ -280,7 +292,6 @@ def _job_profile_context(job_id: str, profile: Optional[str]):
     override_token = None
     try:
         override_token = set_janus_home_override(profile_home)
-        _janus_home = profile_home
         logger.info(
             "Job '%s': using Janus profile '%s' (%s)",
             job_id,
@@ -289,7 +300,6 @@ def _job_profile_context(job_id: str, profile: Optional[str]):
         )
         yield normalized_profile
     finally:
-        _janus_home = prior_override
         if override_token is not None:
             reset_janus_home_override(override_token)
         # Delta-based restore: remove added keys, restore changed keys.
@@ -2271,10 +2281,11 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> i
         # Partition due jobs: jobs with a per-job workdir and/or profile touch
         # process-global runtime state inside run_job. Workdir jobs temporarily
         # set os.environ["TERMINAL_CWD"]; profile jobs use a context-local
-        # Janus home override, scheduler _janus_home hook, and temporary
-        # profile .env load into os.environ with snapshot/restore. They MUST run
-        # sequentially to avoid corrupting each other. Jobs without either field
-        # stay parallel-safe.
+        # Janus home override (per job, never shared) and a temporary profile
+        # .env load into os.environ with snapshot/restore. They MUST run
+        # sequentially to avoid corrupting each other's os.environ. That does
+        # not shield the parallel jobs, which share os.environ with them. Jobs
+        # without either field stay parallel-safe.
         sequential_jobs = [
             j for j in due_jobs
             if (j.get("workdir") or "").strip() or (j.get("profile") or "").strip()
