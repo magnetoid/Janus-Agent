@@ -22,7 +22,7 @@ If you prefer a real POSIX environment (for the dashboard's embedded terminal, `
 Or, for a command-line only install, open **PowerShell** (or Windows Terminal) and run:
 
 ```powershell
-iex (irm https://github.com/magnetoid/janus)
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1)
 ```
 
 No admin rights required. The installer goes to `%LOCALAPPDATA%\janus\` and adds `janus` to your **User PATH** — open a new terminal after it finishes.
@@ -30,7 +30,7 @@ No admin rights required. The installer goes to `%LOCALAPPDATA%\janus\` and adds
 **Installer options** (requires the scriptblock form to pass parameters):
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/magnetoid/janus))) -NoVenv -SkipSetup -Branch main
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1))) -NoVenv -SkipSetup -Branch main
 ```
 
 | Parameter     | Default                              | Purpose                                                    |

@@ -34,7 +34,11 @@ class TestCheckNonAsciiCredential:
         result = _check_non_ascii_credential("OPENAI_API_KEY", key)
         assert result == "sk-proj-abcd"
         captured = capsys.readouterr()
-        assert "U+028B" in captured.err  # reports the char
+        assert "OPENAI_API_KEY" in captured.err and "re-copy" in captured.err.lower()
+        # Nothing derived from the secret is printed: not the stripped
+        # characters, not their code points, not the rest of the key.
+        for leaked in ("ʋ", "é", "U+028B", "U+00E9", "sk-proj"):
+            assert leaked not in captured.err
 
     def test_empty_key(self):
         result = _check_non_ascii_credential("TEST_KEY", "")
@@ -96,8 +100,21 @@ class TestEnvLoaderSanitization:
 
         captured = capsys.readouterr()
         assert "GOOGLE_API_KEY" in captured.err
-        assert "U+200B" in captured.err
         assert "re-copy" in captured.err.lower()
+
+    def test_warning_prints_nothing_derived_from_the_key(self, monkeypatch, capsys):
+        """The warning names the variable only: no stripped characters, no
+        code points, no part of the key, since terminals and logs keep it."""
+        from janus_cli.env_loader import _sanitize_loaded_credentials, _WARNED_KEYS
+
+        _WARNED_KEYS.discard("ANTHROPIC_API_KEY")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-qzx\u028bwvk\u00e9")
+        _sanitize_loaded_credentials()
+
+        err = capsys.readouterr().err
+        assert "ANTHROPIC_API_KEY" in err
+        for leaked in ("\u028b", "\u00e9", "U+028B", "U+00E9", "sk-ant", "qzx", "wvk"):
+            assert leaked not in err
 
     def test_warning_fires_only_once_per_key(self, monkeypatch, capsys):
         """Repeated loads (user env + project env) must not double-warn."""

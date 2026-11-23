@@ -138,6 +138,7 @@ class TestGmiProvidersModule:
         assert _PROVIDER_LABELS["gmi"] == "GMI Cloud"
 
 
+@pytest.mark.usefixtures("hermetic_doctor")  # see tests/janus_cli/conftest.py
 class TestGmiDoctor:
     def test_provider_env_hints_include_gmi(self):
         from janus_cli.doctor import _PROVIDER_ENV_HINTS

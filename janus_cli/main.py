@@ -1135,22 +1135,24 @@ def _exec_in_container(container_info: dict, cli_args: list):
     os.execvp(exec_cmd[0], exec_cmd)
 
 
-def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
+def _lookup_session_by_name_or_id(name_or_id: str) -> Optional[str]:
     """Resolve a session name (title) or ID to a session ID.
 
-    - If it looks like a session ID (contains underscore + hex), try direct lookup first.
+    - Try the value as an exact session ID first.
     - Otherwise, treat it as a title and use resolve_session_by_title (auto-latest).
-    - Falls back to the other method if the first doesn't match.
     - If the resolved session is a compression root, follow the chain forward
       to the latest continuation. Users who remember the old root ID (e.g.
       from an exit summary printed before the bug fix, or from notes) get
       resumed at the live tip instead of a stale parent with no messages.
+
+    Returns None only when the session store was read and nothing matched.
+    Raises if the store itself can't be opened or queried, so callers can
+    tell "no such session" apart from "couldn't look".
     """
+    from janus_state import SessionDB
+
+    db = SessionDB()
     try:
-        from janus_state import SessionDB
-
-        db = SessionDB()
-
         # Try as exact session ID first
         session = db.get_session(name_or_id)
         resolved_id: Optional[str] = None
@@ -1168,11 +1170,24 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
             except Exception:
                 pass
 
-        db.close()
         return resolved_id
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
+    """Best-effort :func:`_lookup_session_by_name_or_id`.
+
+    Returns None both when nothing matches and when the session store can't
+    be read. Use the lookup directly where that difference matters.
+    """
+    try:
+        return _lookup_session_by_name_or_id(name_or_id)
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _read_tui_active_session_file(path: Optional[str]) -> Optional[str]:
@@ -2035,14 +2050,33 @@ def cmd_chat(args):
                 print(f"No previous {kind} session found to continue.")
                 sys.exit(1)
 
-    # Resolve --resume by title if it's not a direct session ID
+    # Resolve --resume (an ID or a title) before launching either surface.
+    # An unknown value must fail here: the REPL and the TUI would otherwise
+    # start anyway, and every message would then fail with "Session not found".
     resume_val = getattr(args, "resume", None)
     if resume_val:
-        resolved = _resolve_session_by_name_or_id(resume_val)
-        if resolved:
-            args.resume = resolved
-        # If resolution fails, keep the original value — _init_agent will
-        # report "Session not found" with the original input
+        try:
+            resolved = _lookup_session_by_name_or_id(resume_val)
+        except Exception as exc:
+            # The session store couldn't be read, so we can't tell whether the
+            # session exists. Keep the value and let the surface report the
+            # store problem instead of a misleading "No session found".
+            logger.debug("Could not look up --resume %r: %s", resume_val, exc)
+            resolved = resume_val
+        if not resolved:
+            from janus_constants import display_janus_home
+
+            print(
+                f"No session found matching '{resume_val}' "
+                f"(looked in {display_janus_home()}).",
+                file=sys.stderr,
+            )
+            print(
+                "Use 'janus sessions list' to see available sessions.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        args.resume = resolved
 
     # xAI retirement warning — one-shot, non-blocking, never fails startup
     try:
@@ -2495,7 +2529,25 @@ def cmd_model(args):
             print("  Cleared model picker cache.")
         except Exception:
             pass
+    before = _current_model_choice()
     select_provider_and_model(args=args)
+    after = _current_model_choice()
+    if after != before and after[0]:
+        from janus_cli.model_switch import training_data_line
+        print(f"  {training_data_line(after[1], after[2])}")
+
+
+def _current_model_choice() -> tuple:
+    """``(model, provider, base_url)`` from config.yaml; empty on any error."""
+    try:
+        from janus_cli.config import load_config
+        model_cfg = load_config().get("model") or {}
+        if not isinstance(model_cfg, dict):
+            return (str(model_cfg), "", "")
+        return (str(model_cfg.get("default") or ""), str(model_cfg.get("provider") or ""),
+                str(model_cfg.get("base_url") or ""))
+    except Exception:
+        return ("", "", "")
 
 
 def _is_profile_api_key_provider(provider_id: str) -> bool:
@@ -3779,6 +3831,7 @@ def _model_flow_xai_oauth(_config, current_model="", *, args=None):
                 # can't reach the manual-paste path via ``janus model``.
                 mock_args = argparse.Namespace(
                     manual_paste=bool(getattr(args, "manual_paste", False)),
+                    loopback=bool(getattr(args, "loopback", False)),
                     no_browser=bool(getattr(args, "no_browser", False)),
                     timeout=getattr(args, "timeout", None),
                 )
@@ -3801,6 +3854,7 @@ def _model_flow_xai_oauth(_config, current_model="", *, args=None):
         try:
             mock_args = argparse.Namespace(
                 manual_paste=bool(getattr(args, "manual_paste", False)),
+                loopback=bool(getattr(args, "loopback", False)),
                 no_browser=bool(getattr(args, "no_browser", False)),
                 timeout=getattr(args, "timeout", None),
             )
@@ -4025,7 +4079,7 @@ def _model_flow_custom(config):
     if current_url:
         print(f"  Current URL: {current_url}")
     if current_key:
-        print(f"  Current key: {current_key[:8]}...")
+        print("  Current key: configured")
     print()
 
     try:
@@ -4033,7 +4087,7 @@ def _model_flow_custom(config):
             f"API base URL [{current_url or 'e.g. https://api.example.com/v1'}]: "
         ).strip()
         api_key = masked_secret_prompt(
-            f"API key [{current_key[:8] + '...' if current_key else 'optional'}]: "
+            f"API key [{'Enter keeps the current key' if current_key else 'optional'}]: "
         ).strip()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
@@ -4483,7 +4537,7 @@ def _model_flow_azure_foundry(config, current_model=""):
     if current_auth_mode == "entra_id":
         print(f"  Current auth mode: Microsoft Entra ID (keyless)")
     elif current_api_key:
-        print(f"  Current auth mode: API key ({current_api_key[:8]}...)")
+        print("  Current auth mode: API key (configured)")
     print()
 
     # ── Step 1: endpoint URL ─────────────────────────────────────────
@@ -4610,7 +4664,7 @@ def _model_flow_azure_foundry(config, current_model=""):
 
         try:
             api_key = masked_secret_prompt(
-                f"API key [{current_api_key[:8] + '...' if current_api_key else 'required'}]: "
+                f"API key [{'Enter keeps the current key' if current_api_key else 'required'}]: "
             ).strip()
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled.")
@@ -5261,7 +5315,7 @@ def _model_flow_copilot(config, current_model=""):
         if source in {"GITHUB_TOKEN", "GH_TOKEN"}:
             from janus_cli.env_loader import format_secret_source_suffix
             bw_suffix = format_secret_source_suffix(source)
-            print(f"  GitHub token: {api_key[:8]}... ✓ ({source}{bw_suffix})")
+            print(f"  GitHub token: configured ✓ ({source}{bw_suffix})")
         elif source == "gh auth token":
             print("  GitHub token: ✓ (from `gh auth token`)")
         else:
@@ -5520,7 +5574,7 @@ def _prompt_api_key(pconfig, existing_key: str, provider_id: str = "") -> tuple:
     from janus_cli.env_loader import format_secret_source_suffix
 
     source_suffix = format_secret_source_suffix(key_env) if key_env else ""
-    print(f"  {pconfig.name} API key: {existing_key[:8]}... ✓{source_suffix}")
+    print(f"  {pconfig.name} API key: configured ✓{source_suffix}")
     if not key_env:
         # Nothing we can rewrite; just acknowledge and move on.
         print()
@@ -5805,7 +5859,7 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
     if existing_key:
         from janus_cli.env_loader import format_secret_source_suffix
         source_suffix = format_secret_source_suffix("AWS_BEARER_TOKEN_BEDROCK")
-        print(f"  Bedrock API Key: {existing_key[:12]}... ✓{source_suffix}")
+        print(f"  Bedrock API Key: configured ✓{source_suffix}")
     else:
         print(f"  Endpoint: {mantle_base_url}")
         print()
@@ -6488,9 +6542,7 @@ def _model_flow_anthropic(config, current_model=""):
                     source_suffix = format_secret_source_suffix(var)
                     if source_suffix:
                         break
-            print(
-                f"  Anthropic credentials: {existing_key[:12]}... ✓{source_suffix}"
-            )
+            print(f"  Anthropic credentials: configured ✓{source_suffix}")
         elif cc_available:
             print("  Claude Code credentials: ✓ (auto-detected)")
         print()
@@ -10559,7 +10611,7 @@ def _cmd_update_impl(args, gateway_mode: bool, channel: str = "main"):
                 return
             print("✗ Not a git repository. Please reinstall:")
             print(
-                "  curl -fsSL https://github.com/magnetoid/janus | bash"
+                "  curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash"
             )
             sys.exit(1)
 
@@ -13244,6 +13296,14 @@ def main():
         help="Do not attempt to open the browser automatically during Nous login",
     )
     model_parser.add_argument(
+        "--loopback",
+        action="store_true",
+        help=(
+            "xai-oauth only: sign in with the browser-redirect (127.0.0.1 "
+            "callback) flow instead of the default device code."
+        ),
+    )
+    model_parser.add_argument(
         "--manual-paste",
         action="store_true",
         help=(
@@ -13290,9 +13350,13 @@ def main():
         aliases=["ls"],
         help="Show the current fallback chain (default when no subcommand)",
     )
-    fallback_subparsers.add_parser(
+    _fallback_add = fallback_subparsers.add_parser(
         "add",
         help="Pick a provider + model (same picker as `janus model`) and append to the chain",
+    )
+    _fallback_add.add_argument(
+        "--free", action="store_true",
+        help="Pick from curated free-tier providers (Groq, Gemini free quota, ...) instead",
     )
     fallback_subparsers.add_parser(
         "remove",
@@ -13860,6 +13924,14 @@ def main():
         "--no-browser",
         action="store_true",
         help="Do not auto-open a browser for OAuth login",
+    )
+    auth_add.add_argument(
+        "--loopback",
+        action="store_true",
+        help=(
+            "xai-oauth only: sign in with the browser-redirect (127.0.0.1 "
+            "callback) flow instead of the default device code."
+        ),
     )
     auth_add.add_argument(
         "--manual-paste",
@@ -15229,6 +15301,14 @@ Examples:
         "--days", type=int, default=7,
         help="How many recent days to show (default 7; 0 = all)",
     )
+    _log_parser.add_argument(
+        "--digest", action="store_true",
+        help="Show the sleep-cycle digest (DREAMS.md) instead of the journal",
+    )
+    _log_parser.add_argument(
+        "--cycles", type=int, default=5,
+        help="With --digest: how many recent cycles to show (default 5; 0 = all)",
+    )
     _mine_parser = memory_sub.add_parser(
         "mine",
         help="Distill durable facts from a past session into memory",
@@ -15317,6 +15397,20 @@ Examples:
                 f"\n  Memory reset complete. New sessions will start with a blank slate."
             )
             print(f"  Files were in: {display_janus_home()}/memories/\n")
+        elif sub == "log" and getattr(args, "digest", False):
+            from agent.sleep import read_dream_digest
+            from janus_constants import display_janus_home
+
+            sections = read_dream_digest(cycles=getattr(args, "cycles", 5))
+            if not sections:
+                print(
+                    f"\n  No sleep cycles recorded yet — each completed cycle is "
+                    f"summarised in {display_janus_home()}/memories/DREAMS.md "
+                    f"(run one now: janus sleep --now).\n"
+                )
+                return
+            for section in sections:
+                print(section.rstrip() + "\n")
         elif sub == "log":
             from tools.memory_tool import read_daily_snapshots
             from janus_constants import display_janus_home
@@ -15827,8 +15921,13 @@ Examples:
                 ("learning.governor.enabled", "self-improvement health assessment"),
                 ("memory.session_mining", "session-end memory mining (remembers you)"),
             ]
-            for key, _ in preset:
-                set_config_value(key, "true" if on else "false")
+            from janus_cli.config import ConfigParseError
+            try:
+                for key, _ in preset:
+                    set_config_value(key, "true" if on else "false")
+            except ConfigParseError as exc:
+                print(f"\n  ✗ {exc}", file=sys.stderr)
+                sys.exit(1)
             state = "ON" if on else "OFF"
             print(f"\n  Learning loop preset → {state}:")
             for key, what in preset:
@@ -16442,6 +16541,8 @@ Examples:
             print(f"  synthesized: {len(rep['lessons'])} cross-session lesson(s)")
             for lesson in rep["lessons"]:
                 print(f"    • {lesson}")
+            if not dry:
+                print("  digest:      janus memory log --digest")
             print()
             return
         # status (default)

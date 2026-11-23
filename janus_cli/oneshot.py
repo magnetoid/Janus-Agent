@@ -1,7 +1,10 @@
 """Oneshot (-z) mode: send a prompt, get the final content block, exit.
 
 Bypasses cli.py entirely.  No banner, no spinner, no session_id line,
-no stderr chatter.  Just the agent's final text to stdout.
+no stderr chatter.  Just the agent's final text to stdout, exit 0.  When the
+turn fails (provider error, exhausted retries, truncation, interrupt) or
+yields no text, stdout stays empty, the reason goes to stderr, and the exit
+code is 1, so a caller can tell an answer from an error.
 
 Toolsets = explicit --toolsets when provided, otherwise whatever the user has
 configured for "cli" in `janus tools`.
@@ -25,7 +28,7 @@ import logging
 import os
 import sys
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Optional
+from typing import Any, Optional
 
 from janus_cli.fallback_config import get_fallback_chain
 
@@ -177,12 +180,12 @@ def run_oneshot(
     real_stderr = sys.stderr
     devnull = open(os.devnull, "w", encoding="utf-8")
 
-    response: Optional[str] = None
+    result: dict[str, Any] = {}
     failure: BaseException | None = None
     try:
         with redirect_stdout(devnull), redirect_stderr(devnull):
             try:
-                response = _run_agent(
+                result = _run_agent(
                     prompt,
                     model=model,
                     provider=provider,
@@ -213,17 +216,49 @@ def run_oneshot(
         real_stderr.flush()
         return 1
 
-    if not (response or "").strip():
+    turn_failure = _turn_failure(result)
+    if turn_failure is not None:
+        real_stderr.write(f"janus -z: {turn_failure}\n")
+        real_stderr.flush()
+        return 1
+
+    response = result.get("final_response") or ""
+    if not response.strip():
         real_stderr.write("janus -z: no final response was produced; treating the run as failed.\n")
         real_stderr.flush()
         return 1
 
-    assert response is not None  # narrowed by the empty-response guard above
     real_stdout.write(response)
     if not response.endswith("\n"):
         real_stdout.write("\n")
     real_stdout.flush()
     return 0
+
+
+def _turn_failure(result: dict[str, Any]) -> Optional[str]:
+    """Return why a ``run_conversation()`` turn gave no usable answer, or None.
+
+    Reads the result's own flags, never the text:
+      failed       the turn errored (retries and fallbacks exhausted, billing,
+                   content-policy block, context overflow, ...).  Its
+                   final_response, when present, is the error text written
+                   for the user, not an answer.
+      partial      the turn stopped before finishing (output still truncated,
+                   invalid tool calls, Codex app-server error).  final_response
+                   may be cut-off model text, so the reason is ``error``.
+      interrupted  the turn was cut short; final_response is a notice.
+    A summary written when the iteration budget runs out sets none of these
+    and still counts as the answer.
+    """
+    if result.get("failed"):
+        texts, fallback = (result.get("final_response"), result.get("error")), "the agent turn failed"
+    elif result.get("partial"):
+        texts, fallback = (result.get("error"),), "the agent turn stopped before it finished"
+    elif result.get("interrupted"):
+        texts, fallback = (result.get("final_response"),), "the agent turn was interrupted"
+    else:
+        return None
+    return next((t.strip() for t in texts if isinstance(t, str) and t.strip()), fallback)
 
 
 def _create_session_db_for_oneshot():
@@ -248,9 +283,10 @@ def _run_agent(
     provider: Optional[str] = None,
     toolsets: object = None,
     use_config_toolsets: bool = True,
-) -> str:
+) -> dict[str, Any]:
     """Build an AIAgent exactly like a normal CLI chat turn would, then
-    run a single conversation.  Returns the final response string."""
+    run a single conversation.  Returns ``run_conversation()``'s result dict,
+    so the caller sees its failure flags, not just the text."""
     # Imports are local so they don't run when janus is invoked for
     # other commands (keeps top-level CLI startup cheap).
     from janus_cli.config import load_config
@@ -364,7 +400,10 @@ def _run_agent(
     agent.stream_delta_callback = None
     agent.tool_gen_callback = None
 
-    return agent.chat(prompt) or ""
+    # Not agent.chat(): it keeps only final_response, which on a failed turn
+    # is the error text (or missing), and drops the flags that say so.
+    result = agent.run_conversation(prompt)
+    return result if isinstance(result, dict) else {"final_response": result}
 
 
 def _oneshot_clarify_callback(question: str, choices=None) -> str:

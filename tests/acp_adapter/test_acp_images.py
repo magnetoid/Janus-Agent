@@ -1,6 +1,9 @@
 import base64
 
 import pytest
+
+pytest.importorskip("acp", reason="agent-client-protocol not installed (the [acp] extra)")
+
 from acp.schema import (
     BlobResourceContents,
     EmbeddedResourceContentBlock,

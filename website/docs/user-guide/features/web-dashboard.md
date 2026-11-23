@@ -822,6 +822,18 @@ engages the OAuth gate.
 > for Authentik, Zitadel, Authelia, and other OIDC servers — only the issuer
 > URL and client registration UI differ.
 
+### Client IP behind a reverse proxy
+
+The password-login rate limit (10 attempts per minute per client) and the `dashboard-auth.log` audit lines use the connecting peer's address. The dashboard never reads `X-Forwarded-For` itself, because a client can put any value there. Under the gate, uvicorn rewrites the peer from `X-Forwarded-For`, but only for proxies it trusts. By default it trusts only loopback (`127.0.0.1,::1`).
+
+If your reverse proxy runs on another host or container (nginx in a sibling Docker container, a cloud load balancer, Fly.io's edge), list its address or CIDR in `FORWARDED_ALLOW_IPS` before starting the dashboard:
+
+```bash
+FORWARDED_ALLOW_IPS="172.18.0.0/16" janus dashboard --host 0.0.0.0
+```
+
+Without that, every client appears as the proxy's address and shares one rate-limit bucket.
+
 ### Public URL override
 
 By default, the dashboard reconstructs the OAuth callback URL from the request — `X-Forwarded-Host` + `X-Forwarded-Proto` + `X-Forwarded-Prefix` (when uvicorn is configured with `proxy_headers=True`, which `start_server` enables under the gate). This works out of the box behind a reverse proxy that sets all three headers correctly.

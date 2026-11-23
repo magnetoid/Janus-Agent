@@ -237,6 +237,8 @@ janus gateway setup
 
 Select **Discord** when prompted, then paste your bot token and user ID when asked.
 
+The wizard checks the token with Discord before saving it (a rejected token is asked for again, up to three times) and reads which privileged intents are enabled for your application. It warns, with a link to the Bot page, when **Message Content Intent** is off, and when **Server Members Intent** is off but your allowlist uses usernames or `DISCORD_ALLOWED_ROLES`. If Discord can't be reached, the token is saved unverified. Re-running the wizard on an existing setup and declining to reconfigure re-runs the same check.
+
 ### Option B: Manual Configuration
 
 Add the following to your `~/.janus/.env` file:

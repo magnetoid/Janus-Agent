@@ -477,11 +477,9 @@ def cmd_setup(args) -> None:
         # local auth opt-in (see ``_host_has_key`` in client.py) and
         # cloud/hybrid switching is unaffected.
         current_host_key = janus_host.get("apiKey", "")
-        masked = (
-            f"...{current_host_key[-8:]}"
-            if len(current_host_key) > 8
-            else ("set" if current_host_key else "not set")
-        )
+        from agent.redact import mask_secret
+
+        masked = mask_secret(current_host_key, head=0, tail=4, empty="not set")
         print(
             "\n  Local Honcho auth (JWT signed with the server's "
             "AUTH_JWT_SECRET)."
@@ -517,7 +515,9 @@ def cmd_setup(args) -> None:
         cfg.pop("baseUrl", None)  # cloud uses SDK default
 
         current_key = cfg.get("apiKey", "")
-        masked = f"...{current_key[-8:]}" if len(current_key) > 8 else ("set" if current_key else "not set")
+        from agent.redact import mask_secret
+
+        masked = mask_secret(current_key, head=0, tail=4, empty="not set")
         print(f"\n  Current API key: {masked}")
         new_key = _prompt("Honcho API key (leave blank to keep current)", secret=True)
         if new_key:
@@ -902,7 +902,9 @@ def cmd_status(args) -> None:
         return
 
     api_key = hcfg.api_key or ""
-    masked = f"...{api_key[-8:]}" if len(api_key) > 8 else ("set" if api_key else "not set")
+    from agent.redact import mask_secret
+
+    masked = mask_secret(api_key, head=0, tail=4, empty="not set")
 
     profile = _active_profile_name()
     profile_label = f" [{hcfg.host}]" if profile != "default" else ""

@@ -31,6 +31,19 @@ _REDACTED_FIELDS: frozenset = frozenset({
 })
 
 
+def client_ip(request: Any) -> str:
+    """The connecting client's address, for rate limits and audit lines.
+
+    Never read ``X-Forwarded-For`` here: the client writes that header, so
+    keying on it lets every request pick a fresh rate-limit bucket and a
+    forged audit IP. Behind a reverse proxy, uvicorn's proxy-header handling
+    already rewrites ``request.client`` from X-Forwarded-For, but only for
+    peers listed in ``FORWARDED_ALLOW_IPS`` (default: loopback).
+    """
+    client = getattr(request, "client", None)
+    return getattr(client, "host", "") or ""
+
+
 class AuditEvent(enum.Enum):
     """Event types written to dashboard-auth.log.
 

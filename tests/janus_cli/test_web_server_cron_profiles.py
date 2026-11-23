@@ -7,6 +7,9 @@ contract the desktop/dashboard depends on is the route + profile query
 parameter, not where the coroutine happens to live.
 """
 
+import json
+import threading
+
 import pytest
 
 
@@ -82,6 +85,142 @@ def test_call_cron_for_profile_routes_storage_and_restores_globals(isolated_prof
     assert cron_jobs.CRON_DIR == old_cron_dir
     assert cron_jobs.JOBS_FILE == old_jobs_file
     assert cron_jobs.OUTPUT_DIR == old_output_dir
+
+
+def _job_names(jobs_file):
+    return [job["name"] for job in json.loads(jobs_file.read_text(encoding="utf-8"))["jobs"]]
+
+
+def test_dashboard_profile_call_leaves_concurrent_ticker_on_its_own_home(
+    isolated_profiles, monkeypatch
+):
+    """A dashboard call for another profile must not redirect the ticker.
+
+    The desktop backend runs the cron ticker in the same process as the
+    dashboard routes. Here a ticker-style ``mark_job_run`` for a default-profile
+    job loads jobs.json, then parks until a dashboard call for worker_alpha is
+    in progress, and only then saves. Its save, a later read and its job output
+    must all still land in the default profile, and worker_alpha's files must
+    stay as they were.
+    """
+    from cron import jobs as cron_jobs
+    from janus_cli import web_server
+
+    default_cron = isolated_profiles["default"] / "cron"
+    worker_cron = isolated_profiles["worker_alpha"] / "cron"
+    # The ticker uses the process's own home; make that the default profile,
+    # as it is for a desktop app running the default profile.
+    monkeypatch.setattr(cron_jobs, "CRON_DIR", default_cron)
+    monkeypatch.setattr(cron_jobs, "JOBS_FILE", default_cron / "jobs.json")
+    monkeypatch.setattr(cron_jobs, "OUTPUT_DIR", default_cron / "output")
+
+    default_job = cron_jobs.create_job(
+        prompt="default heartbeat", schedule="every 1h", name="default-job"
+    )
+    worker_job = web_server._call_cron_for_profile(
+        "worker_alpha",
+        "create_job",
+        prompt="worker heartbeat",
+        schedule="every 1h",
+        name="worker-job",
+    )
+    worker_jobs_before = (worker_cron / "jobs.json").read_bytes()
+
+    ticker_loaded = threading.Event()
+    dashboard_inside = threading.Event()
+    ticker_done = threading.Event()
+    ticker_state = {}
+
+    real_compute_next_run = cron_jobs.compute_next_run
+
+    def compute_next_run_parked(*args, **kwargs):
+        # mark_job_run calls this after load_jobs() and before save_jobs().
+        if threading.current_thread().name == "ticker":
+            ticker_loaded.set()
+            ticker_state["overlapped"] = dashboard_inside.wait(timeout=5)
+        return real_compute_next_run(*args, **kwargs)
+
+    def ticker():
+        try:
+            cron_jobs.mark_job_run(default_job["id"], True)
+            ticker_state["read"] = [job["name"] for job in cron_jobs.load_jobs()]
+            ticker_state["output"] = cron_jobs.save_job_output(
+                default_job["id"], "default output"
+            )
+        except BaseException as exc:  # surfaced by the assertions below
+            ticker_state["error"] = exc
+        finally:
+            ticker_done.set()
+
+    real_list_jobs = cron_jobs.list_jobs
+
+    def list_jobs_parked(*args, **kwargs):
+        result = real_list_jobs(*args, **kwargs)
+        dashboard_inside.set()
+        ticker_done.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(cron_jobs, "compute_next_run", compute_next_run_parked)
+    monkeypatch.setattr(cron_jobs, "list_jobs", list_jobs_parked)
+
+    thread = threading.Thread(target=ticker, name="ticker", daemon=True)
+    thread.start()
+    assert ticker_loaded.wait(timeout=5)
+    listed = web_server._call_cron_for_profile("worker_alpha", "list_jobs", True)
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert ticker_state.get("error") is None
+    assert ticker_state["overlapped"] is True
+
+    # worker_alpha's jobs.json was not overwritten, and got no default output.
+    assert _job_names(worker_cron / "jobs.json") == ["worker-job"]
+    assert (worker_cron / "jobs.json").read_bytes() == worker_jobs_before
+    assert not (worker_cron / "output" / default_job["id"]).exists()
+
+    # The ticker's write, read and output all hit the default profile.
+    [saved_default] = json.loads((default_cron / "jobs.json").read_text(encoding="utf-8"))["jobs"]
+    assert saved_default["id"] == default_job["id"]
+    assert saved_default["last_run_at"]
+    assert saved_default["last_status"] == "ok"
+    assert ticker_state["read"] == ["default-job"]
+    assert ticker_state["output"].parent == default_cron / "output" / default_job["id"]
+
+    # The dashboard call itself still served worker_alpha.
+    assert [job["id"] for job in listed] == [worker_job["id"]]
+    assert {job["profile"] for job in listed} == {"worker_alpha"}
+
+
+def test_dashboard_profile_calls_use_that_profiles_output_dir(isolated_profiles, client):
+    """Output reads, writes and deletes from the dashboard go to the profile's own dir."""
+    from janus_cli import web_server
+
+    default_job = _create_job(
+        client, "default", prompt="default job", schedule="every 1h", name="default-out"
+    )
+    worker_job = _create_job(
+        client, "worker_alpha", prompt="worker job", schedule="every 1h", name="worker-out"
+    )
+    for profile, job in (("default", default_job), ("worker_alpha", worker_job)):
+        web_server._call_cron_for_profile(profile, "save_job_output", job["id"], f"{profile} output")
+
+    worker_output = isolated_profiles["worker_alpha"] / "cron" / "output" / worker_job["id"]
+    default_output = isolated_profiles["default"] / "cron" / "output" / default_job["id"]
+    assert worker_output.is_dir()
+    assert default_output.is_dir()
+    assert web_server._call_cron_for_profile(
+        "worker_alpha", "latest_job_output", worker_job["id"]
+    ) == "worker_alpha output"
+
+    resp = client.request(
+        "DELETE", f"/api/cron/jobs/{worker_job['id']}", params={"profile": "worker_alpha"}
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert not worker_output.exists()
+    assert default_output.is_dir()
+    assert _job_names(isolated_profiles["default"] / "cron" / "jobs.json") == ["default-out"]
+    assert _job_names(isolated_profiles["worker_alpha"] / "cron" / "jobs.json") == []
 
 
 def test_list_cron_jobs_all_includes_default_and_named_profiles(isolated_profiles, client):

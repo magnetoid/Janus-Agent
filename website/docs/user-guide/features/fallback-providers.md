@@ -97,6 +97,39 @@ fallback_providers:
     key_env: MY_LOCAL_KEY            # env var name containing the API key
 ```
 
+### Free-tier fallbacks
+
+When the paid providers run out (quota, billing, outage), a free tier can keep a session going:
+
+```bash
+janus fallback add --free
+```
+
+It offers a short, hand-checked list of official free tiers that can handle tool calling:
+
+| Preset | Free limits (approx.) | Trains on your inputs? |
+|---|---|---|
+| Groq | ~30 requests/min, daily cap per model | No, per Groq |
+| OpenRouter `:free` models | 50 requests/day (1,000 after a one-time $10 purchase) | Depends on the model's host; OpenRouter's privacy settings can exclude hosts that train |
+| Google Gemini (free quota) | per-minute and daily caps | Yes: Google uses free-quota prompts to improve its products, and reviewers may read them |
+| Mistral (Experiment plan) | ~1 request/second | Yes, unless you opt out in Mistral's admin console |
+| NVIDIA NIM (API trial) | ~40 requests/min, trial use only | Yes, per NVIDIA's trial terms |
+
+The command asks for the free API key when it isn't set yet (saved to `.env`) and lets you change the model, since free model names change often. The table was checked in November 2026; check the provider's terms if they matter to you.
+
+**Free tiers that may train need your yes.** If a fallback fires, the whole conversation goes to that provider, including memory, file contents and tool output. So for a tier that may train, `janus fallback add --free` explains that and adds it only if you answer yes, recording `allow_training: true` on the entry. A preset entry without that consent is skipped when the chain runs, and also at startup when Janus picks a fallback because the primary provider has no credentials. To allow every such preset without asking:
+
+```yaml
+fallback:
+  allow_training_providers: true   # default false
+```
+
+The guard covers only entries added with `--free`; providers you add with the normal `janus fallback add` behave as before.
+
+**You are told when it happens.** Switching to a free fallback prints a warning in the CLI and in messaging chats, naming the provider and its data use, even when the turn then succeeds.
+
+Free limits are small: one agent turn can make 10–30 model calls, so a free tier is a stopgap, not a replacement. The list leaves out third-party brokers, anonymous "stealth" models and reverse-engineered endpoints on purpose: they would see everything you send.
+
 ### When Fallback Triggers
 
 The fallback activates automatically when the primary model fails with:

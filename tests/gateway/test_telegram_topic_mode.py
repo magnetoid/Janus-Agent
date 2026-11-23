@@ -336,11 +336,18 @@ async def test_group_new_keeps_existing_reset_semantics_when_dm_topic_mode_enabl
     monkeypatch.setattr(
         gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"}
     )
+    # The reset reply also carries a random tip from janus_cli.tips, and some
+    # tips mention "parallel work" themselves. Pin one of those so the check
+    # below cannot depend on which tip was drawn.
+    monkeypatch.setattr(
+        "janus_cli.tips.get_random_tip",
+        lambda *_a, **_k: "delegate_task runs sub-agents for parallel work.",
+    )
 
     result = await runner._handle_message(_make_group_event("/new", thread_id="555"))
 
     assert "Started a new Janus session in this topic" not in result
-    assert "parallel work" not in result
+    assert "open All Messages and send a message there" not in result
     runner.session_store.reset_session.assert_called_once_with(group_key)
 
 

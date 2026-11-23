@@ -94,6 +94,7 @@ except ImportError:
     TrustState = _TrustStateStub  # type: ignore[misc,assignment]
 
 from gateway.config import Platform, PlatformConfig
+from gateway.session import SessionSource
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -1068,6 +1069,29 @@ class MatrixAdapter(BasePlatformAdapter):
             self._client = None
 
         logger.info("Matrix: disconnected")
+
+    async def open_branch_thread(
+        self,
+        source: "SessionSource",
+        title: str,
+        intro: str,
+    ) -> Optional["SessionSource"]:
+        """Post *intro* as a new room event; it becomes the ``m.thread`` root."""
+        result = await self.send(source.chat_id, intro)
+        if not result.success or not result.message_id:
+            logger.warning("Matrix: /branch could not post the thread root: %s", result.error)
+            return None
+        thread_id = str(result.message_id)
+        # Replies in a thread the bot started don't need a mention.
+        self._threads.mark(thread_id)
+        return self.build_source(
+            chat_id=source.chat_id,
+            chat_name=source.chat_name,
+            chat_type=source.chat_type,
+            user_id=source.user_id,
+            user_name=source.user_name,
+            thread_id=thread_id,
+        )
 
     async def send(
         self,

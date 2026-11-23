@@ -203,6 +203,24 @@ def _inject_context_janus_home(env: dict) -> None:
         pass
 
 
+def _inject_context_cron_session(env: dict) -> None:
+    """Bridge a cron job's per-job JANUS_CRON_SESSION flag into subprocess env.
+
+    The scheduler keeps the flag in a contextvar, not os.environ, because it
+    shares the gateway process with live chats. A ``janus`` child started by a
+    cron job must still know it runs unattended. ``_make_run_env`` already
+    bridges every session contextvar; this covers background processes.
+    """
+    try:
+        from gateway.session_context import _UNSET, _VAR_MAP
+
+        value = _VAR_MAP["JANUS_CRON_SESSION"].get()
+    except Exception:
+        return
+    if value is not _UNSET and value:
+        env["JANUS_CRON_SESSION"] = value
+
+
 def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = None) -> dict:
     """Filter Janus-managed secrets from a subprocess environment."""
     try:
@@ -226,6 +244,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
             sanitized[key] = value
 
     _inject_context_janus_home(sanitized)
+    _inject_context_cron_session(sanitized)
 
     # Per-profile HOME isolation for background processes (same as _make_run_env).
     from janus_constants import get_subprocess_home

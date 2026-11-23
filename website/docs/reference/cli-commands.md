@@ -156,6 +156,14 @@ janus -z "What's the capital of France?"
 answer=$(janus -z "summarize this" < /path/to/file.txt)
 ```
 
+Exit status tells an answer from an error: `0` means stdout holds the final reply. `1` means the run produced no usable answer: the agent raised an error, the provider failed or retries ran out, the output stayed truncated, the turn was interrupted, or the reply was empty. In that case stdout stays empty and the reason goes to stderr, prefixed `janus -z:`. `2` means bad arguments (for example `--provider` without `--model`).
+
+```bash
+if ! answer=$(janus -z "summarize this" < /path/to/file.txt); then
+  echo "janus failed" >&2; exit 1
+fi
+```
+
 Per-run overrides (no mutation to `~/.janus/config.yaml`):
 
 | Flag | Equivalent env var | Purpose |
@@ -186,6 +194,22 @@ Use this when you want to:
 - pick from provider-specific model lists
 - configure a custom/self-hosted endpoint
 - save the new default into config
+
+### Training-data line
+
+After you pick a model, `janus model`, `/model` in the CLI and `/model` in messaging chats all add one line saying whether the provider may train on what you send it:
+
+| Line | Providers |
+|---|---|
+| sent to an endpoint on this machine; local only if that server runs the model itself | a `localhost` / `127.0.0.1` endpoint for a provider not listed below (Ollama, llama.cpp, LM Studio, or a proxy such as LiteLLM, which forwards to its upstream) |
+| API inputs are not used for training by default | Anthropic, OpenAI API, Azure AI Foundry, Bedrock, xAI API |
+| free-tier inputs may be used for training; paid usage is not | Gemini API |
+| depends on your plan and account settings | Codex (ChatGPT plans), Grok OAuth, Gemini CLI, Copilot |
+| the provider's terms do not rule out training | DeepSeek |
+| depends on the upstream provider | OpenRouter, Kilo Code |
+| not classified | everything else, including self-hosted servers on another machine; check the provider's terms |
+
+The table is built in (`janus_cli/model_switch.py`, checked November 2026) and makes no network call. Providers change their terms, so treat it as a prompt to check, not a guarantee.
 
 ### Local model in one step
 
@@ -1169,7 +1193,7 @@ Manage the fallback provider chain. Fallback providers are tried in order when t
 | Subcommand | Description |
 |------------|-------------|
 | `list` (alias: `ls`) | Show the current fallback chain (default when no subcommand) |
-| `add` | Pick a provider + model (same picker as `janus model`) and append to the chain |
+| `add` | Pick a provider + model (same picker as `janus model`) and append to the chain. With `--free`, pick from curated free tiers instead (see [Free-tier fallbacks](../user-guide/features/fallback-providers.md#free-tier-fallbacks)). |
 | `remove` (alias: `rm`) | Pick an entry to delete from the chain |
 | `clear` | Remove all fallback entries |
 
@@ -1207,6 +1231,7 @@ Subcommands:
 | `setup` | Interactive provider selection and configuration. |
 | `status` | Show current memory provider config. |
 | `off` | Disable external provider (built-in only). |
+| `log` | Browse the daily memory journal (`--date YYYY-MM-DD`, `--days N`). With `--digest`, show the sleep-cycle digest from `memories/DREAMS.md` instead (`--cycles N`, default 5; 0 = all). |
 | `lint` | Read-only report of contradicted, duplicate, stale or doubtful-origin built-in memory entries. Flags: `--target memory\|user\|all`, `--offline` (no model call), `--stale-days N`, `--json`, `--strict` (exit 1 on findings). Origin and staleness checks need `memory.provenance: true`. |
 
 :::info Provider-specific subcommands

@@ -247,3 +247,84 @@ class TestListNavigation:
         assert isinstance(allowlist, list)
         assert allowlist[0] == {"name": "alice", "role": "admin"}
         assert allowlist[1] == {"name": "bob", "role": "admin"}
+
+
+# ---------------------------------------------------------------------------
+# A config.yaml that does not parse is never replaced
+# ---------------------------------------------------------------------------
+
+_GOOD_CONFIG = (
+    "model:\n"
+    "  provider: custom\n"
+    "  base_url: http://localhost:8000/v1\n"
+    "  default: my-model\n"
+    "terminal:\n"
+    "  timeout: 99\n"
+)
+
+
+class TestBrokenConfigIsNotReplaced:
+    """``config set`` on an unparseable config.yaml must write nothing.
+
+    It used to read the file as ``{}`` on a YAML error and write back a
+    config holding only the new key, reporting success. The next load then
+    refreshed ``config.yaml.last-good`` from that one-key file, so the
+    user's model, provider, MCP servers and fallback chain were gone.
+    """
+
+    def _break(self, home):
+        from janus_cli.config import load_config
+
+        cfg = home / "config.yaml"
+        cfg.write_text(_GOOD_CONFIG, encoding="utf-8")
+        load_config()  # a good parse keeps config.yaml.last-good
+        last_good = home / "config.yaml.last-good"
+        assert last_good.is_file()
+        with open(cfg, "a", encoding="utf-8") as f:
+            f.write("\tskin: classic\n")  # a tab: not valid YAML
+        return cfg, last_good, cfg.read_bytes(), last_good.read_bytes()
+
+    def test_set_raises_and_leaves_both_files_alone(self, _isolated_janus_home):
+        from janus_cli.config import ConfigParseError, load_config
+
+        cfg, last_good, cfg_bytes, last_good_bytes = self._break(_isolated_janus_home)
+        with pytest.raises(ConfigParseError) as exc:
+            set_config_value("display.bell", "true")
+        assert str(cfg) in str(exc.value)
+        assert cfg.read_bytes() == cfg_bytes
+        assert last_good.read_bytes() == last_good_bytes
+        # The fallback still serves the user's real settings.
+        assert load_config()["model"]["default"] == "my-model"
+
+    def test_cli_set_exits_nonzero_without_writing(self, _isolated_janus_home, capsys):
+        cfg, _last_good, cfg_bytes, _ = self._break(_isolated_janus_home)
+        args = argparse.Namespace(config_command="set", key="display.bell", value="true")
+        with pytest.raises(SystemExit) as exc:
+            config_command(args)
+        assert exc.value.code == 1
+        assert cfg.read_bytes() == cfg_bytes
+        captured = capsys.readouterr()
+        assert "janus config edit" in captured.err
+        assert "✓ Set" not in captured.out
+
+    def test_secret_keys_still_go_to_env(self, _isolated_janus_home):
+        cfg, _last_good, cfg_bytes, _ = self._break(_isolated_janus_home)
+        set_config_value("OPENROUTER_API_KEY", "test-value-123")
+        assert "OPENROUTER_API_KEY=test-value-123" in _read_env(_isolated_janus_home)
+        assert cfg.read_bytes() == cfg_bytes
+
+    def test_non_mapping_config_is_not_replaced(self, _isolated_janus_home):
+        from janus_cli.config import ConfigParseError
+
+        cfg = _isolated_janus_home / "config.yaml"
+        cfg.write_text("- just\n- a list\n", encoding="utf-8")
+        before = cfg.read_bytes()
+        with pytest.raises(ConfigParseError):
+            set_config_value("display.bell", "true")
+        assert cfg.read_bytes() == before
+
+    def test_empty_config_is_still_writable(self, _isolated_janus_home):
+        cfg = _isolated_janus_home / "config.yaml"
+        cfg.write_text("# just comments\n", encoding="utf-8")
+        set_config_value("display.bell", "true")
+        assert "bell: true" in cfg.read_text(encoding="utf-8")

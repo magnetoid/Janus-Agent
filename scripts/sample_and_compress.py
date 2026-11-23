@@ -28,11 +28,9 @@ load_dotenv()
 
 # Default datasets to sample from
 DEFAULT_DATASETS = [
-    "ImbaLabs/swe-terminus-agent-glm-kimi-minimax",
     "magnetoid/janus-megascience-sft1",
     "magnetoid/janus-Thinking-GLM-4.7-SFT2",
     "magnetoid/janus-Thinking-GLM-4.7-SFT1",
-    "ImbaLabs/terminal-tasks-glm-hermes-agent"
 ]
 
 

@@ -27,9 +27,13 @@ import re
 
 from agent.memory_manager import sanitize_context
 
-_UNTRUSTED_TAG_RE = re.compile(r'</?\s*untrusted-content[^>]*>', re.IGNORECASE)
+# The tag name and note prefix are always stripped; the rest up to ">" / "]"
+# only when no new "<" / "[" comes first. A plain ``[^>]*>`` scanned to the
+# end of the text from every unclosed tag, which is quadratic on a payload of
+# repeated openers.
+_UNTRUSTED_TAG_RE = re.compile(r'</?\s*untrusted-content(?:[^<>]*>)?', re.IGNORECASE)
 _UNTRUSTED_NOTE_RE = re.compile(
-    r'\[System note:\s*Untrusted external content[^\]]*\]\s*',
+    r'\[System note:\s*Untrusted external content(?:[^\[\]]*\])?\s*',
     re.IGNORECASE,
 )
 

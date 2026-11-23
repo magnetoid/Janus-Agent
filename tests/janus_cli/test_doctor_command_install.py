@@ -9,6 +9,10 @@ import pytest
 
 import janus_cli.doctor as doctor_mod
 
+# No real gh/docker/npm, and fails a test that touches the real
+# ~/.local/bin/janus (see tests/janus_cli/conftest.py).
+pytestmark = pytest.mark.usefixtures("hermetic_doctor")
+
 
 def _setup_doctor_env(monkeypatch, tmp_path, venv_name="venv"):
     """Create a minimal JANUS_HOME + PROJECT_ROOT for doctor tests."""

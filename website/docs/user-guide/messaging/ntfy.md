@@ -56,7 +56,7 @@ This means **anyone who knows the topic can talk to the agent**. To make that a 
 
 - **Self-host ntfy** and lock the topic down with [Access Control](https://docs.ntfy.sh/config/#access-control). Only authorized clients with the read/write token can publish.
 - Or **use a private topic on ntfy.sh** ([reserved topics](https://docs.ntfy.sh/publish/#reserved-topics) require an account) and protect it with a `NTFY_TOKEN`.
-- Or **pick a long, unguessable topic name** (`hermes-7d4f9c8b-2026`) and treat it as the shared secret. This is the lightest setup but the topic name leaks via any logs or screenshots.
+- Or **pick a long, unguessable topic name** (`janus-7d4f9c8b-2026`) and treat it as the shared secret. This is the lightest setup but the topic name leaks via any logs or screenshots.
 
 In all cases, do not put sensitive data through ntfy unless the underlying topic is access-controlled.
 

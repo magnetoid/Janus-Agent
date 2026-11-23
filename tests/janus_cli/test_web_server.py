@@ -719,7 +719,12 @@ class TestWebServerEndpoints:
         """
         from janus_cli.web_server import app
 
-        paths = {getattr(r, "path", None) for r in app.routes}
+        # Read the OpenAPI schema rather than scanning ``app.routes``: newer
+        # FastAPI (e.g. 0.162) keeps each ``include_router`` call as a
+        # path-less wrapper in ``app.routes`` instead of flattening its
+        # APIRoutes, so a route scan misses every router-mounted endpoint.
+        # The schema lists the mounted paths on old and new FastAPI alike.
+        paths = set(app.openapi()["paths"])
         assert "/api/audio/transcribe" in paths
         assert "/api/audio/speak" in paths
         assert "/api/audio/elevenlabs/voices" in paths
