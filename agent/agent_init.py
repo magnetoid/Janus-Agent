@@ -590,12 +590,6 @@ def init_agent(
     # assistant message.
     agent._current_streamed_assistant_text = ""
 
-    # Optional current-turn user-message override used when the API-facing
-    # user message intentionally differs from the persisted transcript
-    # (e.g. CLI voice mode adds a temporary prefix for the live call only).
-    agent._persist_user_message_idx = None
-    agent._persist_user_message_override = None
-
     # Cache anthropic image-to-text fallbacks per image payload/URL so a
     # single tool loop does not repeatedly re-run auxiliary vision on the
     # same image history.
