@@ -112,7 +112,7 @@ def test_current_user_turn_is_persisted_before_provider_call(agent):
     """The inbound user turn is flushed before provider/tool work can crash."""
     observed = []
 
-    def _record_persist(messages, conversation_history):
+    def _record_persist(messages, conversation_history, **_kwargs):
         observed.append(("persist", list(messages), list(conversation_history or [])))
 
     def _provider_crash(*_args, **_kwargs):

@@ -383,9 +383,9 @@ def run_conversation(
             Used by the TTS pipeline to start audio generation before the full response.
             When None (default), API calls use the standard non-streaming path.
         persist_user_message: Optional clean user message to store in
-            transcripts/history when user_message contains API-only
-            synthetic prefixes.
-                or queuing follow-up prefetch work.
+            transcripts/history when user_message carries API-only content
+            (synthetic prefixes, attachments, observed context). The model
+            gets user_message on every API call of the turn.
 
     Returns:
         Dict: Complete conversation result with final response and message history
@@ -440,8 +440,6 @@ def run_conversation(
 
     # Store stream callback for _interruptible_api_call to pick up
     agent._stream_callback = stream_callback
-    agent._persist_user_message_idx = None
-    agent._persist_user_message_override = persist_user_message
     # Generate unique task_id if not provided to isolate VMs between concurrent tasks
     effective_task_id = task_id or str(uuid.uuid4())
     # Expose the active task_id so tools running mid-turn (e.g. delegate_task
@@ -588,9 +586,14 @@ def run_conversation(
     except Exception:
         pass
     user_msg = {"role": "user", "content": user_message}
+    if persist_user_message is not None:
+        # The live message keeps the API-only content for every API call of
+        # the turn; persistence writes this clean text instead, and the
+        # turn's exit puts it back into the returned history
+        # (AIAgent._apply_persist_user_message_override).
+        user_msg["_persist_content"] = persist_user_message
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
-    agent._persist_user_message_idx = current_turn_user_idx
     
     if not agent.quiet_mode:
         _print_preview = _summarize_user_message_for_log(user_message)
@@ -616,8 +619,9 @@ def run_conversation(
     # has a valid system prompt, before any provider call or tool execution can
     # hang/kill the process. The normal end-of-turn persist still runs later;
     # _last_flushed_db_idx makes this idempotent and prevents duplicate rows.
+    # mid_turn: the API calls below must still see the API-only content.
     try:
-        agent._persist_session(messages, conversation_history)
+        agent._persist_session(messages, conversation_history, mid_turn=True)
     except Exception:
         logger.warning(
             "Early turn-start session persistence failed for session=%s",
@@ -868,6 +872,9 @@ def run_conversation(
     # See agent/transports/codex_app_server_session.py for the adapter
     # and references/codex-app-server-runtime.md for the rationale.
     if agent.api_mode == "codex_app_server":
+        # Codex takes user_message directly, so the stored history can get
+        # its clean text now; this path returns without _persist_session.
+        agent._apply_persist_user_message_override(messages)
         return agent._run_codex_app_server_turn(
             user_message=user_message,
             original_user_message=original_user_message,
@@ -1089,6 +1096,8 @@ def run_conversation(
                 api_msg.pop("finish_reason")
             # Strip internal thinking-prefill marker
             api_msg.pop("_thinking_prefill", None)
+            # Strip the persist-only text of an API-only user message
+            api_msg.pop("_persist_content", None)
             # Strip Codex Responses API fields (call_id, response_item_id) for
             # strict providers like Mistral, Fireworks, etc. that reject unknown fields.
             # Uses new dicts so the internal messages list retains the fields
@@ -3523,6 +3532,8 @@ def run_conversation(
                             f"for large failed session to prevent growth loop.",
                             force=True,
                         )
+                        # The returned history still gets the clean text.
+                        agent._apply_persist_user_message_override(messages)
                     else:
                         agent._persist_session(messages, conversation_history)
                     if classified.reason == FailoverReason.content_policy_blocked:
