@@ -1033,6 +1033,18 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
     if not fb_provider or not fb_model:
         return agent._try_activate_fallback()  # skip invalid, try next
 
+    # Free-tier presets that may train on inputs run only with consent
+    # (janus_cli/free_fallback.py). Entries the user picked themselves are
+    # never affected.
+    if fb.get("free_preset"):
+        from janus_cli.free_fallback import free_entry_allowed
+        if not free_entry_allowed(fb):
+            logger.info(
+                "Fallback skip: free tier %s/%s may train on inputs and was not allowed",
+                fb_provider, fb_model,
+            )
+            return agent._try_activate_fallback()
+
     # Skip entries that resolve to the current (provider, model) — falling
     # back to the same backend that just failed loops the failure. Compare
     # base_url too so two distinct custom_providers entries pointing at the
@@ -1251,6 +1263,13 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
             f"🔄 Primary model failed — switching to fallback: "
             f"{fb_model} via {fb_provider}"
         )
+        # The buffered line above is dropped when the turn recovers; a move
+        # to a free tier must be visible either way, so warn right now.
+        if fb.get("free_preset"):
+            from janus_cli.free_fallback import switch_warning
+            _free_note = switch_warning(fb)
+            if _free_note:
+                agent._emit_warning(_free_note)
         logger.info(
             "Fallback activated: %s → %s (%s)",
             old_model, fb_model, fb_provider,
