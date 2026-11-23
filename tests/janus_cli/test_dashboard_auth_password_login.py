@@ -398,6 +398,21 @@ class TestRateLimit:
         )
         assert good.status_code == 429
 
+    def test_forwarded_for_rotation_does_not_bypass_limiter(self, gated_app):
+        # X-Forwarded-For is whatever the client sends. Keying the limiter on
+        # it gave every guess a fresh bucket, so online guessing was unlimited.
+        # Trusted-proxy resolution is uvicorn's job (FORWARDED_ALLOW_IPS); the
+        # app keys on the resolved peer.
+        statuses = [
+            gated_app.post(
+                "/auth/password-login",
+                json={"provider": "testpw", "username": "admin", "password": "WRONG"},
+                headers={"X-Forwarded-For": f"198.51.100.{i}"},
+            ).status_code
+            for i in range(11)
+        ]
+        assert statuses[-1] == 429, statuses
+
 
 # ---------------------------------------------------------------------------
 # Login page rendering

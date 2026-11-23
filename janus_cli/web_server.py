@@ -4203,8 +4203,9 @@ def _ws_client_is_allowed(ws: "WebSocket") -> bool:
 
     Gated mode: any peer is allowed — uvicorn's ``proxy_headers=True``
     (enabled when the OAuth gate is active so cookies can pick up
-    ``X-Forwarded-Proto``) rewrites ``ws.client.host`` to the
-    X-Forwarded-For value, which is the real internet client IP. The
+    ``X-Forwarded-Proto``) rewrites ``ws.client.host`` from
+    X-Forwarded-For, but only when the peer is a trusted proxy
+    (``FORWARDED_ALLOW_IPS``, default loopback). The
     OAuth gate + single-use ``?ticket=`` is the auth at that point; the
     Host/Origin guard in :func:`_ws_host_origin_is_allowed` is what
     blocks DNS-rebinding here, not the peer IP.
