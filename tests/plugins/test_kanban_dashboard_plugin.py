@@ -2216,10 +2216,9 @@ def _styled_classes(js: str, css: str, name_suffix: str) -> set[str]:
     """Classes ending in ``name_suffix`` that the bundle emits *and* the
     stylesheet defines.
 
-    The dashboard bundle's class prefix is branding — it still ships the
-    pre-rebrand ``hermes-`` prefix, and a repo-wide rename swept the prefix in
-    tests but (correctly) left the built asset alone. Pinning a fully-qualified
-    class name therefore detects rebrands, not regressions. The invariant that
+    The dashboard bundle's class prefix is branding, so pinning a
+    fully-qualified class name would detect rebrands, not regressions. The
+    invariant that
     actually matters is that the class the JS renders is the class the CSS
     styles, so assert that agreement and let the prefix be whatever it is.
     """

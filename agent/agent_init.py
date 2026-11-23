@@ -590,12 +590,6 @@ def init_agent(
     # assistant message.
     agent._current_streamed_assistant_text = ""
 
-    # Optional current-turn user-message override used when the API-facing
-    # user message intentionally differs from the persisted transcript
-    # (e.g. CLI voice mode adds a temporary prefix for the live call only).
-    agent._persist_user_message_idx = None
-    agent._persist_user_message_override = None
-
     # Cache anthropic image-to-text fallbacks per image payload/URL so a
     # single tool loop does not repeatedly re-run auxiliary vision on the
     # same image history.
@@ -827,6 +821,17 @@ def init_agent(
                         _fb_entries = [fallback_model]
                     _fb_resolved = False
                     for _fb in _fb_entries:
+                        # Same consent guard as the mid-turn chain
+                        # (janus_cli/free_fallback.py).
+                        if _fb.get("free_preset"):
+                            from janus_cli.free_fallback import free_entry_allowed
+                            if not free_entry_allowed(_fb):
+                                logger.info(
+                                    "Init fallback skip: free tier %s/%s may train on "
+                                    "inputs and was not allowed",
+                                    _fb.get("provider"), _fb.get("model"),
+                                )
+                                continue
                         _fb_explicit_key = (_fb.get("api_key") or "").strip() or None
                         if not _fb_explicit_key:
                             _fb_key_env = (_fb.get("key_env") or _fb.get("api_key_env") or "").strip()
@@ -853,6 +858,11 @@ def init_agent(
                             if _fb_headers:
                                 client_kwargs["default_headers"] = dict(_fb_headers)
                             _fb_resolved = True
+                            if _fb.get("free_preset"):
+                                from janus_cli.free_fallback import switch_warning
+                                _free_note = switch_warning(_fb)
+                                if _free_note:
+                                    agent._emit_warning(_free_note)
                             break
                     if not _fb_resolved:
                         raise RuntimeError(
@@ -1267,6 +1277,14 @@ def init_agent(
     except (TypeError, ValueError):
         _api_retries = 3
     agent._api_max_retries = _api_retries
+
+    # Outage recovery: after retries and fallbacks are exhausted on a
+    # 503/529/5xx/timeout, wait and rerun the retry block up to N times
+    # instead of ending the turn.  0 (default) = end the turn as before.
+    try:
+        agent._auto_recovery_cycles = max(int(_agent_section.get("auto_recovery_cycles", 0)), 0)
+    except (TypeError, ValueError):
+        agent._auto_recovery_cycles = 0
 
     # Initialize context compressor for automatic context management
     # Compresses conversation when approaching model's context limit

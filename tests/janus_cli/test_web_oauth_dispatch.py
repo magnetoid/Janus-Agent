@@ -327,117 +327,94 @@ def test_anthropic_pkce_branch_still_works():
     assert "claude.ai" in body["auth_url"]
 
 
-def test_xai_oauth_listed_as_loopback_flow():
-    """xAI Grok OAuth must surface in the catalog as a first-class loopback flow."""
+_XAI_DEVICE = {
+    "device_code": "xai-dev",
+    "user_code": "GROK-1234",
+    "verification_uri": "https://accounts.x.ai/oauth2/device",
+    "verification_uri_complete": "https://accounts.x.ai/oauth2/device?user_code=GROK-1234",
+    "expires_in": 1800,
+    "interval": 5,
+}
+
+
+def test_xai_oauth_listed_as_device_code_flow():
+    """xAI Grok OAuth uses the device-code flow: no 127.0.0.1 callback listener."""
     resp = client.get("/api/providers/oauth", headers=HEADERS)
     assert resp.status_code == 200, resp.text
     providers = {p["id"]: p for p in resp.json()["providers"]}
-    assert "xai-oauth" in providers
-    assert providers["xai-oauth"]["flow"] == "loopback"
+    assert providers["xai-oauth"]["flow"] == "device_code"
     assert "grok" in providers["xai-oauth"]["name"].lower()
 
 
-def test_xai_loopback_start_returns_authorize_url(monkeypatch):
-    """Start MUST bind the loopback listener and hand back an xAI authorize URL."""
-    from janus_cli import auth as auth_mod
+def test_xai_device_start_returns_code_and_prefilled_url(monkeypatch):
     from janus_cli import web_server as ws
+    from janus_cli import xai_device_login as dl
 
-    class _FakeServer:
-        def shutdown(self):
-            pass
-
-        def server_close(self):
-            pass
-
-    class _FakeThread:
-        def join(self, timeout=None):
-            pass
-
-    redirect_uri = (
-        f"http://{auth_mod.XAI_OAUTH_REDIRECT_HOST}:{auth_mod.XAI_OAUTH_REDIRECT_PORT}"
-        f"{auth_mod.XAI_OAUTH_REDIRECT_PATH}"
-    )
-
-    monkeypatch.setattr(
-        auth_mod,
-        "_xai_oauth_discovery",
-        lambda *a, **k: {
-            "authorization_endpoint": "https://auth.x.ai/oauth2/auth",
-            "token_endpoint": "https://auth.x.ai/oauth2/token",
-        },
-    )
-    monkeypatch.setattr(
-        auth_mod,
-        "_xai_start_callback_server",
-        lambda *a, **k: (_FakeServer(), _FakeThread(), {"code": None, "error": None}, redirect_uri),
-    )
-    # Don't let the background worker run a real callback wait/exchange.
-    monkeypatch.setattr(ws, "_xai_loopback_worker", lambda sid: None)
+    monkeypatch.setattr(dl, "request_xai_device_code", lambda client, **k: dict(_XAI_DEVICE))
+    monkeypatch.setattr(ws, "_xai_device_poller", lambda sid: None)
 
     resp = client.post("/api/providers/oauth/xai-oauth/start", headers=HEADERS)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     try:
-        assert body["flow"] == "loopback"
-        assert "user_code" not in body  # loopback has nothing to paste/show
-        assert body["auth_url"].startswith("https://auth.x.ai/oauth2/auth?")
-        assert "code_challenge" in body["auth_url"]
+        assert body["flow"] == "device_code"
+        assert body["user_code"] == "GROK-1234"
+        assert body["verification_url"] == _XAI_DEVICE["verification_uri_complete"]
+        assert body["poll_interval"] == 5
         sess = ws._oauth_sessions[body["session_id"]]
         assert sess["provider"] == "xai-oauth"
-        assert sess["flow"] == "loopback"
+        assert sess["flow"] == "device_code"
+        assert "server" not in sess  # nothing bound on 127.0.0.1
     finally:
         ws._oauth_sessions.pop(body["session_id"], None)
 
 
-def test_xai_loopback_worker_persists_tokens_on_success(monkeypatch):
-    """The worker exchanges the callback code and marks the session approved."""
-    from janus_cli import auth as auth_mod
-    from janus_cli import web_server as ws
-
-    saved = {}
-    session_id = "xai-loopback-success-test"
+def _xai_device_session(ws, session_id):
     ws._oauth_sessions[session_id] = {
         "session_id": session_id,
         "provider": "xai-oauth",
-        "flow": "loopback",
+        "flow": "device_code",
         "created_at": time.time(),
         "status": "pending",
         "error_message": None,
-        "server": object(),
-        "thread": object(),
-        "callback_result": {"code": "auth-code", "state": "st"},
-        "redirect_uri": "http://127.0.0.1:56121/callback",
-        "verifier": "verifier",
-        "challenge": "challenge",
-        "state": "st",
-        "token_endpoint": "https://auth.x.ai/oauth2/token",
-        "discovery": {"token_endpoint": "https://auth.x.ai/oauth2/token"},
+        "device_code": "xai-dev",
+        "interval": 5,
+        "expires_at": time.time() + 1800,
     }
 
+
+def _stub_xai_discovery(monkeypatch):
+    from janus_cli import auth as auth_mod
+
     monkeypatch.setattr(
         auth_mod,
-        "_xai_wait_for_callback",
-        lambda *a, **k: {"code": "auth-code", "state": "st"},
-    )
-    monkeypatch.setattr(
-        auth_mod,
-        "_xai_oauth_exchange_code_for_tokens",
-        lambda **k: {
-            "access_token": "xai-access",
-            "refresh_token": "xai-refresh",
-            "expires_in": 3600,
-            "token_type": "Bearer",
+        "_xai_oauth_discovery",
+        lambda *a, **k: {
+            "authorization_endpoint": "https://auth.x.ai/oauth2/authorize",
+            "token_endpoint": "https://auth.x.ai/oauth2/token",
         },
     )
+
+
+def test_xai_device_poller_persists_tokens_on_approval(monkeypatch):
+    from janus_cli import auth as auth_mod
+    from janus_cli import web_server as ws
+    from janus_cli import xai_device_login as dl
+
+    saved = {}
+    session_id = "xai-device-success-test"
+    _xai_device_session(ws, session_id)
+    _stub_xai_discovery(monkeypatch)
     monkeypatch.setattr(
-        auth_mod,
-        "_save_xai_oauth_tokens",
-        lambda tokens, **k: saved.update(tokens),
+        dl,
+        "poll_xai_device_token",
+        lambda client, **k: {"access_token": "xai-access", "refresh_token": "xai-refresh", "expires_in": 3600},
     )
-    monkeypatch.setattr(ws, "_add_xai_oauth_pool_entry", lambda *a, **k: None)
+    monkeypatch.setattr(auth_mod, "_save_xai_oauth_tokens", lambda tokens, **k: saved.update(tokens))
+    monkeypatch.setattr(ws, "_drop_stale_dashboard_xai_pool_entries", lambda: None)
 
     try:
-        ws._xai_loopback_worker(session_id)
+        ws._xai_device_poller(session_id)
         assert ws._oauth_sessions[session_id]["status"] == "approved"
         assert saved["access_token"] == "xai-access"
         assert saved["refresh_token"] == "xai-refresh"
@@ -445,138 +422,95 @@ def test_xai_loopback_worker_persists_tokens_on_success(monkeypatch):
         ws._oauth_sessions.pop(session_id, None)
 
 
-def test_xai_loopback_worker_fails_on_state_mismatch(monkeypatch):
-    """A mismatched OAuth state must fail the session, not persist tokens."""
+def test_xai_device_poller_skips_persist_when_cancelled(monkeypatch):
     from janus_cli import auth as auth_mod
     from janus_cli import web_server as ws
+    from janus_cli import xai_device_login as dl
 
-    session_id = "xai-loopback-state-test"
-    ws._oauth_sessions[session_id] = {
-        "session_id": session_id,
-        "provider": "xai-oauth",
-        "flow": "loopback",
-        "created_at": time.time(),
-        "status": "pending",
-        "error_message": None,
-        "server": object(),
-        "thread": object(),
-        "callback_result": {},
-        "redirect_uri": "http://127.0.0.1:56121/callback",
-        "verifier": "verifier",
-        "challenge": "challenge",
-        "state": "expected-state",
-        "token_endpoint": "https://auth.x.ai/oauth2/token",
-        "discovery": {},
-    }
+    saved = {}
+    session_id = "xai-device-cancel-test"
+    _xai_device_session(ws, session_id)
+    _stub_xai_discovery(monkeypatch)
 
-    monkeypatch.setattr(
-        auth_mod,
-        "_xai_wait_for_callback",
-        lambda *a, **k: {"code": "auth-code", "state": "ATTACKER-state"},
-    )
+    def _poll(client, **k):
+        # The user cancels while xAI is still waiting for approval.
+        ws._oauth_sessions.pop(session_id, None)
+        return {"access_token": "xai-access", "refresh_token": "xai-refresh"}
 
-    def _boom(**kwargs):
-        raise AssertionError("token exchange must not run on state mismatch")
+    monkeypatch.setattr(dl, "poll_xai_device_token", _poll)
+    monkeypatch.setattr(auth_mod, "_save_xai_oauth_tokens", lambda tokens, **k: saved.update(tokens))
 
-    monkeypatch.setattr(auth_mod, "_xai_oauth_exchange_code_for_tokens", _boom)
+    ws._xai_device_poller(session_id)
+    assert saved == {}
 
+
+def test_xai_device_poller_passes_cancel_check(monkeypatch):
+    """A DELETE on the session must stop the poll loop, not wait out the code."""
+    from janus_cli import web_server as ws
+    from janus_cli import xai_device_login as dl
+
+    session_id = "xai-device-cancel-check-test"
+    _xai_device_session(ws, session_id)
+    _stub_xai_discovery(monkeypatch)
+    seen = {}
+
+    def _poll(client, **k):
+        seen["before"] = k["should_cancel"]()
+        ws._oauth_sessions.pop(session_id, None)
+        seen["after"] = k["should_cancel"]()
+        raise dl.AuthError("cancelled", provider="xai-oauth", code="xai_device_login_cancelled")
+
+    monkeypatch.setattr(dl, "poll_xai_device_token", _poll)
+    ws._xai_device_poller(session_id)
+    assert seen == {"before": False, "after": True}
+
+
+def test_xai_device_poller_reports_errors(monkeypatch):
+    from janus_cli import web_server as ws
+    from janus_cli import xai_device_login as dl
+
+    session_id = "xai-device-error-test"
+    _xai_device_session(ws, session_id)
+    _stub_xai_discovery(monkeypatch)
+
+    def _poll(client, **k):
+        raise dl.AuthError("xAI sign-in was declined.", provider="xai-oauth", code="xai_device_access_denied")
+
+    monkeypatch.setattr(dl, "poll_xai_device_token", _poll)
     try:
-        ws._xai_loopback_worker(session_id)
+        ws._xai_device_poller(session_id)
         sess = ws._oauth_sessions[session_id]
         assert sess["status"] == "error"
-        assert "state mismatch" in sess["error_message"].lower()
+        assert "declined" in sess["error_message"]
     finally:
         ws._oauth_sessions.pop(session_id, None)
 
 
-def test_xai_loopback_worker_skips_persist_when_cancelled(monkeypatch):
-    """If the session is cancelled while waiting, the worker must not persist."""
-    from janus_cli import auth as auth_mod
+def test_dashboard_login_drops_stale_duplicate_pool_entries(monkeypatch):
+    """Old dashboard logins added a pool entry sharing the singleton's single-use
+    refresh token; after one side refreshes, the other is dead. A new login
+    removes them and does not add another."""
     from janus_cli import web_server as ws
 
-    session_id = "xai-loopback-cancel-test"
-    ws._oauth_sessions[session_id] = {
-        "session_id": session_id,
-        "provider": "xai-oauth",
-        "flow": "loopback",
-        "created_at": time.time(),
-        "status": "pending",
-        "error_message": None,
-        "server": object(),
-        "thread": object(),
-        "callback_result": {},
-        "redirect_uri": "http://127.0.0.1:56121/callback",
-        "verifier": "verifier",
-        "challenge": "challenge",
-        "state": "st",
-        "token_endpoint": "https://auth.x.ai/oauth2/token",
-        "discovery": {},
-    }
+    class _Entry:
+        def __init__(self, id_, source):
+            self.id = id_
+            self.source = source
 
-    def _wait_then_cancel(*args, **kwargs):
-        # Simulate the user cancelling (DELETE /sessions/{id}) while we were
-        # blocked on the callback: the session vanishes, then a valid code
-        # arrives. The worker must notice and bail before persisting.
-        ws._oauth_sessions.pop(session_id, None)
-        return {"code": "auth-code", "state": "st"}
+    class _Pool:
+        def __init__(self):
+            self.items = [_Entry("a", "manual:dashboard_xai_pkce"), _Entry("b", "loopback_pkce")]
 
-    monkeypatch.setattr(auth_mod, "_xai_wait_for_callback", _wait_then_cancel)
+        def entries(self):
+            return list(self.items)
 
-    def _must_not_persist(*args, **kwargs):
-        raise AssertionError("tokens must not be persisted for a cancelled session")
+        def remove_entry(self, id_):
+            self.items = [e for e in self.items if e.id != id_]
 
-    monkeypatch.setattr(auth_mod, "_save_xai_oauth_tokens", _must_not_persist)
-    monkeypatch.setattr(ws, "_add_xai_oauth_pool_entry", _must_not_persist)
-
-    # Should return cleanly without raising and without persisting.
-    ws._xai_loopback_worker(session_id)
-    assert session_id not in ws._oauth_sessions
-
-
-def test_cancel_loopback_session_shuts_down_callback_server():
-    """Cancelling a loopback session must free the bound callback port now."""
-    from janus_cli import web_server as ws
-
-    shutdown_calls = {"shutdown": 0, "close": 0, "join": 0}
-
-    class _FakeServer:
-        def shutdown(self):
-            shutdown_calls["shutdown"] += 1
-
-        def server_close(self):
-            shutdown_calls["close"] += 1
-
-    class _FakeThread:
-        def join(self, timeout=None):
-            shutdown_calls["join"] += 1
-
-    # callback_result is the dict the worker's _xai_wait_for_callback polls.
-    callback_result = {"code": None, "error": None}
-    session_id = "xai-loopback-cancel-shutdown-test"
-    ws._oauth_sessions[session_id] = {
-        "session_id": session_id,
-        "provider": "xai-oauth",
-        "flow": "loopback",
-        "created_at": time.time(),
-        "status": "pending",
-        "server": _FakeServer(),
-        "thread": _FakeThread(),
-        "callback_result": callback_result,
-    }
-
-    try:
-        resp = client.delete(
-            f"/api/providers/oauth/sessions/{session_id}", headers=HEADERS
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["ok"] is True
-        assert shutdown_calls == {"shutdown": 1, "close": 1, "join": 1}
-        # The waiting worker must be signalled so it returns promptly instead
-        # of spinning until the timeout.
-        assert callback_result["error"] == "cancelled"
-        assert session_id not in ws._oauth_sessions
-    finally:
-        ws._oauth_sessions.pop(session_id, None)
+    pool = _Pool()
+    monkeypatch.setattr("agent.credential_pool.load_pool", lambda provider: pool)
+    ws._drop_stale_dashboard_xai_pool_entries()
+    assert [e.source for e in pool.items] == ["loopback_pkce"]
 
 
 def test_unknown_pkce_provider_rejected_cleanly():

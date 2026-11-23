@@ -724,9 +724,10 @@ class TestMaskApiKey:
     def test_long_key_masked(self, agent):
         key = "sk-or-v1-abcdefghijklmnop"
         result = agent._mask_api_key_for_logs(key)
-        assert result.startswith("sk-or-v1")
+        assert result.startswith(key[:4])
         assert result.endswith("mnop")
         assert "..." in result
+        assert key[4:-4] not in result
 
 
 # ===================================================================
@@ -6088,26 +6089,43 @@ class TestStreamCallbackNonStreamingProvider:
 class TestPersistUserMessageOverride:
     """Synthetic API-only user prefixes should never leak into transcripts."""
 
-    def test_persist_session_rewrites_current_turn_user_message(self, agent):
-        agent._session_db = MagicMock()
-        agent.session_id = "session-123"
-        agent._last_flushed_db_idx = 0
-        agent._persist_user_message_idx = 0
-        agent._persist_user_message_override = "Hello there"
-        messages = [
+    @staticmethod
+    def _voice_turn():
+        return [
             {
                 "role": "user",
                 "content": (
                     "[Voice input — respond concisely and conversationally, "
                     "2-3 sentences max. No code blocks or markdown.] Hello there"
                 ),
+                "_persist_content": "Hello there",
             },
             {"role": "assistant", "content": "Hi!"},
         ]
 
+    def test_persist_session_rewrites_current_turn_user_message(self, agent):
+        agent._session_db = MagicMock()
+        agent.session_id = "session-123"
+        agent._last_flushed_db_idx = 0
+        messages = self._voice_turn()
+
         agent._persist_session(messages, [])
 
         assert messages[0]["content"] == "Hello there"
+        assert "_persist_content" not in messages[0]
+        first_db_write = agent._session_db.append_message.call_args_list[0].kwargs
+        assert first_db_write["content"] == "Hello there"
+
+    def test_mid_turn_persist_writes_clean_text_and_keeps_live_message(self, agent):
+        agent._session_db = MagicMock()
+        agent.session_id = "session-123"
+        agent._last_flushed_db_idx = 0
+        messages = self._voice_turn()
+        live = dict(messages[0])
+
+        agent._persist_session(messages, [], mid_turn=True)
+
+        assert messages[0] == live
         first_db_write = agent._session_db.append_message.call_args_list[0].kwargs
         assert first_db_write["content"] == "Hello there"
 

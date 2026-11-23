@@ -1444,30 +1444,50 @@ class AIAgent:
         )
 
     def _apply_persist_user_message_override(self, messages: List[Dict]) -> None:
-        """Rewrite the current-turn user message before persistence/return.
+        """Give each tagged user message its clean text back, in place.
 
-        Some call paths need an API-only user-message variant without letting
-        that synthetic text leak into persisted transcripts or resumed session
-        history. When an override is configured for the active turn, mutate the
-        in-memory messages list in place so both persistence and returned
-        history stay clean.
+        A turn's user message can carry content for the model only (ACP
+        attachments, observed group context, the voice-mode prefix).
+        run_conversation then keeps the clean text beside it under
+        ``_persist_content``. Persistence writes that text without touching
+        the live message (``_persisted_message``), so every API call of the
+        turn still sends the full content. Once the turn is over, this swaps
+        the clean text in, so the returned history, which callers replay as
+        the next turn's history, matches what the session DB holds.
+
+        It finds the message by its tag, not by index: compression rebuilds
+        the list and moves it.
         """
-        idx = getattr(self, "_persist_user_message_idx", None)
-        override = getattr(self, "_persist_user_message_override", None)
-        if override is None or idx is None:
-            return
-        if 0 <= idx < len(messages):
-            msg = messages[idx]
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                msg["content"] = override
+        for msg in messages:
+            if isinstance(msg, dict) and "_persist_content" in msg:
+                msg["content"] = msg.pop("_persist_content")
 
-    def _persist_session(self, messages: List[Dict], conversation_history: List[Dict] = None):
+    @staticmethod
+    def _persisted_message(msg: Dict) -> Dict:
+        """*msg* as persistence writes it: its clean text if it carries one."""
+        if isinstance(msg, dict) and "_persist_content" in msg:
+            msg = dict(msg)
+            msg["content"] = msg.pop("_persist_content")
+        return msg
+
+    def _persist_session(
+        self,
+        messages: List[Dict],
+        conversation_history: List[Dict] = None,
+        *,
+        mid_turn: bool = False,
+    ):
         """Save session state to both JSON log and SQLite on any exit path.
 
         Ensures conversations are never lost, even on errors or early returns.
+
+        Pass ``mid_turn=True`` when the turn goes on afterwards: the live
+        user message keeps its API-only content for the coming API calls,
+        and only its clean text is written.
         """
         self._drop_trailing_empty_response_scaffolding(messages)
-        self._apply_persist_user_message_override(messages)
+        if not mid_turn:
+            self._apply_persist_user_message_override(messages)
         self._session_messages = messages
         self._save_session_log(messages)
         self._flush_messages_to_session_db(messages, conversation_history)
@@ -1539,7 +1559,6 @@ class AIAgent:
         """
         if not self._session_db:
             return
-        self._apply_persist_user_message_override(messages)
         try:
             # Retry row creation if the earlier attempt failed transiently.
             if not self._session_db_created:
@@ -1547,6 +1566,7 @@ class AIAgent:
             start_idx = len(conversation_history) if conversation_history else 0
             flush_from = max(start_idx, self._last_flushed_db_idx)
             for msg in messages[flush_from:]:
+                msg = self._persisted_message(msg)
                 role = msg.get("role", "unknown")
                 content = msg.get("content")
                 # Persist multimodal tool results as their text summary only —
@@ -1825,7 +1845,9 @@ class AIAgent:
             return None
         if len(key) <= 12:
             return "***"
-        return f"{key[:8]}...{key[-4:]}"
+        from agent.redact import mask_secret
+
+        return mask_secret(key)
 
     def _clean_error_message(self, error_msg: str) -> str:
         """
@@ -2206,6 +2228,7 @@ class AIAgent:
         try:
             cleaned = []
             for msg in messages:
+                msg = self._persisted_message(msg)
                 if msg.get("role") == "assistant" and msg.get("content"):
                     msg = dict(msg)
                     msg["content"] = self._clean_session_content(msg["content"])

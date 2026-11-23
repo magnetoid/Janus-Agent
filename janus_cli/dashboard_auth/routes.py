@@ -30,6 +30,7 @@ from janus_cli.dashboard_auth import (
     list_providers,
 )
 from janus_cli.dashboard_auth.audit import AuditEvent, audit_log
+from janus_cli.dashboard_auth.audit import client_ip as _client_ip
 from janus_cli.dashboard_auth.base import (
     InvalidCodeError,
     InvalidCredentialsError,
@@ -101,13 +102,6 @@ def _redirect_uri(request: Request) -> str:
         return base
     parsed = urlparse(base)
     return urlunparse(parsed._replace(path=f"{prefix}{parsed.path}"))
-
-
-def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else ""
 
 
 def _prefix(request: Request) -> str:
@@ -395,11 +389,13 @@ def _validate_post_login_target(raw: str) -> str:
 # (the IDP owns credentials), but ``/auth/password-login`` accepts a
 # password we verify locally, so it's a credential-stuffing target. A
 # simple in-process sliding-window limiter per client IP raises the cost
-# of online guessing without any external dependency. It is intentionally
-# best-effort: process-local (resets on restart), and behind a trusting
-# proxy the IP is the proxy's unless X-Forwarded-For is set — which is why
-# this is defence-in-depth on top of the provider's own constant-time
-# verify, not the only line of defence.
+# of online guessing without any external dependency. The IP is the peer
+# uvicorn resolved (see ``audit.client_ip``), never the raw
+# X-Forwarded-For header, which the client controls. Behind a reverse proxy
+# that is not on loopback, list it in FORWARDED_ALLOW_IPS, or every client
+# shares the proxy's bucket. It is intentionally best-effort and
+# process-local (resets on restart) — defence-in-depth on top of the
+# provider's own constant-time verify, not the only line of defence.
 
 _PW_RATE_MAX_ATTEMPTS = 10
 _PW_RATE_WINDOW_SEC = 60.0

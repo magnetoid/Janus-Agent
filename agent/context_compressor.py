@@ -2104,6 +2104,14 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                     merged_prefix,
                     prepend=True,
                 )
+                # A user message with API-only content carries the clean
+                # text it is persisted as; that text needs the summary too.
+                if "_persist_content" in msg:
+                    msg["_persist_content"] = _append_text_to_content(
+                        msg["_persist_content"],
+                        merged_prefix,
+                        prepend=True,
+                    )
                 _merge_summary_into_tail = False
             compressed.append(msg)
 

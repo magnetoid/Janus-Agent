@@ -27,6 +27,7 @@ gateway:
     error_prefix:           "Error: {error}"
     switched:               "Modelo cambiado a `{model}`"
     provider_label:         "Proveedor: {provider}"
+    training_data_label:    "Datos de entrenamiento: {note}"
     cache_switch_warning:   "⚠ Cambio a mitad de conversación: la caché de prompts está vinculada al modelo, así que el contexto completo se volverá a facturar con tarifas de tokens nuevos en el próximo turno (inicia una sesión nueva con /new si piensas alternar modelos)."
     context_label:          "Contexto: {tokens} tokens"
     max_output_label:       "Salida máxima: {tokens} tokens"
@@ -76,6 +77,9 @@ gateway:
     switch_failed:         "Rama creada pero no se pudo cambiar a ella."
     branched_one:          "⑂ Ramificado a **{title}** ({count} mensaje copiado)\nOriginal: `{parent}`\nRama: `{new}`\nUsa `/resume` para volver al original."
     branched_many:         "⑂ Ramificado a **{title}** ({count} mensajes copiados)\nOriginal: `{parent}`\nRama: `{new}`\nUsa `/resume` para volver al original."
+    branched_thread:       "⑂ Bifurcado a **{title}** en un hilo nuevo.\nEste chat sigue en `{parent}`; la rama (`{new}`) continúa en el hilo."
+    thread_intro:          "⑂ Rama **{title}**, bifurcada de `{parent}`. Responde aquí para continuarla."
+    thread_unavailable:    "(No se pudo abrir un hilo aquí, así que la rama reemplaza la sesión de este chat.)"
 
   commands:
     usage:                 "Uso: `/commands [page]`"

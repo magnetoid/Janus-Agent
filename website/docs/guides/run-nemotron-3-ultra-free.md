@@ -49,13 +49,13 @@ Prefer the terminal?
 On macOS/Linux/WSL2/Android, run
 
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 On Windows, run
 
 ```powershell
-iex (irm https://github.com/magnetoid/janus)
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1)
 ```
 
 Prefer to review first? Download [`install.sh`](https://github.com/magnetoid/janus), inspect it, then run it.

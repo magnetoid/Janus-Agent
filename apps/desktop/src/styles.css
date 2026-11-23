@@ -5,14 +5,6 @@
 @import '@vscode/codicons/dist/codicon.css';
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: 'Collapse';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('../../../node_modules/@nous-research/ui/dist/fonts/Collapse-Bold.woff2') format('woff2');
-}
-
 @theme inline {
   --color-background: var(--dt-background);
   --color-foreground: var(--dt-foreground);
@@ -39,6 +31,10 @@
 
   --font-sans: var(--dt-font-sans);
   --font-mono: var(--dt-font-mono);
+  /* Wordmark / hero headings (`font-display`). The bundled Collapse face is
+     gone with the old design-system package; headings use the sans stack,
+     as web/ does. */
+  --font-display: var(--dt-font-sans);
 
   --spacing-mul: var(--dt-spacing-mul, 1);
 

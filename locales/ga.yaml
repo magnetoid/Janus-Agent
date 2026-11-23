@@ -31,6 +31,7 @@ gateway:
     error_prefix:           "Earráid: {error}"
     switched:               "Athraíodh an tsamhail go `{model}`"
     provider_label:         "Soláthraí: {provider}"
+    training_data_label:    "Sonraí oiliúna: {note}"
     cache_switch_warning:   "⚠ Athrú i lár an chomhrá: tá an taisce leideanna ceangailte leis an tsamhail, mar sin déanfar an comhthéacs iomlán a athbhilleáil ar rátaí comharthaí úra an chéad seal eile (tosaigh seisiún nua le /new má tá sé i gceist agat malartú idir samhlacha)."
     context_label:          "Comhthéacs: {tokens} comhartha"
     max_output_label:       "Aschur uasta: {tokens} comhartha"
@@ -80,6 +81,9 @@ gateway:
     switch_failed:         "Cruthaíodh an brainse ach theip ar athrú chuige."
     branched_one:          "⑂ Brainseáilte go **{title}** ({count} teachtaireacht cóipeáilte)\nBunaidh: `{parent}`\nBrainse: `{new}`\nÚsáid `/resume` chun filleadh ar an mbunaidh."
     branched_many:         "⑂ Brainseáilte go **{title}** ({count} teachtaireacht cóipeáilte)\nBunaidh: `{parent}`\nBrainse: `{new}`\nÚsáid `/resume` chun filleadh ar an mbunaidh."
+    branched_thread:       "⑂ Brainseáilte go **{title}** i snáithe nua.\nFanann an comhrá seo ar `{parent}`; leanann an brainse (`{new}`) ar aghaidh sa snáithe."
+    thread_intro:          "⑂ Brainse **{title}**, scartha ó `{parent}`. Freagair anseo chun leanúint ar aghaidh."
+    thread_unavailable:    "(Níorbh fhéidir snáithe a oscailt anseo, mar sin cuireann an brainse seisiún an chomhrá seo in ionad.)"
 
   commands:
     usage:                 "Úsáid: `/commands [page]`"

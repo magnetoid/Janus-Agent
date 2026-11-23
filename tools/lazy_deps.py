@@ -168,11 +168,13 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # ─── Tools ─────────────────────────────────────────────────────────────
     # ACP adapter (VS Code / Zed / JetBrains integration)
     "tool.acp": ("agent-client-protocol==0.9.0",),
-    # Dashboard (`janus dashboard`)
+    # Dashboard (`janus dashboard`). fastapi/uvicorn/starlette are CORE
+    # dependencies (pyproject `dependencies`), so this is a fallback for
+    # stripped installs that dropped them. Keep the pins identical to core.
     "tool.dashboard": (
         "fastapi==0.133.1",
         "uvicorn[standard]==0.41.0",
-        "starlette==1.0.1",  # CVE-2026-48710 (BadHost) — keep lazy-install in sync with pyproject [web]
+        "starlette==1.3.1",  # CVE-2026-48710 (BadHost)
     ),
     # Vision image-resize recovery (Pillow). Pillow is now a CORE dependency
     # (pyproject `dependencies`), so this entry is a belt-and-suspenders fallback

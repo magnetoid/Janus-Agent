@@ -33,7 +33,7 @@ Set your provider with `janus model` or by editing `~/.janus/.env`. See the [Env
 **Yes, natively.** Janus supports native Windows via the PowerShell installer — no WSL required. Run in PowerShell:
 
 ```powershell
-iex (irm https://github.com/magnetoid/janus)
+iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.ps1)
 ```
 
 The installer provisions a PortableGit that backs the terminal tool's shell. See the [Windows (Native) Guide](../user-guide/windows-native.md) for details.
@@ -41,7 +41,7 @@ The installer provisions a PortableGit that backs the terminal tool's shell. See
 WSL2 remains a fully supported alternative. To run Janus inside WSL2, install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and use the standard install command:
 
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 ### I run Janus in WSL2. What's the best way to control my normal Windows Chrome?
@@ -69,7 +69,7 @@ Yes — Janus now has a tested Termux install path for Android phones.
 Quick install:
 
 ```bash
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 For the fully explicit manual steps, supported extras, and current limitations, see the [Termux guide](../getting-started/termux.md).
@@ -233,7 +233,7 @@ source ~/.bashrc
 # If you previously installed with sudo, clean up:
 sudo rm /usr/local/bin/janus
 # Then re-run the standard installer
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 ```
 
 ---
@@ -759,7 +759,7 @@ Skills with very long descriptions are truncated to 40 characters in the Telegra
 
 1. Install Janus Agent on the new machine:
    ```bash
-   curl -fsSL https://github.com/magnetoid/janus | bash
+   curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
    ```
 
 2. On the **source machine**, create a full backup:

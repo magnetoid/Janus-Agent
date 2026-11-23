@@ -12,7 +12,10 @@ Flow:
    status ``sending``) *before* the live send.
 2. ``settle()`` marks it ``delivered`` on ack, or requeues it as ``pending``
    with a backoff from :data:`BACKOFF_SCHEDULE_S`; after :data:`MAX_ATTEMPTS`
-   it is ``abandoned`` and surfaced by ``janus gateway obligations``.
+   it is ``abandoned`` and surfaced by ``janus gateway obligations``. A send
+   whose outcome is unknown (a read/write timeout: the platform may already
+   have posted it) is ``abandoned`` at once rather than replayed, the same
+   rule ``BasePlatformAdapter._send_with_retry`` applies to in-process retries.
 3. ``replay_once()`` claims due rows (including ``sending`` rows a dead
    process left behind) and sends them through the connected adapters.
    The gateway runs it from a watcher after start-up and on each tick;
@@ -57,6 +60,22 @@ def retry_delay(attempts: int) -> Optional[float]:
         return None
     idx = min(max(attempts, 1) - 1, len(BACKOFF_SCHEDULE_S) - 1)
     return BACKOFF_SCHEDULE_S[idx]
+
+
+def _outcome_unknown(error: Optional[str], *, retryable: bool = False) -> bool:
+    """True when a failed send may still have reached the platform.
+
+    The same test ``BasePlatformAdapter._send_with_retry`` uses to refuse a
+    retry: a read/write timeout that the adapter did not mark ``retryable``
+    and that is not a known connection failure (connect timeout, reset, ...).
+    Resending one would post the reply twice.
+    """
+    # Lazy: base.py is heavy, and the ledger is also used outside the gateway.
+    from gateway.platforms.base import BasePlatformAdapter
+
+    if retryable or BasePlatformAdapter._is_retryable_error(error):
+        return False
+    return BasePlatformAdapter._is_timeout_error(error)
 
 
 def _find_adapter(adapters: Optional[Mapping[Any, Any]], platform: str) -> Any:
@@ -136,7 +155,10 @@ class DeliveryLedger:
             return None
 
     def settle(self, oid: Optional[str], result: Any = None, *, error: Any = None) -> None:
-        """Close the loop on a live send: delivered on success, else requeue."""
+        """Close the loop on a live send: delivered on success, else requeue.
+
+        A timeout that may have been delivered is abandoned, not requeued.
+        """
         if not oid or not self.enabled:
             return
         try:
@@ -145,21 +167,35 @@ class DeliveryLedger:
                     oid, message_id=getattr(result, "message_id", None), now=self._clock(),
                 )
                 return
+            retryable = False
             if error is not None:
                 message = f"{type(error).__name__}: {error}" if isinstance(error, BaseException) else str(error)
             else:
                 message = (getattr(result, "error", None) or "send failed") if result is not None else "send failed"
-            self._fail(oid, message)
+                retryable = bool(getattr(result, "retryable", False))
+            self._fail(oid, message, retryable=retryable)
         except Exception as exc:
             logger.debug("delivery ledger: settle failed: %s", exc)
 
-    def _fail(self, oid: str, error: str) -> None:
+    def _fail(self, oid: str, error: str, *, retryable: bool = False) -> bool:
+        """Count a failed attempt and requeue it with backoff.
+
+        Returns True when the row was abandoned instead because the send may
+        have been delivered; it is then never replayed.
+        """
+        if _outcome_unknown(error, retryable=retryable):
+            self._db.settle_obligation_failed(
+                oid, f"timed out, may have been delivered; not replayed: {error}",
+                retry_at=None, now=self._clock(),
+            )
+            return True
         row = self._db.get_obligation(oid)
         attempts = int((row or {}).get("attempts") or 0) + 1
         delay = retry_delay(attempts)
         now = self._clock()
         retry_at = now + delay if delay is not None else None
         self._db.settle_obligation_failed(oid, error, retry_at=retry_at, now=now)
+        return False
 
     # ------------------------------------------------------------------
     # Inspection
@@ -237,8 +273,8 @@ class DeliveryLedger:
                     self._db.release_obligation(oid, retry_at=ts, now=ts)
                     raise
                 except Exception as exc:
-                    self._fail(oid, f"{type(exc).__name__}: {exc}")
-                    counts["failed"] += 1
+                    unknown = self._fail(oid, f"{type(exc).__name__}: {exc}")
+                    counts["abandoned" if unknown else "failed"] += 1
                     continue
 
                 if getattr(result, "success", False):
@@ -247,8 +283,11 @@ class DeliveryLedger:
                     )
                     counts["delivered"] += 1
                 else:
-                    self._fail(oid, getattr(result, "error", None) or "send failed")
-                    counts["failed"] += 1
+                    unknown = self._fail(
+                        oid, getattr(result, "error", None) or "send failed",
+                        retryable=bool(getattr(result, "retryable", False)),
+                    )
+                    counts["abandoned" if unknown else "failed"] += 1
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

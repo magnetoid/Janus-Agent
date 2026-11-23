@@ -28,7 +28,7 @@ from email.header import decode_header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
-from email.utils import formatdate
+from email.utils import formatdate, getaddresses
 from email import encoders
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -174,12 +174,24 @@ def _strip_html(html: str) -> str:
     return text.strip()
 
 
-def _extract_email_address(raw: str) -> str:
-    """Extract bare email address from 'Name <addr>' format."""
-    match = re.search(r"<([^>]+)>", raw)
-    if match:
-        return match.group(1).strip().lower()
-    return raw.strip().lower()
+def _parse_sender(raw: Any) -> Tuple[str, str]:
+    """Return ``(display_name, address)`` for a From header, address lowercased.
+
+    Parsed per RFC 5322, so brackets inside a quoted display name or a comment
+    (``"<owner@a.example>" <attacker@b.example>``) are not taken for the
+    address. Anything but exactly one well-formed address gives ``("", "")``.
+    """
+    pairs = getaddresses([str(raw or "")])
+    found = [(name, addr.strip()) for name, addr in pairs if addr and addr.strip()]
+    if len(found) != 1 or "@" not in found[0][1]:
+        return "", ""
+    name, addr = found[0]
+    return name, addr.lower()
+
+
+def _extract_email_address(raw: Any) -> str:
+    """Bare sender address of a From header, or "" when it is not exactly one."""
+    return _parse_sender(raw)[1]
 
 
 def _extract_attachments(
@@ -391,11 +403,13 @@ class EmailAdapter(BasePlatformAdapter):
                     msg = email_lib.message_from_bytes(raw_email)
 
                     sender_raw = msg.get("From", "")
-                    sender_addr = _extract_email_address(sender_raw)
-                    sender_name = _decode_header_value(sender_raw)
-                    # Remove email from name if present
-                    if "<" in sender_name:
-                        sender_name = sender_name.split("<")[0].strip().strip('"')
+                    display_name, sender_addr = _parse_sender(sender_raw)
+                    if not sender_addr:
+                        logger.warning(
+                            "[Email] Dropping message %s: From is not a single address", uid
+                        )
+                        continue
+                    sender_name = _decode_header_value(display_name) if display_name else ""
 
                     subject = _decode_header_value(msg.get("Subject", "(no subject)"))
                     message_id = msg.get("Message-ID", "")
@@ -437,6 +451,10 @@ class EmailAdapter(BasePlatformAdapter):
             return
 
         # Never reply to automated senders
+        if not sender_addr:
+            logger.debug("[Email] Dropping message without a sender address")
+            return
+
         if _is_automated_sender(sender_addr, {}):
             logger.debug("[Email] Dropping automated sender at dispatch: %s", sender_addr)
             return

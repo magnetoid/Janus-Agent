@@ -6,9 +6,8 @@
 
 <p align="center">
   <a href="https://github.com/magnetoid/janus"><img src="https://img.shields.io/badge/Docs-GitHub-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/imbalabs"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://github.com/magnetoid/janus/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://cloud-industry.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Cloud Industry"></a>
+  <a href="https://cloud-industry.com"><img src="https://img.shields.io/badge/Built%20by-Cloud%20Industry-blueviolet?style=for-the-badge" alt="Built by Cloud Industry"></a>
   <a href="README.md"><img src="https://img.shields.io/badge/Lang-English-lightgrey?style=for-the-badge" alt="English"></a>
 </p>
 
@@ -190,7 +189,6 @@ python -m pytest tests/ -q
 
 ## 社区
 
-- 💬 [Discord](https://discord.gg/imbalabs)
 - 📚 [技能中心](https://agentskills.io)
 - 🐛 [问题反馈](https://github.com/magnetoid/janus/issues)
 - 💡 [讨论区](https://github.com/magnetoid/janus/discussions)

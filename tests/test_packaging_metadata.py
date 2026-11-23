@@ -202,6 +202,75 @@ def test_locked_starlette_is_not_vulnerable_to_cve_2026_48710():
         )
 
 
+# The dashboard stack (``janus dashboard``, also the desktop app's backend).
+# These are CORE dependencies, and the same pins are repeated in the [web]
+# back-compat alias and in the ``tool.dashboard`` lazy-install fallback.
+_DASHBOARD_STACK = ("fastapi", "uvicorn", "starlette")
+
+
+def _exact_pins(specs) -> dict[str, tuple[str | None, str]]:
+    """Map each requirement name to ``(exact == version or None, raw spec)``."""
+    from packaging.requirements import Requirement
+
+    pins = {}
+    for spec in specs:
+        req = Requirement(spec)
+        clauses = list(req.specifier)
+        exact = clauses[0].version if len(clauses) == 1 and clauses[0].operator == "==" else None
+        pins[req.name.lower()] = (exact, spec)
+    return pins
+
+
+def _locked_versions(name: str) -> list[str]:
+    lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
+    versions = []
+    current = None
+    for line in lock.splitlines():
+        if line.startswith("[[package]]"):
+            current = None
+        elif line.startswith("name = "):
+            current = line.split("=", 1)[1].strip().strip('"')
+        elif current == name and line.startswith("version = "):
+            versions.append(line.split("=", 1)[1].strip().strip('"'))
+            current = None
+    return versions
+
+
+def test_dashboard_stack_is_exact_pinned_in_core_and_consistent_everywhere():
+    """fastapi/uvicorn/starlette are core deps and must be exact-pinned there,
+    to the same versions as [web], ``LAZY_DEPS["tool.dashboard"]`` and uv.lock.
+
+    Core used to float ``fastapi>=0.104.0,<1`` while only [web] pinned
+    0.133.1, so any install without [web] resolved a fastapi that neither CI
+    nor the lockfile had tested (fastapi 0.162 changed ``app.routes``). A
+    dependabot bump also moved [web]'s starlette without touching
+    tools/lazy_deps.py. One pin, four places: this keeps them together.
+    """
+    from tools.lazy_deps import LAZY_DEPS
+
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    core = _exact_pins(data["project"]["dependencies"])
+    web = _exact_pins(data["project"]["optional-dependencies"]["web"])
+    lazy = _exact_pins(LAZY_DEPS["tool.dashboard"])
+
+    missing = (None, None)
+    for name in _DASHBOARD_STACK:
+        assert name in core, f"{name} must be a direct core dependency"
+        version, spec = core[name]
+        assert version, f"core dependency {spec!r} must be an exact ==X.Y.Z pin"
+        assert web.get(name, missing)[0] == version, (
+            f"[web] has {web.get(name, missing)[1]!r}, core pins {name}=={version}"
+        )
+        assert lazy.get(name, missing)[0] == version, (
+            f'LAZY_DEPS["tool.dashboard"] has {lazy.get(name, missing)[1]!r}, '
+            f"core pins {name}=={version}"
+        )
+        assert _locked_versions(name) == [version], (
+            f"uv.lock resolves {name} to {_locked_versions(name)}, core pins "
+            f"{version!r} — run `uv lock`"
+        )
+
+
 def test_locale_catalogs_ship_in_both_wheel_and_sdist():
     """Regression test for #27632 / #35374 / #23943.
 
