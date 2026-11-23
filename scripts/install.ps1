@@ -155,34 +155,65 @@ function Get-WindowsArch {
 
 # ============================================================================
 
+# Glyphs.  The classic console window (conhost: the default host for Windows
+# PowerShell 5.1 and cmd.exe on Windows 10) has no font fallback, so check
+# marks and arrows that its font lacks print as empty boxes.  Use Unicode only
+# in terminals that fall back to other fonts (Windows Terminal, VS Code,
+# WezTerm, ConEmu); plain ASCII everywhere else.  The [char] codes keep this
+# file pure ASCII, which Windows PowerShell 5.1 needs to parse it.
+$FancyConsole = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -or $env:WEZTERM_PANE -or ($env:ConEmuANSI -eq "ON"))
+if ($FancyConsole) {
+    $GlyphInfo = [string][char]0x2192   # right arrow
+    $GlyphOk   = [string][char]0x2713   # check mark
+    $GlyphErr  = [string][char]0x2717   # ballot x
+    $RuleChar  = [string][char]0x2500   # box-drawing horizontal line
+} else {
+    $GlyphInfo = ">"
+    $GlyphOk   = "+"
+    $GlyphErr  = "x"
+    $RuleChar  = "-"
+}
+$GlyphWarn = "!"
+$Rule = $RuleChar * 48
+
+# No boxes: a frame's right edge only lines up when every glyph is exactly one
+# column wide, which fonts and terminals don't agree on.
 function Write-Banner {
     Write-Host ""
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
-    Write-Host "|             * Janus Agent Installer                    |" -ForegroundColor Magenta
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
-    Write-Host "|  An open source AI agent by Cloud Industry.              |" -ForegroundColor Magenta
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
+    Write-Host "  Janus Agent" -NoNewline -ForegroundColor Yellow
+    Write-Host "  installer" -ForegroundColor DarkGray
+    Write-Host "  An open-source AI agent by Cloud Industry" -ForegroundColor DarkGray
+    Write-Host "  $Rule" -ForegroundColor DarkYellow
     Write-Host ""
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "-> $Message" -ForegroundColor Cyan
+    Write-Host "  $GlyphInfo " -NoNewline -ForegroundColor Cyan
+    Write-Host $Message
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "[OK] $Message" -ForegroundColor Green
+    Write-Host "  $GlyphOk " -NoNewline -ForegroundColor Green
+    Write-Host $Message
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "[!] $Message" -ForegroundColor Yellow
+    Write-Host "  $GlyphWarn $Message" -ForegroundColor Yellow
 }
 
 function Write-Err {
     param([string]$Message)
-    Write-Host "[X] $Message" -ForegroundColor Red
+    Write-Host "  $GlyphErr $Message" -ForegroundColor Red
+}
+
+# A two-column row: label padded to a fixed width, then the value.
+function Write-Row {
+    param([string]$Label, [string]$Value, [string]$Color = "DarkGray", [int]$Width = 11)
+    Write-Host ("    " + $Label.PadRight($Width) + " ") -NoNewline -ForegroundColor $Color
+    Write-Host $Value
 }
 
 # Inspect npm output for a TLS-trust failure and, if found, print actionable
@@ -319,7 +350,7 @@ function Install-AgentBrowser {
 # ============================================================================
 
 function Install-Uv {
-    # Janus owns its own uv at $JanusHome\bin\uv.exe.  Always install there —
+    # Janus owns its own uv at $JanusHome\bin\uv.exe.  Always install there --
     # no PATH probing, no conda guards, no multi-location resolution chains.
     # The runtime update path (janus_cli/managed_uv.py) looks in the same
     # place, so install.ps1 and `janus update` stay in sync.
@@ -380,7 +411,7 @@ function Sync-EnvPath {
 # prior process is not visible here.  Later stages (Test-Python,
 # Install-Venv, Install-Dependencies, Install-PlatformSdks) call this
 # at the top to populate $script:UvCmd from the managed location.
-# Throws if uv is not findable — the caller's stage then surfaces a
+# Throws if uv is not findable -- the caller's stage then surfaces a
 # clean error via the stage-driver's try/catch.
 function Resolve-UvCmd {
     # Already resolved (default invocation path: Install-Uv ran earlier
@@ -396,7 +427,7 @@ function Resolve-UvCmd {
         # Stale; fall through to re-discover.
     }
 
-    # Check the managed location first — this is where Install-Uv puts it.
+    # Check the managed location first -- this is where Install-Uv puts it.
     $managedUv = Join-Path $JanusHome "bin\uv.exe"
     if (Test-Path $managedUv) {
         $script:UvCmd = $managedUv
@@ -1634,7 +1665,7 @@ function Set-PathVariable {
 function Write-BootstrapMarker {
     # Writes $InstallDir\.janus-bootstrap-complete which tells the Janus
     # desktop app (apps/desktop/electron/main.cjs) "install.ps1 ran
-    # successfully — DON'T trigger the legacy first-launch bootstrap
+    # successfully -- DON'T trigger the legacy first-launch bootstrap
     # runner."
     #
     # Schema mirrors what main.cjs's writeBootstrapMarker() / isBootstrap
@@ -1655,7 +1686,7 @@ function Write-BootstrapMarker {
     # Resolve the pinned commit: explicit -Commit wins, otherwise read
     # the checkout's HEAD via git. If git can't run, leave commit empty
     # and the marker will fail desktop validation (pinnedCommit.length
-    # >= 7) — better to be invalid than wrong.
+    # >= 7) -- better to be invalid than wrong.
     $pinnedCommit = $Commit
     if (-not $pinnedCommit) {
         # PS 5.1 doesn't support the ?. null-conditional operator, so
@@ -1670,7 +1701,7 @@ function Write-BootstrapMarker {
                     $pinnedCommit = $resolved.Trim()
                 }
             } catch {
-                # Ignore — pinnedCommit stays empty, marker stays invalid,
+                # Ignore -- pinnedCommit stays empty, marker stays invalid,
                 # desktop falls through to its legacy bootstrap path.
             } finally {
                 Pop-Location
@@ -1689,7 +1720,7 @@ function Write-BootstrapMarker {
         pinnedCommit  = $pinnedCommit
         pinnedBranch  = $pinnedBranch
         completedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-        # desktopVersion field intentionally omitted — only the desktop
+        # desktopVersion field intentionally omitted -- only the desktop
         # app knows its own version, and the marker validator doesn't
         # require it. The desktop fills it in if/when it writes its
         # own marker (e.g. after a future in-app upgrade).
@@ -1698,7 +1729,7 @@ function Write-BootstrapMarker {
 
     # Write WITHOUT a UTF-8 BOM. PowerShell 5.1's `Set-Content -Encoding UTF8`
     # always emits a BOM, and Node's plain JSON.parse rejects the BOM as an
-    # unexpected character — so a BOM'd marker would silently fail the
+    # unexpected character -- so a BOM'd marker would silently fail the
     # desktop's readJson(), make isBootstrapComplete() return null, and the
     # desktop would re-run the legacy bootstrap runner anyway. Defeats the
     # whole point. Use the .NET API directly for BOM-less UTF-8.
@@ -1809,7 +1840,7 @@ function Install-NodeDeps {
         # Cross-process driver mode (Janus-Setup.exe runs each -Stage NAME
         # in a fresh powershell.exe) means $script:HasNode set by Stage-Node
         # in the previous process isn't visible here. Re-probe rather than
-        # trust the stale global — Stage-Node already ran successfully or
+        # trust the stale global -- Stage-Node already ran successfully or
         # the bootstrap would've aborted, so npm is reachable.
         if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
             Write-Info "Skipping Node.js dependencies (Node not installed)"
@@ -2093,7 +2124,7 @@ function Install-Desktop {
     #
     # The Tauri bootstrap installer's launch_janus_desktop command
     # resolves apps/desktop/release/win-unpacked/Janus.exe directly,
-    # so an "unpacked" build (electron-builder --dir) is enough — we
+    # so an "unpacked" build (electron-builder --dir) is enough -- we
     # don't need to produce an NSIS/MSI artifact here.
 
     # Always re-resolve Node here. Stages run in separate PowerShell processes,
@@ -2147,7 +2178,7 @@ function Install-Desktop {
         #
         # The streaming sink in bootstrap.rs's run_install_script
         # captures every stdout/stderr line as it's emitted, so we don't
-        # need a side TEMP log file — the installer's bootstrap log
+        # need a side TEMP log file -- the installer's bootstrap log
         # IS the artifact a support engineer reads.
         #
         # Prefer `npm ci`: it wipes node_modules and reinstalls from the
@@ -2196,7 +2227,7 @@ function Install-Desktop {
     # NOT signing the output. Combined with signAndEditExecutable=false in
     # apps/desktop/package.json's build.win block, electron-builder never
     # invokes signtool and therefore never fetches/extracts winCodeSign
-    # (whose macOS symlinks crash 7-Zip on non-admin Windows — a dead end we
+    # (whose macOS symlinks crash 7-Zip on non-admin Windows -- a dead end we
     # are NOT trying to work around). The Janus icon + product name are
     # stamped onto Janus.exe by our own rcedit step (Set-DesktopExeIdentity)
     # AFTER this build, completely decoupled from electron-builder signing.
@@ -2252,7 +2283,7 @@ function Install-Desktop {
         Pop-Location
         throw
     } finally {
-        # Restore env to whatever the caller had — don't leak our
+        # Restore env to whatever the caller had -- don't leak our
         # signing-off override into anything install.ps1 invokes later
         # (Stage-PlatformSdks, etc.).
         $env:CSC_IDENTITY_AUTO_DISCOVERY = $prevCSCAuto
@@ -2283,7 +2314,7 @@ function Install-Desktop {
 
     # 3b. The Janus icon + identity are stamped onto Janus.exe by the
     #     electron-builder `afterPack` hook (apps/desktop/scripts/after-pack.cjs)
-    #     during `npm run pack` above — for every build, so the installer's
+    #     during `npm run pack` above -- for every build, so the installer's
     #     --update rebuild stays branded too. No separate stamp step needed here.
     #     electron-builder's own rcedit step stays disabled (signAndEditExecutable
     #     =false) because enabling it drags in signtool -> winCodeSign -> the
@@ -2292,7 +2323,7 @@ function Install-Desktop {
     # 4. Create Start Menu + Desktop shortcuts pointing DIRECTLY at the packed
     #    Janus.exe. We deliberately do NOT point them at `janus desktop`: that
     #    command rebuilds (npm install + electron-builder) on every launch,
-    #    which would cost minutes each time. The packed exe is the consumer —
+    #    which would cost minutes each time. The packed exe is the consumer --
     #    launching it directly is instant, and updates flow through the
     #    installer's --update path (which rebuilds once, then relaunches).
     New-DesktopShortcuts -TargetExe $desktopExe
@@ -2348,11 +2379,11 @@ function New-DesktopShortcuts {
         # cached bitmap. Critical on the --update path: the exe was re-stamped
         # with the Janus icon, but without this the shortcut can keep drawing
         # the old Electron icon until the user manually refreshes / reboots.
-        # Best-effort and silent — never fail the install over a cosmetic cache.
+        # Best-effort and silent -- never fail the install over a cosmetic cache.
         try {
             & ie4uinit.exe -show 2>$null
         } catch {
-            # ie4uinit may be absent/renamed on some SKUs — ignore.
+            # ie4uinit may be absent/renamed on some SKUs -- ignore.
         }
     } catch {
         Write-Warn "Skipping shortcut creation: $($_.Exception.Message)"
@@ -2578,57 +2609,35 @@ function Start-GatewayIfConfigured {
 
 function Write-Completion {
     Write-Host ""
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Green
-    Write-Host "|              [OK] Installation Complete!                |" -ForegroundColor Green
-    Write-Host "+---------------------------------------------------------+" -ForegroundColor Green
+    Write-Host "  $Rule" -ForegroundColor DarkYellow
+    Write-Host "  $GlyphOk Janus is installed" -ForegroundColor Green
     Write-Host ""
-    
-    # Show file locations
-    Write-Host "* Your files:" -ForegroundColor Cyan
+
+    Write-Host "  Your files"
+    Write-Row "Config"   "$JanusHome\config.yaml"
+    Write-Row "API keys" "$JanusHome\.env"
+    Write-Row "Data"     "$JanusHome\cron, sessions, logs"
+    Write-Row "Code"     "$JanusHome\janus-agent"
     Write-Host ""
-    Write-Host "   Config:    " -NoNewline -ForegroundColor Yellow
-    Write-Host "$JanusHome\config.yaml"
-    Write-Host "   API Keys:  " -NoNewline -ForegroundColor Yellow
-    Write-Host "$JanusHome\.env"
-    Write-Host "   Data:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$JanusHome\cron\, sessions\, logs\"
-    Write-Host "   Code:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$JanusHome\janus-agent\"
+
+    Write-Host "  Get started"
+    Write-Row "janus"             "Start chatting"                                -Color Yellow -Width 18
+    Write-Row "janus setup"       "Configure API keys and settings"               -Color Yellow -Width 18
+    Write-Row "janus config edit" "Open the config in your editor"                -Color Yellow -Width 18
+    Write-Row "janus gateway"     "Start the messaging gateway (Telegram, Discord)" -Color Yellow -Width 18
+    Write-Row "janus update"      "Update to the latest version"                  -Color Yellow -Width 18
     Write-Host ""
-    
-    Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
+
+    Write-Host "  $GlyphWarn Open a new terminal window so the PATH change takes effect." -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "* Commands:" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "   janus              " -NoNewline -ForegroundColor Green
-    Write-Host "Start chatting"
-    Write-Host "   janus setup        " -NoNewline -ForegroundColor Green
-    Write-Host "Configure API keys & settings"
-    Write-Host "   janus config       " -NoNewline -ForegroundColor Green
-    Write-Host "View/edit configuration"
-    Write-Host "   janus config edit  " -NoNewline -ForegroundColor Green
-    Write-Host "Open config in editor"
-    Write-Host "   janus gateway      " -NoNewline -ForegroundColor Green
-    Write-Host "Start messaging gateway (Telegram, Discord, etc.)"
-    Write-Host "   janus update       " -NoNewline -ForegroundColor Green
-    Write-Host "Update to latest version"
-    Write-Host ""
-    
-    Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "[*] Restart your terminal for PATH changes to take effect" -ForegroundColor Yellow
-    Write-Host ""
-    
+
     if (-not $HasNode) {
-        Write-Host "Note: Node.js could not be installed automatically." -ForegroundColor Yellow
-        Write-Host "Browser tools need Node.js. Install manually:" -ForegroundColor Yellow
-        Write-Host "  https://nodejs.org/en/download/" -ForegroundColor Yellow
-        Write-Host ""
+        Write-Warn "Node.js could not be installed automatically; browser tools need it: https://nodejs.org/en/download/"
     }
-    
     if (-not $HasRipgrep) {
-        Write-Host "Note: ripgrep (rg) was not installed. For faster file search:" -ForegroundColor Yellow
-        Write-Host "  winget install BurntSushi.ripgrep.MSVC" -ForegroundColor Yellow
+        Write-Warn "ripgrep (rg) was not installed. For faster file search: winget install BurntSushi.ripgrep.MSVC"
+    }
+    if (-not $HasNode -or -not $HasRipgrep) {
         Write-Host ""
     }
 }
