@@ -66,6 +66,18 @@ def _is_gateway_context() -> bool:
         return False
 
 
+def _is_cron_context() -> bool:
+    """True inside a cron job. The flag is per job, not per process (the
+    gateway hosts cron next to live chats). Thin seam over the approval
+    module's detection, like ``_is_gateway_context``."""
+    try:
+        from tools.approval import _is_cron_session
+        return _is_cron_session()
+    except Exception:
+        from utils import env_var_enabled
+        return env_var_enabled("JANUS_CRON_SESSION")
+
+
 def _no_human_present() -> bool:
     """True when this session has no human who could have vetted a new skill:
     a cron session, or a non-interactive, non-gateway (headless) context. These
@@ -73,7 +85,7 @@ def _no_human_present() -> bool:
     by the approval gate, so an unscanned agent-created skill is the one
     unguarded path to host code execution (gap G5 / R2)."""
     from utils import env_var_enabled
-    if env_var_enabled("JANUS_CRON_SESSION"):
+    if _is_cron_context():
         return True
     return not env_var_enabled("JANUS_INTERACTIVE") and not _is_gateway_context()
 
