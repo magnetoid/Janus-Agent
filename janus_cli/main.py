@@ -15825,8 +15825,13 @@ Examples:
                 ("learning.governor.enabled", "self-improvement health assessment"),
                 ("memory.session_mining", "session-end memory mining (remembers you)"),
             ]
-            for key, _ in preset:
-                set_config_value(key, "true" if on else "false")
+            from janus_cli.config import ConfigParseError
+            try:
+                for key, _ in preset:
+                    set_config_value(key, "true" if on else "false")
+            except ConfigParseError as exc:
+                print(f"\n  ✗ {exc}", file=sys.stderr)
+                sys.exit(1)
             state = "ON" if on else "OFF"
             print(f"\n  Learning loop preset → {state}:")
             for key, what in preset:
