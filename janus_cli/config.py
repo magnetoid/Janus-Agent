@@ -92,6 +92,39 @@ def _backup_corrupt_config(config_path: Path) -> Optional[Path]:
         return None
 
 
+class ConfigParseError(ValueError):
+    """config.yaml exists but cannot be read as a mapping, so it must not be rewritten."""
+
+
+def _read_config_for_update(config_path: Path) -> Dict[str, Any]:
+    """Read config.yaml for a read-modify-write, refusing anything but a mapping.
+
+    A missing, empty or comments-only file is ``{}``. A file that does not
+    parse, cannot be read, or is not a mapping raises ``ConfigParseError``
+    (after a best-effort ``.bak`` snapshot): writing the update back would
+    replace the user's whole config with the one new key.
+    """
+    if not config_path.exists():
+        return {}
+    try:
+        text = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        problem = f"cannot be parsed ({exc})"
+    else:
+        if data is None:
+            return {}
+        if isinstance(data, dict):
+            return data
+        problem = f"is not a mapping (top level is {type(data).__name__})"
+    backup = _backup_corrupt_config(config_path)
+    message = f"{config_path} {problem}. Nothing was changed."
+    if backup is not None:
+        message += f" A copy was saved to {backup}."
+    message += " Fix the file (janus config edit), then run the command again."
+    raise ConfigParseError(message)
+
+
 def _warn_config_parse_failure(
     config_path: Path, exc: Exception, last_good: Optional[Path] = None,
 ) -> None:
@@ -6732,14 +6765,9 @@ def set_config_value(key: str, value: str):
     # Read the raw user config (not merged with defaults) to avoid
     # dumping all default values back to the file
     config_path = get_config_path()
-    user_config = {}
-    if config_path.exists():
-        try:
-            with open(config_path, encoding="utf-8") as f:
-                user_config = yaml.safe_load(f) or {}
-        except Exception:
-            user_config = {}
-    
+    # Raises ConfigParseError rather than treating a broken file as empty.
+    user_config = _read_config_for_update(config_path)
+
     # Handle nested keys (e.g., "tts.provider") including numeric list
     # indices (e.g., "custom_providers.0.api_key").  Delegates to
     # _set_nested which preserves list-typed nodes; before #17876 the
@@ -6823,7 +6851,11 @@ def config_command(args):
             print("  janus config set terminal.backend docker")
             print("  janus config set OPENROUTER_API_KEY sk-or-...")
             sys.exit(1)
-        set_config_value(key, value)
+        try:
+            set_config_value(key, value)
+        except ConfigParseError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            sys.exit(1)
     
     elif subcmd == "get":
         key = getattr(args, 'key', None)
