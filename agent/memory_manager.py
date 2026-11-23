@@ -41,19 +41,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _FENCE_TAG_RE = re.compile(r'</?\s*memory-context\s*>', re.IGNORECASE)
-_INTERNAL_CONTEXT_RE = re.compile(
-    r'<\s*memory-context\s*>[\s\S]*?</\s*memory-context\s*>',
-    re.IGNORECASE,
-)
+# ``[^\[\]]*`` rather than ``[^\]]*``: the scan stops at the next note's
+# "[", so a run of unterminated notes costs linear time, not quadratic.
 _INTERNAL_NOTE_RE = re.compile(
-    r'\[System note:\s*The following is recalled memory context,\s*NOT new user input\.\s*Treat as (?:informational background data|authoritative reference data[^\]]*)\.\]\s*',
+    r'\[System note:\s*The following is recalled memory context,\s*NOT new user input\.\s*Treat as (?:informational background data|authoritative reference data[^\[\]]*)\.\]\s*',
     re.IGNORECASE,
 )
+
+
+def _strip_context_spans(text: str) -> str:
+    """Drop each ``<memory-context>`` span: an opener up to the first closer after it.
+
+    One pass over the tags. The equivalent lazy regex
+    (``<memory-context>[\\s\\S]*?</memory-context>``) rescanned to the end of
+    the text from every unclosed opener, which is quadratic: 64 KB of
+    openers in a webhook payload blocked the gateway for seconds.
+    Unpaired tags are left for ``_FENCE_TAG_RE`` to remove.
+    """
+    out = []
+    pos = 0
+    open_start = None
+    for match in _FENCE_TAG_RE.finditer(text):
+        is_closer = match.group().startswith('</')
+        if open_start is None and not is_closer:
+            open_start = match.start()
+        elif open_start is not None and is_closer:
+            out.append(text[pos:open_start])
+            pos = match.end()
+            open_start = None
+    out.append(text[pos:])
+    return ''.join(out)
 
 
 def sanitize_context(text: str) -> str:
     """Strip fence tags, injected context blocks, and system notes from provider output."""
-    text = _INTERNAL_CONTEXT_RE.sub('', text)
+    text = _strip_context_spans(text)
     text = _INTERNAL_NOTE_RE.sub('', text)
     text = _FENCE_TAG_RE.sub('', text)
     return text
