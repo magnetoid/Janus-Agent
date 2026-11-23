@@ -52,7 +52,7 @@ Janus 的差异化特性：
 
 ```bash
 # 安装
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 
 # 交互式聊天（默认）
 janus
