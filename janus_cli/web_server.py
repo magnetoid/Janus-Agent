@@ -3389,9 +3389,6 @@ class CronJobUpdate(BaseModel):
     updates: dict
 
 
-_CRON_PROFILE_LOCK = threading.RLock()
-
-
 def _cron_profile_dicts() -> List[Dict[str, Any]]:
     """Return dashboard profile records, falling back to a directory scan."""
     from janus_cli import profiles as profiles_mod
@@ -3429,27 +3426,16 @@ def _annotate_cron_job(job: Dict[str, Any], profile: str, home: Path) -> Dict[st
 def _call_cron_for_profile(profile: Optional[str], func_name: str, *args, **kwargs):
     """Run cron.jobs helpers against the selected profile's cron directory.
 
-    cron.jobs keeps CRON_DIR/JOBS_FILE/OUTPUT_DIR as module globals resolved
-    from the process JANUS_HOME at import time. The dashboard is a single
-    process that can inspect many profiles, so temporarily retarget those
-    globals while holding a lock and restore them immediately after the call.
+    The dashboard is one process that serves many profiles, and the desktop
+    backend runs the cron ticker in that same process. So the profile is
+    selected with a context-local override; cron.jobs' module paths, which
+    the ticker and agent tools read from other threads, are never reassigned.
     """
-    profile_name, home = _cron_profile_home(profile)
-    with _CRON_PROFILE_LOCK:
-        from cron import jobs as cron_jobs
+    from cron import jobs as cron_jobs
 
-        old_cron_dir = cron_jobs.CRON_DIR
-        old_jobs_file = cron_jobs.JOBS_FILE
-        old_output_dir = cron_jobs.OUTPUT_DIR
-        cron_jobs.CRON_DIR = home / "cron"
-        cron_jobs.JOBS_FILE = cron_jobs.CRON_DIR / "jobs.json"
-        cron_jobs.OUTPUT_DIR = cron_jobs.CRON_DIR / "output"
-        try:
-            result = getattr(cron_jobs, func_name)(*args, **kwargs)
-        finally:
-            cron_jobs.CRON_DIR = old_cron_dir
-            cron_jobs.JOBS_FILE = old_jobs_file
-            cron_jobs.OUTPUT_DIR = old_output_dir
+    profile_name, home = _cron_profile_home(profile)
+    with cron_jobs.use_cron_home(home):
+        result = getattr(cron_jobs, func_name)(*args, **kwargs)
 
     if isinstance(result, list):
         return [_annotate_cron_job(j, profile_name, home) for j in result]
