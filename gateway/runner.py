@@ -3319,7 +3319,9 @@ class GatewayRunner:
         whose reset policy has expired, invokes ``on_session_finalize``
         hooks, cleans up the cached AIAgent's tool resources, evicts the
         cache entry so it can be garbage-collected, and marks the session
-        so it won't be finalized again.
+        so it won't be finalized again.  A session with a turn running
+        (including the pending sentinel) is left for a later tick, so a turn
+        that crosses the reset hour never loses its agent mid-run.
         """
         await asyncio.sleep(60)  # initial delay — let the gateway fully start
         _finalize_failures: dict[str, int] = {}  # session_id -> consecutive failure count
@@ -3331,6 +3333,16 @@ class GatewayRunner:
                 _expired_entries = []
                 for key, entry in list(self.session_store._entries.items()):
                     if entry.expiry_finalized:
+                        continue
+                    # A turn is running, or has claimed the session and is
+                    # still building its agent (the pending sentinel; it may
+                    # already hold the cached agent).  The reset policy reads
+                    # updated_at, which a turn only writes when it starts and
+                    # after it ends, so a long turn that crosses the reset
+                    # hour looks expired here.  Finalizing it would hard-close
+                    # the agent the turn is using.  Leave it for a later tick:
+                    # once the turn ends, the policy is evaluated afresh.
+                    if key in self._running_agents:
                         continue
                     if not self.session_store._is_session_expired(entry):
                         continue
@@ -3367,19 +3379,16 @@ class GatewayRunner:
                         except Exception:
                             pass
                         # Shut down memory provider and close tool resources
-                        # on the cached agent.  Idle agents live in
-                        # _agent_cache (not _running_agents), so look there.
+                        # on the cached agent.  Sessions with a running turn
+                        # were skipped above, so only idle agents get here,
+                        # and idle agents live in _agent_cache.
                         _cached_agent = None
                         _cache_lock = getattr(self, "_agent_cache_lock", None)
                         if _cache_lock is not None:
                             with _cache_lock:
                                 _cached = self._agent_cache.get(key)
                                 _cached_agent = _cached[0] if isinstance(_cached, tuple) else _cached if _cached else None
-                        # Fall back to _running_agents in case the agent is
-                        # still mid-turn when the expiry fires.
-                        if _cached_agent is None:
-                            _cached_agent = self._running_agents.get(key)
-                        if _cached_agent and _cached_agent is not _AGENT_PENDING_SENTINEL:
+                        if _cached_agent:
                             self._cleanup_agent_resources(_cached_agent)
                         # Drop the cache entry so the AIAgent (and its LLM
                         # clients, tool schemas, memory provider refs) can
