@@ -1299,6 +1299,11 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                 agent._sanitize_tool_calls_for_strict_api(api_msg, model=agent.model)
             api_messages.append(api_msg)
 
+        # Same safety net as the main loop: the stored history may hold
+        # consecutive user messages (a turn that failed after its question
+        # was saved); merge them on this copy only.
+        agent._repair_message_sequence(api_messages)
+
         effective_system = agent._cached_system_prompt or ""
         if agent.ephemeral_system_prompt:
             effective_system = (effective_system + "\n\n" + agent.ephemeral_system_prompt).strip()
