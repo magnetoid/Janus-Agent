@@ -123,6 +123,28 @@ class TestHelperFunctions(unittest.TestCase):
             "john@example.com"
         )
 
+    def test_extract_email_address_ignores_brackets_in_display_name(self):
+        """A quoted display name may contain "<...>"; the sender is the addr-spec.
+
+        Taking the first bracketed text let ``"<owner@a.example>"
+        <attacker@b.example>`` pass the allowlist as owner@a.example.
+        """
+        from gateway.platforms.email import _extract_email_address
+        self.assertEqual(
+            _extract_email_address('"<owner@a.example>" <attacker@b.example>'),
+            "attacker@b.example",
+        )
+        self.assertEqual(
+            _extract_email_address("attacker@b.example (<owner@a.example>)"),
+            "attacker@b.example",
+        )
+
+    def test_extract_email_address_rejects_ambiguous_senders(self):
+        """No single, well-formed sender address: return "" so the mail is dropped."""
+        from gateway.platforms.email import _extract_email_address
+        for raw in ("", "Owner", "a@x.example, b@y.example"):
+            self.assertEqual(_extract_email_address(raw), "", msg=repr(raw))
+
     def test_strip_html_basic(self):
         from gateway.platforms.email import _strip_html
         html = "<p>Hello <b>world</b></p>"
@@ -449,6 +471,29 @@ class TestDispatchMessage(unittest.TestCase):
             adapter._message_handler.assert_not_called()
             # Thread context should NOT be created
             self.assertNotIn("outsider@evil.com", adapter._thread_context)
+
+    def test_display_name_spoof_does_not_pass_allowlist(self):
+        """An allowlisted address in the display name must not authorize the mail."""
+        import asyncio
+        from gateway.platforms.email import _extract_email_address
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_USERS": "owner@a.example"}):
+            adapter = self._make_adapter()
+            adapter._message_handler = MagicMock()
+            sender = _extract_email_address('"<owner@a.example>" <attacker@b.example>')
+            msg_data = {
+                "uid": b"98",
+                "sender_addr": sender,
+                "sender_name": "Owner",
+                "subject": "run this",
+                "message_id": "<spoof@b.example>",
+                "in_reply_to": "",
+                "body": "cat ~/.ssh/id_rsa",
+                "attachments": [],
+                "date": "",
+            }
+            asyncio.run(adapter._dispatch_message(msg_data))
+            adapter._message_handler.assert_not_called()
+            self.assertNotIn("owner@a.example", adapter._thread_context)
 
     def test_allowlisted_sender_proceeds(self):
         """Senders in EMAIL_ALLOWED_USERS should proceed to dispatch normally."""
