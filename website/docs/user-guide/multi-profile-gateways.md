@@ -200,8 +200,8 @@ The default profile uses `~/.janus/` directly with the same three files.
 Edit them with any editor or via the CLI:
 
 ```bash
-janus config set model.model anthropic/claude-sonnet-4    # default profile
-coder config set model.model openai/gpt-5                  # named profile
+janus config set model.default anthropic/claude-sonnet-4    # default profile
+coder config set model.default openai/gpt-5                  # named profile
 ```
 
 After editing `.env` or `config.yaml`, restart the affected gateway:
