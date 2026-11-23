@@ -1135,22 +1135,24 @@ def _exec_in_container(container_info: dict, cli_args: list):
     os.execvp(exec_cmd[0], exec_cmd)
 
 
-def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
+def _lookup_session_by_name_or_id(name_or_id: str) -> Optional[str]:
     """Resolve a session name (title) or ID to a session ID.
 
-    - If it looks like a session ID (contains underscore + hex), try direct lookup first.
+    - Try the value as an exact session ID first.
     - Otherwise, treat it as a title and use resolve_session_by_title (auto-latest).
-    - Falls back to the other method if the first doesn't match.
     - If the resolved session is a compression root, follow the chain forward
       to the latest continuation. Users who remember the old root ID (e.g.
       from an exit summary printed before the bug fix, or from notes) get
       resumed at the live tip instead of a stale parent with no messages.
+
+    Returns None only when the session store was read and nothing matched.
+    Raises if the store itself can't be opened or queried, so callers can
+    tell "no such session" apart from "couldn't look".
     """
+    from janus_state import SessionDB
+
+    db = SessionDB()
     try:
-        from janus_state import SessionDB
-
-        db = SessionDB()
-
         # Try as exact session ID first
         session = db.get_session(name_or_id)
         resolved_id: Optional[str] = None
@@ -1168,11 +1170,24 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
             except Exception:
                 pass
 
-        db.close()
         return resolved_id
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
+    """Best-effort :func:`_lookup_session_by_name_or_id`.
+
+    Returns None both when nothing matches and when the session store can't
+    be read. Use the lookup directly where that difference matters.
+    """
+    try:
+        return _lookup_session_by_name_or_id(name_or_id)
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _read_tui_active_session_file(path: Optional[str]) -> Optional[str]:
@@ -2035,14 +2050,33 @@ def cmd_chat(args):
                 print(f"No previous {kind} session found to continue.")
                 sys.exit(1)
 
-    # Resolve --resume by title if it's not a direct session ID
+    # Resolve --resume (an ID or a title) before launching either surface.
+    # An unknown value must fail here: the REPL and the TUI would otherwise
+    # start anyway, and every message would then fail with "Session not found".
     resume_val = getattr(args, "resume", None)
     if resume_val:
-        resolved = _resolve_session_by_name_or_id(resume_val)
-        if resolved:
-            args.resume = resolved
-        # If resolution fails, keep the original value — _init_agent will
-        # report "Session not found" with the original input
+        try:
+            resolved = _lookup_session_by_name_or_id(resume_val)
+        except Exception as exc:
+            # The session store couldn't be read, so we can't tell whether the
+            # session exists. Keep the value and let the surface report the
+            # store problem instead of a misleading "No session found".
+            logger.debug("Could not look up --resume %r: %s", resume_val, exc)
+            resolved = resume_val
+        if not resolved:
+            from janus_constants import display_janus_home
+
+            print(
+                f"No session found matching '{resume_val}' "
+                f"(looked in {display_janus_home()}).",
+                file=sys.stderr,
+            )
+            print(
+                "Use 'janus sessions list' to see available sessions.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        args.resume = resolved
 
     # xAI retirement warning — one-shot, non-blocking, never fails startup
     try:

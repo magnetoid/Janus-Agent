@@ -49,7 +49,7 @@ def test_cmd_chat_tui_continue_uses_latest_tui_session(monkeypatch, main_mod):
         raise SystemExit(0)
 
     monkeypatch.setattr(main_mod, "_resolve_last_session", fake_resolve_last)
-    monkeypatch.setattr(main_mod, "_resolve_session_by_name_or_id", lambda val: val)
+    monkeypatch.setattr(main_mod, "_lookup_session_by_name_or_id", lambda val: val)
     monkeypatch.setattr(main_mod, "_launch_tui", fake_launch)
 
     with pytest.raises(SystemExit):
@@ -83,7 +83,7 @@ def test_cmd_chat_tui_continue_falls_back_to_latest_cli_session(monkeypatch, mai
         raise SystemExit(0)
 
     monkeypatch.setattr(main_mod, "_resolve_last_session", fake_resolve_last)
-    monkeypatch.setattr(main_mod, "_resolve_session_by_name_or_id", lambda val: val)
+    monkeypatch.setattr(main_mod, "_lookup_session_by_name_or_id", lambda val: val)
     monkeypatch.setattr(main_mod, "_launch_tui", fake_launch)
 
     with pytest.raises(SystemExit):
@@ -108,7 +108,7 @@ def test_cmd_chat_tui_resume_resolves_title_before_launch(monkeypatch, main_mod)
         raise SystemExit(0)
 
     monkeypatch.setattr(
-        main_mod, "_resolve_session_by_name_or_id", lambda val: "20260409_000000_aa11bb"
+        main_mod, "_lookup_session_by_name_or_id", lambda val: "20260409_000000_aa11bb"
     )
     monkeypatch.setattr(main_mod, "_launch_tui", fake_launch)
 
