@@ -5,6 +5,10 @@ import inspect
 from concurrent.futures import Future
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+pytest.importorskip("acp", reason="agent-client-protocol not installed (the [acp] extra)")
+
 from acp.schema import (
     AllowedOutcome,
     DeniedOutcome,
