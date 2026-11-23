@@ -372,6 +372,11 @@ def repair_message_sequence(agent, messages: List[Dict]) -> int:
     pattern). The empty-response scaffolding stripper handles the
     genuinely-broken variant via its flag-gated rewind.
 
+    Rewrites ``messages`` in place. The agent loop calls it on the
+    per-request copy, never on the stored history: shrinking that list
+    would desync the session-DB flush cursor and the per-turn indices
+    (the reply after an unanswered user turn was never persisted).
+
     Returns the number of repairs made (for logging/telemetry).
     """
     if not messages:
@@ -428,18 +433,20 @@ def repair_message_sequence(agent, messages: List[Dict]) -> int:
             # content alone — collapsing image/audio blocks risks
             # mangling the attachment structure.
             if isinstance(prev_content, str) and isinstance(new_content, str):
+                # Merge into a copy: the dict may also sit in the caller's
+                # history (or the stored transcript) and must not change.
+                prev = dict(prev)
                 prev["content"] = (
                     (prev_content + "\n\n" + new_content)
                     if prev_content and new_content
                     else (prev_content or new_content)
                 )
+                merged[-1] = prev
                 repairs += 1
                 continue
         merged.append(msg)
 
     if repairs > 0:
-        # Rewrite in place so downstream paths (persistence, return
-        # value, session DB flush) see the repaired sequence.
         messages[:] = merged
 
     return repairs
