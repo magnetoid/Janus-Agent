@@ -1,4 +1,0 @@
-[console_scripts]
-janus = janus_cli.main:main
-janus-acp = acp_adapter.entry:main
-janus-agent = run_agent:main

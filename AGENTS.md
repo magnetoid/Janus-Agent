@@ -633,8 +633,7 @@ pattern (ABC + orchestrator + per-plugin directory). Context engines
 plug into `agent/context_engine.py`; image-gen providers into
 `agent/image_gen_provider.py`. Reference / docs-companion plugins
 (`example-dashboard`, `strike-freedom-cockpit`, `plugin-llm-example`,
-`plugin-llm-async-example`) live in the
-[`janus-example-plugins`](https://github.com/ImbaLabs/hermes-example-plugins)
+`plugin-llm-async-example`) live in a separate `janus-example-plugins`
 companion repo, not in this tree.
 
 ---

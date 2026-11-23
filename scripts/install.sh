@@ -1526,7 +1526,7 @@ setup_path() {
     if [ "$USE_VENV" = true ]; then
         JANUS_BIN="$INSTALL_DIR/venv/bin/janus"
     else
-        JANUS_BIN="$(which hermes 2>/dev/null || echo "")"
+        JANUS_BIN="$(which janus 2>/dev/null || echo "")"
         if [ -z "$JANUS_BIN" ]; then
             log_warn "janus not found on PATH after install"
             return 0
@@ -2278,7 +2278,7 @@ postinstall_mode() {
         ensure_browser
     fi
 
-    JANUS_CMD="$(command -v hermes 2>/dev/null || echo "")"
+    JANUS_CMD="$(command -v janus 2>/dev/null || echo "")"
     if [ -n "$JANUS_CMD" ]; then
         log_info "Running janus setup..."
         "$JANUS_CMD" setup
