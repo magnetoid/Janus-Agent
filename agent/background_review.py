@@ -581,7 +581,20 @@ def spawn_background_review_thread(
     else:
         prompt = getattr(agent, "_SKILL_REVIEW_PROMPT", _SKILL_REVIEW_PROMPT)
 
+    # The review runs on a bare thread, which starts with an empty context.
+    # Carry a cron job's per-job cron flag over, so the review of a cron agent
+    # still counts as unattended (skill_manager's agent-created-skill guard).
+    try:
+        from gateway.session_context import _VAR_MAP
+
+        cron_var = _VAR_MAP["JANUS_CRON_SESSION"]
+        cron_flag = cron_var.get(None)
+    except Exception:
+        cron_var = cron_flag = None
+
     def _target() -> None:
+        if cron_var is not None and cron_flag:
+            cron_var.set(cron_flag)
         _run_review_in_thread(agent, messages_snapshot, prompt)
 
     return _target, prompt

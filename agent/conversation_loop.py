@@ -65,6 +65,35 @@ from utils import base_url_host_matches, env_var_enabled
 logger = logging.getLogger(__name__)
 
 
+# Errors that waiting can fix: the provider is down or overloaded, not
+# rejecting this request.  Rate limits are excluded on purpose — they are a
+# quota wall with their own Retry-After handling.
+_OUTAGE_REASONS = frozenset({
+    FailoverReason.overloaded,
+    FailoverReason.server_error,
+    FailoverReason.timeout,
+})
+
+
+def _recovery_cycle_wait(cycle: int) -> float:
+    """Seconds to wait before outage recovery cycle *cycle* (1-based)."""
+    return float(min(30 * 2 ** (max(cycle, 1) - 1), 300))
+
+
+def _wait_for_recovery_cycle(agent, seconds: float, label: str) -> bool:
+    """Sleep *seconds* in small steps; False if the user interrupted."""
+    end = time.time() + seconds
+    ticks = 0
+    while time.time() < end:
+        if agent._interrupt_requested:
+            return False
+        time.sleep(0.2)
+        ticks += 1
+        if ticks % 150 == 0:  # ~30 s: keep the gateway inactivity monitor fed
+            agent._touch_activity(f"{label}, {int(end - time.time())}s remaining")
+    return not agent._interrupt_requested
+
+
 def _ollama_context_limit_error(agent: Any, request_tokens: int) -> Optional[str]:
     """Return a user-facing error when Ollama is loaded with too little context."""
     if not getattr(agent, "tools", None):
@@ -315,9 +344,9 @@ def run_conversation(
             Used by the TTS pipeline to start audio generation before the full response.
             When None (default), API calls use the standard non-streaming path.
         persist_user_message: Optional clean user message to store in
-            transcripts/history when user_message contains API-only
-            synthetic prefixes.
-                or queuing follow-up prefetch work.
+            transcripts/history when user_message carries API-only content
+            (synthetic prefixes, attachments, observed context). The model
+            gets user_message on every API call of the turn.
 
     Returns:
         Dict: Complete conversation result with final response and message history
@@ -372,8 +401,6 @@ def run_conversation(
 
     # Store stream callback for _interruptible_api_call to pick up
     agent._stream_callback = stream_callback
-    agent._persist_user_message_idx = None
-    agent._persist_user_message_override = persist_user_message
     # Generate unique task_id if not provided to isolate VMs between concurrent tasks
     effective_task_id = task_id or str(uuid.uuid4())
     # Expose the active task_id so tools running mid-turn (e.g. delegate_task
@@ -520,9 +547,14 @@ def run_conversation(
     except Exception:
         pass
     user_msg = {"role": "user", "content": user_message}
+    if persist_user_message is not None:
+        # The live message keeps the API-only content for every API call of
+        # the turn; persistence writes this clean text instead, and the
+        # turn's exit puts it back into the returned history
+        # (AIAgent._apply_persist_user_message_override).
+        user_msg["_persist_content"] = persist_user_message
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
-    agent._persist_user_message_idx = current_turn_user_idx
     
     if not agent.quiet_mode:
         _print_preview = _summarize_user_message_for_log(user_message)
@@ -548,8 +580,9 @@ def run_conversation(
     # has a valid system prompt, before any provider call or tool execution can
     # hang/kill the process. The normal end-of-turn persist still runs later;
     # _last_flushed_db_idx makes this idempotent and prevents duplicate rows.
+    # mid_turn: the API calls below must still see the API-only content.
     try:
-        agent._persist_session(messages, conversation_history)
+        agent._persist_session(messages, conversation_history, mid_turn=True)
     except Exception:
         logger.warning(
             "Early turn-start session persistence failed for session=%s",
@@ -704,6 +737,7 @@ def run_conversation(
 
     # Main conversation loop
     api_call_count = 0
+    recovery_cycles_used = 0  # agent.auto_recovery_cycles budget, per turn
     final_response = None
     interrupted = False
     failed = False
@@ -800,6 +834,9 @@ def run_conversation(
     # See agent/transports/codex_app_server_session.py for the adapter
     # and references/codex-app-server-runtime.md for the rationale.
     if agent.api_mode == "codex_app_server":
+        # Codex takes user_message directly, so the stored history can get
+        # its clean text now; this path returns without _persist_session.
+        agent._apply_persist_user_message_override(messages)
         return agent._run_codex_app_server_turn(
             user_message=user_message,
             original_user_message=original_user_message,
@@ -967,21 +1004,6 @@ def run_conversation(
                 agent.session_id or "-",
             )
 
-        # Defensive: repair malformed role-alternation before API call.
-        # Catches cases where the history got wedged into a
-        # ``tool → user`` or ``user → user`` tail (e.g. after empty-
-        # response scaffolding was stripped and a new user message
-        # landed after an orphan tool result). Most providers return
-        # empty content on malformed sequences, which would otherwise
-        # retrigger the empty-retry loop indefinitely.
-        repaired_seq = agent._repair_message_sequence(messages)
-        if repaired_seq > 0:
-            request_logger.info(
-                "Repaired %s message-alternation violations before request (session=%s)",
-                repaired_seq,
-                agent.session_id or "-",
-            )
-
         api_messages = []
         for idx, msg in enumerate(messages):
             api_msg = msg.copy()
@@ -1021,6 +1043,8 @@ def run_conversation(
                 api_msg.pop("finish_reason")
             # Strip internal thinking-prefill marker
             api_msg.pop("_thinking_prefill", None)
+            # Strip the persist-only text of an API-only user message
+            api_msg.pop("_persist_content", None)
             # Strip Codex Responses API fields (call_id, response_item_id) for
             # strict providers like Mistral, Fireworks, etc. that reject unknown fields.
             # Uses new dicts so the internal messages list retains the fields
@@ -1030,6 +1054,27 @@ def run_conversation(
             # Keep 'reasoning_details' - OpenRouter uses this for multi-turn reasoning context
             # The signature field helps maintain reasoning continuity
             api_messages.append(api_msg)
+
+        # Defensive: repair malformed role-alternation before API call.
+        # Catches cases where the history got wedged into a
+        # ``tool → user`` or ``user → user`` tail (e.g. a previous turn
+        # failed after its question was stored, or empty-response
+        # scaffolding was stripped and a new user message landed after an
+        # orphan tool result). Most providers return empty content on
+        # malformed sequences, which would otherwise retrigger the
+        # empty-retry loop indefinitely.
+        #
+        # Runs on this request's copy only. The stored ``messages`` keep
+        # their rows (and their indices: the session-DB flush cursor,
+        # current_turn_user_idx); the merge is deterministic from those
+        # rows, so the wire bytes are the same on every replay.
+        repaired_seq = agent._repair_message_sequence(api_messages)
+        if repaired_seq > 0:
+            request_logger.info(
+                "Repaired %s message-alternation violations before request (session=%s)",
+                repaired_seq,
+                agent.session_id or "-",
+            )
 
         # Build the final system message: cached prompt + ephemeral system prompt.
         # Ephemeral additions are API-call-time only (not persisted to session DB).
@@ -2510,7 +2555,7 @@ def run_conversation(
                     else:
                         auth_method = "Bearer (OAuth/setup-token)" if _is_oauth_token(key) else "x-api-key (API key)"
                         print(f"{agent.log_prefix}   Auth method: {auth_method}")
-                        print(f"{agent.log_prefix}   Token prefix: {key[:12]}..." if isinstance(key, str) and len(key) > 12 else f"{agent.log_prefix}   Token: (empty or short)")
+                        print(f"{agent.log_prefix}   Token: {'set' if key else '(empty)'}")
                     print(f"{agent.log_prefix}   Troubleshooting:")
                     from janus_constants import display_janus_home as _dhh_fn
                     _dhh = _dhh_fn()
@@ -3266,6 +3311,8 @@ def run_conversation(
                             f"for large failed session to prevent growth loop.",
                             force=True,
                         )
+                        # The returned history still gets the clean text.
+                        agent._apply_persist_user_message_override(messages)
                     else:
                         agent._persist_session(messages, conversation_history)
                     if classified.reason == FailoverReason.content_policy_blocked:
@@ -3309,6 +3356,50 @@ def run_conversation(
                     if agent._has_pending_fallback():
                         agent._buffer_status(f"⚠️ Max retries ({max_retries}) exhausted — trying fallback...")
                     if agent._try_activate_fallback():
+                        retry_count = 0
+                        compression_attempts = 0
+                        primary_recovery_attempted = False
+                        continue
+                    # Provider outage: wait it out in bounded, visible
+                    # cycles (agent.auto_recovery_cycles) before giving up.
+                    if (
+                        classified.reason in _OUTAGE_REASONS
+                        and recovery_cycles_used < getattr(agent, "_auto_recovery_cycles", 0)
+                    ):
+                        recovery_cycles_used += 1
+                        _cycle_total = agent._auto_recovery_cycles
+                        _cycle_wait = _recovery_cycle_wait(recovery_cycles_used)
+                        agent._flush_status_buffer()
+                        agent._emit_status(
+                            f"⏳ Provider unavailable ({agent._summarize_api_error(api_error)}). "
+                            f"Waiting {_cycle_wait:.0f}s, then recovery cycle "
+                            f"{recovery_cycles_used}/{_cycle_total}..."
+                        )
+                        logger.warning(
+                            "%sOutage recovery cycle %s/%s in %ss | reason=%s status=%s",
+                            agent.log_prefix, recovery_cycles_used, _cycle_total,
+                            _cycle_wait, classified.reason.value, classified.status_code,
+                        )
+                        if not _wait_for_recovery_cycle(
+                            agent, _cycle_wait,
+                            f"outage recovery cycle {recovery_cycles_used}/{_cycle_total}",
+                        ):
+                            agent._vprint(f"{agent.log_prefix}⚡ Interrupt detected during outage recovery wait, aborting.", force=True)
+                            agent._persist_session(messages, conversation_history)
+                            agent.clear_interrupt()
+                            return {
+                                "final_response": (
+                                    f"Operation interrupted while waiting for the provider "
+                                    f"(recovery cycle {recovery_cycles_used}/{_cycle_total})."
+                                ),
+                                "messages": messages,
+                                "api_calls": api_call_count,
+                                "completed": False,
+                                "interrupted": True,
+                            }
+                        # The primary (or an earlier fallback) may be the
+                        # one that came back: start the chain over.
+                        agent._restore_primary_runtime()
                         retry_count = 0
                         compression_attempts = 0
                         primary_recovery_attempted = False

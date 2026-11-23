@@ -6,6 +6,7 @@ Three call sites owe a reply to a platform: the adapter's final-reply send
 drains what the first two could not deliver.
 """
 import asyncio
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -115,6 +116,21 @@ async def test_failed_final_reply_stays_owed(db, ledger):
     assert rows[0]["status"] == "pending"
     assert rows[0]["attempts"] == 1
     assert rows[0]["last_error"] == "platform down"
+
+
+@pytest.mark.asyncio
+async def test_timed_out_final_reply_is_not_sent_again_by_the_replay(db, ledger):
+    # The platform may have posted it; _send_with_retry does not resend a
+    # timeout, and the replay watcher must not either.
+    adapter = StubAdapter(db, results=[SendResult(success=False, error="Timed out", retryable=False)])
+    adapter.set_delivery_ledger(ledger)
+    await _reply(adapter)
+    live_sends = [s["content"] for s in adapter.sent]
+    assert live_sends == ["the reply"]
+
+    await ledger.replay_once({Platform.DISCORD: adapter}, now=time.time() + 3600)
+    assert [s["content"] for s in adapter.sent] == live_sends
+    assert db.list_obligations()[0]["status"] == "abandoned"
 
 
 @pytest.mark.asyncio

@@ -892,3 +892,88 @@ class TestSendVideo:
 
         call_kwargs = connected_adapter._bot.send_video.call_args[1]
         assert call_kwargs["message_thread_id"] == 789
+
+
+# ---------------------------------------------------------------------------
+# Unauthorized senders: no download, no vision call
+# ---------------------------------------------------------------------------
+
+class _StubRunner:
+    """Stands in for GatewayRunner: the adapter asks it who is authorized."""
+
+    def __init__(self, authorized: bool):
+        self.authorized = authorized
+        self.sources = []
+
+    def _is_user_authorized(self, source):
+        self.sources.append(source)
+        return self.authorized
+
+    async def _handle_message(self, event):
+        return None
+
+
+def _gated_adapter(authorized: bool):
+    """An adapter wired to a runner, without the auth bypass of ``adapter``."""
+    a = TelegramAdapter(PlatformConfig(enabled=True, token="fake-token"))
+    runner = _StubRunner(authorized)
+    a.set_message_handler(runner._handle_message)
+    a.handle_message = AsyncMock()
+    return a, runner
+
+
+class TestUnauthorizedMedia:
+    """A stranger's DM must not make the gateway download or analyse media.
+
+    Bots are reachable by anyone who knows the @name. Downloading before the
+    runner's authorization check let a stranger fill the disk (audio and
+    video caches are never pruned) and run paid vision calls on stickers.
+    The event still reaches the runner so it can answer with a pairing code.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_video_is_not_downloaded(self):
+        a, _runner = _gated_adapter(authorized=False)
+        msg = _make_message()
+        msg.video = _make_video()
+        await a._handle_media_message(_make_update(msg), MagicMock())
+        assert msg.video.get_file.await_count == 0
+        a.handle_message.assert_awaited_once()
+        assert a.handle_message.call_args[0][0].media_urls == []
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sticker_runs_no_vision(self):
+        a, _runner = _gated_adapter(authorized=False)
+        msg = _make_message()
+        sticker = MagicMock()
+        sticker.is_animated = False
+        sticker.is_video = False
+        sticker.file_unique_id = "uniq-1"
+        sticker.get_file = AsyncMock(return_value=_make_file_obj(b"webp"))
+        msg.sticker = sticker
+        with patch("tools.vision_tools.vision_analyze_tool", new=AsyncMock()) as vision:
+            await a._handle_media_message(_make_update(msg), MagicMock())
+        assert sticker.get_file.await_count == 0
+        vision.assert_not_called()
+        a.handle_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_document_is_not_downloaded(self):
+        a, _runner = _gated_adapter(authorized=False)
+        doc = _make_document()
+        msg = _make_message(document=doc)
+        await a._handle_media_message(_make_update(msg), MagicMock())
+        assert doc.get_file.await_count == 0
+        a.handle_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_authorized_video_is_downloaded(self):
+        a, runner = _gated_adapter(authorized=True)
+        msg = _make_message()
+        msg.video = _make_video()
+        await a._handle_media_message(_make_update(msg), MagicMock())
+        assert msg.video.get_file.await_count == 1
+        assert a.handle_message.call_args[0][0].media_urls
+        # The runner decides on the event's own source, so chat-allowlisted
+        # posts without a from_user are judged the same way it judges them.
+        assert runner.sources and runner.sources[0].chat_id == "100"

@@ -1,12 +1,12 @@
 (function () {
   "use strict";
-  // hermes-achievements dashboard plugin
-  // Originally authored by @PCinkusz — https://github.com/PCinkusz/hermes-achievements (MIT).
+  // janus-achievements dashboard plugin
+  // Originally authored by @PCinkusz — https://github.com/PCinkusz/janus-achievements (MIT).
   // Bundled into Janus Agent. Upstream repo remains the staging ground for new
   // badges and UI iteration; the in-progress scan banner below is a small addition
   // layered on top of the original dist bundle.
-  const SDK = window.__HERMES_PLUGIN_SDK__;
-  if (!SDK || !window.__HERMES_PLUGINS__) return;
+  const SDK = window.__JANUS_PLUGIN_SDK__;
+  if (!SDK || !window.__JANUS_PLUGINS__) return;
 
   const React = SDK.React;
   const hooks = SDK.hooks;
@@ -50,13 +50,13 @@
 
   function api(path, options) {
     // Delegate to the host SDK's fetchJSON so auth is handled correctly in
-    // BOTH dashboard modes: loopback (X-Hermes-Session-Token header) and
-    // gated OAuth (hermes_session_at cookie via credentials:'include').
-    // Hand-rolling fetch + reading window.__HERMES_SESSION_TOKEN__ directly
+    // BOTH dashboard modes: loopback (X-Janus-Session-Token header) and
+    // gated OAuth (janus_session_at cookie via credentials:'include').
+    // Hand-rolling fetch + reading the session-token global directly
     // 401s in gated mode (the token isn't injected there). fetchJSON throws
     // Error("<status>: <body>") on non-2xx — the call sites' .catch() relies
     // on that to surface errors, so we let it propagate (don't swallow).
-    const url = "/api/plugins/hermes-achievements" + path;
+    const url = "/api/plugins/janus-achievements" + path;
     return SDK.fetchJSON(url, options);
   }
 
@@ -722,5 +722,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("hermes-achievements", AchievementsPage);
+  window.__JANUS_PLUGINS__.register("janus-achievements", AchievementsPage);
 })();

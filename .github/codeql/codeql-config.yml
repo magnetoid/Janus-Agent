@@ -1,0 +1,25 @@
+# CodeQL configuration for .github/workflows/codeql.yml.
+#
+# Runs the same default query suite that GitHub's default setup ran, minus
+# the two Python clear-text heuristics below.
+#
+# Why they are excluded (triage of the 392 open alerts on main, PR #78):
+#   - ~98% were false positives. CodeQL taints model names, base URLs and
+#     provider labels because they travel in the same objects as API keys,
+#     and it treats helpers such as format_secret_source_suffix() as
+#     sensitive only because their names contain "secret".
+#   - Every PR that moved one of those lines got the alert back as "new",
+#     so the CodeQL check failed on large PRs for code the PR never changed.
+#
+# What still guards against logging secrets:
+#   - agent/redact.py RedactingFormatter on every log file
+#     (security.redact_secrets, on by default).
+#   - tests/test_secret_display_masking.py, which fails on any print/log
+#     or f-string that slices a secret instead of using mask_secret().
+name: janus-codeql
+
+query-filters:
+  - exclude:
+      id: py/clear-text-logging-sensitive-data
+  - exclude:
+      id: py/clear-text-storage-sensitive-data

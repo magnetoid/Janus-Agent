@@ -7,8 +7,11 @@ Hermetic-test invariants enforced here (see AGENTS.md for rationale):
    are unset before every test. Local developer keys cannot leak in.
 2. **Isolated JANUS_HOME.** JANUS_HOME points to a per-test tempdir so
    code reading ``~/.janus/*`` via ``get_janus_home()`` can't see the
-   real one. (We do NOT also redirect HOME — that broke subprocesses in
-   CI. Code using ``Path.home() / ".janus"`` instead of the canonical
+   real one. It already points at a throwaway dir while pytest imports
+   test modules (set when this file is imported), so module-scope
+   imports during collection can't see the real one either. (We do NOT
+   also redirect HOME — that broke subprocesses in CI. Code using
+   ``Path.home() / ".janus"`` instead of the canonical
    ``get_janus_home()`` is a bug to fix at the callsite.)
 3. **Deterministic runtime.** TZ=UTC, LANG=C.UTF-8, PYTHONHASHSEED=0.
 4. **No JANUS_SESSION_* inheritance** — the agent's current gateway
@@ -20,11 +23,45 @@ test runner at ``scripts/run_tests.sh``.
 """
 
 import asyncio
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+
+# ── Collection-time JANUS_HOME isolation ────────────────────────────────────
+# pytest imports this file before any test module, and test modules import
+# project code at module scope during collection, before any fixture runs.
+# Many project modules read the Janus home at import: ``tools.approval``
+# loads config.yaml's ``command_allowlist`` into its permanent approvals,
+# ``janus_cli.doctor`` / ``cli`` / ``run_agent`` / ``gateway.core`` load
+# ``<home>/.env`` into ``os.environ``, and ~30 modules cache
+# ``get_janus_home()`` in constants. ``scripts/run_tests.sh`` passes HOME
+# through without JANUS_HOME, so without this those imports read the
+# developer's real ``~/.janus`` (and write a skeleton into it), and its
+# approvals and env vars decide results that CI never sees.
+#
+# Set it unconditionally: a JANUS_HOME exported by the developer's shell or
+# a profile wrapper must not win under bare pytest either. The per-test
+# ``_hermetic_environment`` fixture still gives every test its own fresh
+# home on top of this one.
+_COLLECTION_JANUS_HOME = tempfile.mkdtemp(prefix="janus-collect-")
+os.environ["JANUS_HOME"] = _COLLECTION_JANUS_HOME
+_COLLECTION_HOME_OWNER_PID = os.getpid()
+
+
+def _remove_collection_janus_home() -> None:
+    # A forked child inherits atexit handlers. Only the process that made
+    # the dir removes it, so a child exiting early can't pull it out from
+    # under the rest of the run.
+    if os.getpid() == _COLLECTION_HOME_OWNER_PID:
+        shutil.rmtree(_COLLECTION_JANUS_HOME, ignore_errors=True)
+
+
+atexit.register(_remove_collection_janus_home)
 
 # Ensure project root is importable
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -390,6 +427,26 @@ def _hermetic_environment(tmp_path, monkeypatch):
 def _isolate_janus_home(_hermetic_environment):
     """Alias preserved for any test that yields this name explicitly."""
     return None
+
+
+@pytest.fixture(autouse=True)
+def _no_real_browser(monkeypatch):
+    """Keep ``webbrowser`` from opening real windows during tests.
+
+    OAuth login tests that forgot to stub it opened the real consent page
+    (xAI, Google, MCP servers) in the developer's browser on every local run;
+    CI has no display, so it never showed there. The stand-ins report
+    "could not open", as a headless box does, so callers fall back to printing
+    the URL. Tests that care about the launch still monkeypatch
+    ``webbrowser.open`` themselves, which overrides this.
+    """
+    import webbrowser
+
+    def _not_opened(url, *_args, **_kwargs):
+        return False
+
+    for name in ("open", "open_new", "open_new_tab"):
+        monkeypatch.setattr(webbrowser, name, _not_opened)
 
 
 # ── Module-level state reset — replaced by per-file process isolation ──────

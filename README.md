@@ -14,7 +14,6 @@
 
 <p align="center">
   <a href="https://github.com/magnetoid/janus"><img src="https://img.shields.io/badge/Docs-GitHub-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/imbalabs"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://github.com/magnetoid/janus/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="https://github.com/magnetoid/janus"><img src="https://img.shields.io/badge/Built%20by-Cloud%20Industry-blueviolet?style=for-the-badge" alt="Built by Cloud Industry"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
@@ -293,7 +292,6 @@ Manual path: `uv venv .venv --python 3.11 && source .venv/bin/activate && uv pip
 
 ## 🌐 Community
 
-- 💬 [Discord](https://discord.gg/imbalabs)
 - 📚 [Skills Hub](https://agentskills.io)
 - 🐛 [Issues](https://github.com/magnetoid/janus/issues)
 

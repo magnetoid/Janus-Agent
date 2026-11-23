@@ -52,7 +52,7 @@ People use Janus for software development, research, system administration, data
 
 ```bash
 # Install
-curl -fsSL https://github.com/magnetoid/janus | bash
+curl -fsSL https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.sh | bash
 
 # Interactive chat (default)
 janus

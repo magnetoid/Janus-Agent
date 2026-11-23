@@ -72,6 +72,12 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("JANUS_CRON_AUTO_DELIVER_T
 # process-global TERMINAL_ENV that live interactive gateway sessions read.
 _TERMINAL_BACKEND: ContextVar = ContextVar("JANUS_TERMINAL_BACKEND", default=_UNSET)
 
+# Marks a cron job's own execution so the approval gates apply
+# approvals.cron_mode. Per task, not os.environ: the gateway and the desktop
+# backend run the cron ticker in-process, and a process-wide flag would turn
+# every live chat turn after the first cron job into a "cron session".
+_CRON_SESSION: ContextVar = ContextVar("JANUS_CRON_SESSION", default=_UNSET)
+
 _VAR_MAP = {
     "JANUS_SESSION_PLATFORM": _SESSION_PLATFORM,
     "JANUS_SESSION_CHAT_ID": _SESSION_CHAT_ID,
@@ -86,6 +92,7 @@ _VAR_MAP = {
     "JANUS_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "JANUS_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
     "JANUS_TERMINAL_BACKEND": _TERMINAL_BACKEND,
+    "JANUS_CRON_SESSION": _CRON_SESSION,
 }
 
 

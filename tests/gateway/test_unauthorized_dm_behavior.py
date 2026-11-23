@@ -100,6 +100,46 @@ def test_whatsapp_lid_user_matches_phone_allowlist_via_session_mapping(monkeypat
     assert runner._is_user_authorized(source) is True
 
 
+def test_email_sender_is_not_matched_by_local_part(monkeypatch):
+    """A global allowlist entry must not authorize ``<entry>@any-domain``.
+
+    The local-part alias exists for WhatsApp JIDs (``<phone>@s.whatsapp.net``).
+    Applied to email, GATEWAY_ALLOWED_USERS=123456789 (a Telegram ID) let mail
+    from 123456789@attacker.example drive the agent.
+    """
+    _clear_auth_env(monkeypatch)
+    monkeypatch.setenv("GATEWAY_ALLOWED_USERS", "123456789")
+    runner, _adapter = _make_runner(
+        Platform.EMAIL,
+        GatewayConfig(platforms={Platform.EMAIL: PlatformConfig(enabled=True)}),
+    )
+    source = SessionSource(
+        platform=Platform.EMAIL,
+        user_id="123456789@attacker.example",
+        chat_id="123456789@attacker.example",
+        user_name="tester",
+        chat_type="dm",
+    )
+    assert runner._is_user_authorized(source) is False
+
+
+def test_email_full_address_in_allowlist_still_authorizes(monkeypatch):
+    _clear_auth_env(monkeypatch)
+    monkeypatch.setenv("EMAIL_ALLOWED_USERS", "owner@a.example")
+    runner, _adapter = _make_runner(
+        Platform.EMAIL,
+        GatewayConfig(platforms={Platform.EMAIL: PlatformConfig(enabled=True)}),
+    )
+    source = SessionSource(
+        platform=Platform.EMAIL,
+        user_id="owner@a.example",
+        chat_id="owner@a.example",
+        user_name="tester",
+        chat_type="dm",
+    )
+    assert runner._is_user_authorized(source) is True
+
+
 def test_simplex_allowlist_accepts_display_name(monkeypatch):
     """SIMPLEX_ALLOWED_USERS should match the contact's display name as well
     as the numeric contactId. The SimpleX UI surfaces only display names, so

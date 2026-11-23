@@ -6,6 +6,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from acp_adapter.edit_approval import (
     EditProposal,
     build_acp_edit_tool_call,
@@ -21,6 +23,7 @@ def teardown_function() -> None:
 
 
 def test_acp_permission_tool_call_uses_edit_kind_and_diff_content():
+    pytest.importorskip("acp", reason="agent-client-protocol not installed (the [acp] extra)")
     proposal = EditProposal(
         tool_name="write_file",
         path="demo.txt",

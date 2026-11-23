@@ -4649,11 +4649,21 @@ def _login_xai_oauth(
         open_browser = False
     manual_paste = bool(getattr(args, "manual_paste", False))
 
-    creds = _xai_oauth_loopback_login(
-        timeout_seconds=timeout_seconds,
-        open_browser=open_browser,
-        manual_paste=manual_paste,
-    )
+    # Device code is the default: no 127.0.0.1 listener, no redirect back.
+    # The loopback PKCE flow stays behind --loopback / --manual-paste.
+    if manual_paste or getattr(args, "loopback", False):
+        creds = _xai_oauth_loopback_login(
+            timeout_seconds=timeout_seconds,
+            open_browser=open_browser,
+            manual_paste=manual_paste,
+        )
+    else:
+        from janus_cli import xai_device_login
+
+        creds = xai_device_login.xai_device_code_login(
+            timeout_seconds=timeout_seconds,
+            open_browser=open_browser,
+        )
     _save_xai_oauth_tokens(
         creds["tokens"],
         discovery=creds.get("discovery"),
@@ -4869,7 +4879,9 @@ def _xai_oauth_loopback_login(
         print("Open this URL to authorize Janus with xAI:")
         print(authorize_url)
         callback = _prompt_manual_callback_paste(redirect_uri)
+        pasted = True
     else:
+        pasted = False
         server, thread, callback_result, redirect_uri = _xai_start_callback_server()
         try:
             _xai_validate_loopback_redirect_uri(redirect_uri)
@@ -4922,6 +4934,7 @@ def _xai_oauth_loopback_login(
                 print("You can also re-run with `--manual-paste` to skip the")
                 print("loopback listener from the start.")
                 callback = _prompt_manual_callback_paste(redirect_uri)
+                pasted = True
                 if callback.get("code") is None and callback.get("error") is None:
                     raise exc
         except Exception:
@@ -4955,7 +4968,9 @@ def _xai_oauth_loopback_login(
     # bare-code path — we substitute the locally generated state to keep
     # the rest of the validation chain (and the token exchange) unchanged.
     # See #26923 (AccursedGalaxy comment, 2026-05-20).
-    if callback_state is None and manual_paste:
+    # The same holds for the paste prompt offered after a loopback timeout,
+    # which tells the user to paste the in-page code.
+    if callback_state is None and pasted:
         callback_state = state
     if callback_state != state:
         raise AuthError(

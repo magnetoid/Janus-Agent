@@ -699,6 +699,10 @@ class SessionDB:
 
         Attempts a TRUNCATE WAL checkpoint first so that exiting processes
         help shrink the WAL file.
+
+        The connection is shared across threads (``check_same_thread=False``),
+        so every read and write must hold ``self._lock``: closing while another
+        thread is inside ``execute`` makes SQLite abort the process.
         """
         with self._lock:
             if self._conn:
@@ -1174,11 +1178,12 @@ class SessionDB:
         if not session_id:
             return None
         now = time.time()
-        row = self._conn.execute(
-            "SELECT holder FROM compression_locks "
-            "WHERE session_id = ? AND expires_at >= ?",
-            (session_id, now),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT holder FROM compression_locks "
+                "WHERE session_id = ? AND expires_at >= ?",
+                (session_id, now),
+            ).fetchone()
         if row is None:
             return None
         return row["holder"] if isinstance(row, sqlite3.Row) else row[0]
@@ -4177,7 +4182,10 @@ class SessionDB:
     _FTS_TABLES = ("messages_fts", "messages_fts_trigram")
 
     def _fts_table_exists(self, name: str) -> bool:
-        """True if an FTS5 virtual table is queryable in this DB."""
+        """True if an FTS5 virtual table is queryable in this DB.
+
+        Callers must already hold ``self._lock`` (``optimize_fts`` does).
+        """
         try:
             self._conn.execute(f"SELECT 1 FROM {name} LIMIT 0")
             return True
@@ -4372,12 +4380,12 @@ class SessionDB:
         no handoff record.
         """
         try:
-            cur = self._conn.execute(
-                "SELECT handoff_state, handoff_platform, handoff_error "
-                "FROM sessions WHERE id = ?",
-                (session_id,),
-            )
-            row = cur.fetchone()
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT handoff_state, handoff_platform, handoff_error "
+                    "FROM sessions WHERE id = ?",
+                    (session_id,),
+                ).fetchone()
             if not row:
                 return None
             return {
@@ -4394,12 +4402,13 @@ class SessionDB:
         Used by the gateway's handoff watcher.
         """
         try:
-            cur = self._conn.execute(
-                "SELECT * FROM sessions "
-                "WHERE handoff_state = 'pending' "
-                "ORDER BY started_at ASC"
-            )
-            return [dict(r) for r in cur.fetchall()]
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT * FROM sessions "
+                    "WHERE handoff_state = 'pending' "
+                    "ORDER BY started_at ASC"
+                ).fetchall()
+            return [dict(r) for r in rows]
         except Exception:
             return []
 
@@ -4676,9 +4685,12 @@ class SessionDB:
         return did
 
     def get_delegation(self, delegation_id: str) -> Optional[Dict[str, Any]]:
-        row = self._conn.execute(
-            "SELECT * FROM delegations WHERE id = ?", (delegation_id,)
-        ).fetchone()
+        # Read under the lock: the stop-poller thread calls this while another
+        # thread may close() the shared connection (see close()).
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM delegations WHERE id = ?", (delegation_id,)
+            ).fetchone()
         return self._delegation_row(row) if row else None
 
     def finish_delegation(
@@ -4752,17 +4764,19 @@ class SessionDB:
             params.append(parent_session_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(int(limit))
-        rows = self._conn.execute(
-            f"SELECT * FROM delegations {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
-            params,
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM delegations {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                params,
+            ).fetchall()
         return [self._delegation_row(r) for r in rows]
 
     def running_delegation_pids(self) -> List[int]:
         """Distinct worker pids that still own a running delegation."""
-        rows = self._conn.execute(
-            "SELECT DISTINCT pid FROM delegations WHERE status = 'running' AND pid IS NOT NULL"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT pid FROM delegations WHERE status = 'running' AND pid IS NOT NULL"
+            ).fetchall()
         return [int(r[0]) for r in rows]
 
     def orphan_delegations(

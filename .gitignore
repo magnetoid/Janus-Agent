@@ -29,3 +29,6 @@ apps/desktop/release/
 # repo root, so it holds real credentials and must never be committed.
 .env
 .env.local
+
+# Build metadata (setuptools)
+*.egg-info/

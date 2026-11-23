@@ -42,6 +42,7 @@ gateway:
     error_prefix:           "Error: {error}"
     switched:               "Model switched to `{model}`"
     provider_label:         "Provider: {provider}"
+    training_data_label:    "Training data: {note}"
     cache_switch_warning:   "Same chat continues on the new model. Prompt cache is model-keyed, so the next turn re-bills the full context at fresh-token rates."
     context_label:          "Context: {tokens} tokens"
     max_output_label:       "Max output: {tokens} tokens"
@@ -91,6 +92,9 @@ gateway:
     switch_failed:         "Branch created but failed to switch to it."
     branched_one:          "⑂ Branched to **{title}** ({count} message copied)\nOriginal: `{parent}`\nBranch: `{new}`\nUse `/resume` to switch back to the original."
     branched_many:         "⑂ Branched to **{title}** ({count} messages copied)\nOriginal: `{parent}`\nBranch: `{new}`\nUse `/resume` to switch back to the original."
+    branched_thread:       "⑂ Branched to **{title}** in a new thread.\nThis chat stays on `{parent}`; the branch (`{new}`) continues in the thread."
+    thread_intro:          "⑂ Branch **{title}**, forked from `{parent}`. Reply here to continue it."
+    thread_unavailable:    "(Couldn't open a thread here, so the branch replaces this chat's session.)"
 
   commands:
     usage:                 "Usage: `/commands [page]`"

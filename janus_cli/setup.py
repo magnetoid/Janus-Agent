@@ -870,8 +870,8 @@ def _run_xai_oauth_login_from_setup() -> bool:
             _is_remote_session,
             _save_xai_oauth_tokens,
             _update_config_for_provider,
-            _xai_oauth_loopback_login,
         )
+        from janus_cli.xai_device_login import xai_device_code_login
     except Exception as exc:
         print_warning(f"xAI Grok OAuth helpers unavailable: {exc}")
         return False
@@ -880,7 +880,7 @@ def _run_xai_oauth_login_from_setup() -> bool:
     print()
     print_info("Signing in to xAI Grok OAuth (SuperGrok / Premium+)...")
     try:
-        creds = _xai_oauth_loopback_login(open_browser=open_browser)
+        creds = xai_device_code_login(open_browser=open_browser)
         _save_xai_oauth_tokens(
             creds["tokens"],
             discovery=creds.get("discovery"),

@@ -1024,7 +1024,9 @@ class GatewayRunner:
     def _queue_during_drain_enabled(self) -> bool:
         # Both "queue" and "steer" modes imply the user doesn't want messages
         # to be lost during restart — queue them for the newly-spawned gateway
-        # process to pick up.  "interrupt" mode drops them (current behaviour).
+        # process to pick up (_queue_for_after_restart persists them and
+        # _replay_drain_queued_events replays them).  "interrupt" mode drops
+        # them (current behaviour).
         return self._restart_requested and self._busy_input_mode in {"queue", "steer"}
 
     # -------- /queue FIFO helpers --------------------------------------
@@ -1571,6 +1573,162 @@ class GatewayRunner:
             return
         merge_pending_message_event(adapter._pending_messages, session_key, event)
 
+    # -------- follow-ups queued during a restart drain ---------------------
+    # adapter._pending_messages dies with this process, so a follow-up we
+    # promise "for the next turn after it comes back" is also written here,
+    # one entry per session (the merged pending event, like the in-memory
+    # slot), and replayed once by the next gateway process.
+    _DRAIN_QUEUE_FILE = ".drain_queued_events.json"
+    # A restart takes seconds and a slow /update or service-manager backoff
+    # a few minutes; an hour covers both.  Past that the user has likely
+    # moved on and a sudden answer to an old message confuses more than it
+    # helps, so the entry is dropped instead.  Same default as auto-resume.
+    _DRAIN_QUEUE_MAX_AGE_SECS = 60 * 60
+
+    @classmethod
+    def _drain_queue_path(cls) -> Path:
+        # Resolved per call rather than via the import-time ``_janus_home`` so
+        # it always follows the active JANUS_HOME (profiles, test isolation).
+        return get_janus_home() / cls._DRAIN_QUEUE_FILE
+
+    def _load_drain_queue(self) -> Dict[str, Any]:
+        path = self._drain_queue_path()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            logger.warning("Ignoring unreadable drain queue %s: %s", path, exc)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _queue_for_after_restart(self, session_key: str, event: MessageEvent) -> bool:
+        """Queue a follow-up that arrived during a restart drain.
+
+        Returns True only when the session's pending event was also written
+        to disk, i.e. only when the next gateway process will see it.  The
+        caller must not tell the user it is queued otherwise.
+        """
+        self._queue_or_replace_pending_event(session_key, event)
+        adapter = self.adapters.get(event.source.platform)
+        queued = adapter._pending_messages.get(session_key) if adapter else None
+        if queued is None:
+            return False
+        source = queued.source
+        record = {
+            "queued_at": time.time(),
+            "source": {**source.to_dict(), "is_bot": bool(getattr(source, "is_bot", False))},
+            "text": queued.text or "",
+            "message_type": queued.message_type.value,
+            "message_id": queued.message_id,
+            "media_urls": list(queued.media_urls or []),
+            "media_types": list(queued.media_types or []),
+            "reply_to_message_id": queued.reply_to_message_id,
+            "reply_to_text": queued.reply_to_text,
+            "auto_skill": queued.auto_skill,
+            "channel_prompt": queued.channel_prompt,
+            "channel_context": queued.channel_context,
+        }
+        try:
+            entries = self._load_drain_queue()
+            entries[session_key] = record
+            atomic_json_write(self._drain_queue_path(), entries)
+        except Exception as exc:
+            logger.warning(
+                "Could not persist follow-up for session %s across the gateway %s: %s",
+                session_key,
+                self._status_action_label(),
+                exc,
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _drain_queued_record_to_event(record: Dict[str, Any]) -> tuple:
+        """Rebuild ``(queued_at, MessageEvent)``; raises on a malformed record."""
+        raw_source = record["source"]
+        source = dataclasses.replace(
+            SessionSource.from_dict(raw_source),
+            is_bot=bool(raw_source.get("is_bot", False)),
+        )
+        event = MessageEvent(
+            text=str(record.get("text") or ""),
+            message_type=MessageType(record.get("message_type", MessageType.TEXT.value)),
+            source=source,
+            message_id=record.get("message_id"),
+            media_urls=list(record.get("media_urls") or []),
+            media_types=list(record.get("media_types") or []),
+            reply_to_message_id=record.get("reply_to_message_id"),
+            reply_to_text=record.get("reply_to_text"),
+            auto_skill=record.get("auto_skill"),
+            channel_prompt=record.get("channel_prompt"),
+            channel_context=record.get("channel_context"),
+        )
+        return float(record["queued_at"]), event
+
+    def _replay_drain_queued_events(self, platform=None) -> set:
+        """Replay follow-ups the previous process queued during its restart drain.
+
+        Each replayed event goes through ``adapter.handle_message`` as an
+        ordinary (non-internal) inbound message, so authorization and session
+        routing run again.  Entries are removed from the file *before* they
+        are dispatched: a crash mid-replay can lose one, but nothing is ever
+        delivered twice.  Entries older than ``_DRAIN_QUEUE_MAX_AGE_SECS`` are
+        dropped; entries whose platform has no connected adapter (or is out
+        of ``platform`` scope) stay for the reconnect pass.
+
+        Returns the session keys that were replayed.
+        """
+        entries = self._load_drain_queue()
+        if not entries:
+            return set()
+
+        now = time.time()
+        keep: Dict[str, Any] = {}
+        due: list = []
+        for session_key, record in entries.items():
+            try:
+                queued_at, event = self._drain_queued_record_to_event(record)
+            except Exception as exc:
+                logger.warning("Dropping malformed drain-queued follow-up for %s: %s", session_key, exc)
+                continue
+            age = now - queued_at
+            if age > self._DRAIN_QUEUE_MAX_AGE_SECS:
+                logger.info(
+                    "Dropping follow-up for session %s queued %.0fs ago during a gateway restart (stale)",
+                    session_key,
+                    age,
+                )
+                continue
+            adapter = self.adapters.get(event.source.platform)
+            if adapter is None or (platform is not None and event.source.platform != platform):
+                keep[session_key] = record
+                continue
+            due.append((session_key, adapter, event))
+
+        path = self._drain_queue_path()
+        try:
+            if keep:
+                atomic_json_write(path, keep)
+            else:
+                path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning("Could not claim drain-queued follow-ups in %s; not replaying them: %s", path, exc)
+            return set()
+
+        replayed = set()
+        for session_key, adapter, event in due:
+            task = asyncio.create_task(adapter.handle_message(event))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            replayed.add(session_key)
+        if replayed:
+            logger.info(
+                "Replayed %d follow-up(s) queued during the previous gateway restart",
+                len(replayed),
+            )
+        return replayed
+
     async def _handle_active_session_busy_message(self, event: MessageEvent, session_key: str) -> bool:
         # --- Authorization gate (#17775) ---
         # The cold path (_handle_message) checks _is_user_authorized before
@@ -1596,8 +1754,7 @@ class GatewayRunner:
 
             reply_anchor = self._reply_anchor_for_event(event)
             thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
-            if self._queue_during_drain_enabled():
-                self._queue_or_replace_pending_event(session_key, event)
+            if self._queue_during_drain_enabled() and self._queue_for_after_restart(session_key, event):
                 message = f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
             else:
                 message = f"⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
@@ -2442,7 +2599,19 @@ class GatewayRunner:
         re-touches another platform's in-flight recoveries.  Sessions whose
         agent is already running are skipped regardless, so a session
         scheduled at startup is never resumed a second time.
+
+        Each pass first replays follow-ups that the previous process queued
+        during its restart drain (``_replay_drain_queued_events``, same
+        ``platform`` scope).  A session that gets a replayed message is not
+        also sent the empty continuation turn: the real message goes through
+        the same ``_is_resume_pending`` branch and carries the note itself.
         """
+        try:
+            replayed = self._replay_drain_queued_events(platform)
+        except Exception as exc:
+            logger.warning("Failed to replay drain-queued follow-ups: %s", exc)
+            replayed = set()
+
         window = _auto_continue_freshness_window()
         try:
             with self.session_store._lock:  # noqa: SLF001 — snapshot under lock
@@ -2467,8 +2636,9 @@ class GatewayRunner:
                 continue
 
             # Already being resumed (e.g. scheduled at startup and still
-            # in-flight) — don't synthesize a second continuation turn.
-            if entry.session_key in self._running_agents:
+            # in-flight) or continued by a replayed follow-up — don't
+            # synthesize a second continuation turn.
+            if entry.session_key in self._running_agents or entry.session_key in replayed:
                 continue
 
             source = entry.origin
@@ -2997,7 +3167,8 @@ class GatewayRunner:
                 _clear_planned_restart_notification()
 
         # Automatically continue fresh sessions that were interrupted by the
-        # previous gateway restart/shutdown.  The resume_pending flag is cleared
+        # previous gateway restart/shutdown, and replay follow-ups it queued
+        # during its restart drain.  The resume_pending flag is cleared
         # by the normal successful-turn path, so a failed auto-resume remains
         # visible for manual recovery on the next user message.
         self._schedule_resume_pending_sessions()
@@ -3319,7 +3490,9 @@ class GatewayRunner:
         whose reset policy has expired, invokes ``on_session_finalize``
         hooks, cleans up the cached AIAgent's tool resources, evicts the
         cache entry so it can be garbage-collected, and marks the session
-        so it won't be finalized again.
+        so it won't be finalized again.  A session with a turn running
+        (including the pending sentinel) is left for a later tick, so a turn
+        that crosses the reset hour never loses its agent mid-run.
         """
         await asyncio.sleep(60)  # initial delay — let the gateway fully start
         _finalize_failures: dict[str, int] = {}  # session_id -> consecutive failure count
@@ -3331,6 +3504,16 @@ class GatewayRunner:
                 _expired_entries = []
                 for key, entry in list(self.session_store._entries.items()):
                     if entry.expiry_finalized:
+                        continue
+                    # A turn is running, or has claimed the session and is
+                    # still building its agent (the pending sentinel; it may
+                    # already hold the cached agent).  The reset policy reads
+                    # updated_at, which a turn only writes when it starts and
+                    # after it ends, so a long turn that crosses the reset
+                    # hour looks expired here.  Finalizing it would hard-close
+                    # the agent the turn is using.  Leave it for a later tick:
+                    # once the turn ends, the policy is evaluated afresh.
+                    if key in self._running_agents:
                         continue
                     if not self.session_store._is_session_expired(entry):
                         continue
@@ -3367,19 +3550,16 @@ class GatewayRunner:
                         except Exception:
                             pass
                         # Shut down memory provider and close tool resources
-                        # on the cached agent.  Idle agents live in
-                        # _agent_cache (not _running_agents), so look there.
+                        # on the cached agent.  Sessions with a running turn
+                        # were skipped above, so only idle agents get here,
+                        # and idle agents live in _agent_cache.
                         _cached_agent = None
                         _cache_lock = getattr(self, "_agent_cache_lock", None)
                         if _cache_lock is not None:
                             with _cache_lock:
                                 _cached = self._agent_cache.get(key)
                                 _cached_agent = _cached[0] if isinstance(_cached, tuple) else _cached if _cached else None
-                        # Fall back to _running_agents in case the agent is
-                        # still mid-turn when the expiry fires.
-                        if _cached_agent is None:
-                            _cached_agent = self._running_agents.get(key)
-                        if _cached_agent and _cached_agent is not _AGENT_PENDING_SENTINEL:
+                        if _cached_agent:
                             self._cleanup_agent_resources(_cached_agent)
                         # Drop the cache entry so the AIAgent (and its LLM
                         # clients, tool schemas, memory provider refs) can
@@ -5552,7 +5732,11 @@ class GatewayRunner:
             return True
 
         check_ids = {user_id}
-        if "@" in user_id:
+        # WhatsApp JIDs (<phone>@s.whatsapp.net) also match the bare phone.
+        # Never for other platforms: for email or iMessage handles the part
+        # before "@" is chosen by the sender, so an allowlisted Telegram ID
+        # would authorize <id>@any-domain.
+        if "@" in user_id and source.platform == Platform.WHATSAPP:
             check_ids.add(user_id.split("@")[0])
 
         # WhatsApp: resolve phone↔LID aliases from bridge session mapping files
@@ -6307,13 +6491,9 @@ class GatewayRunner:
                     )
                 return None
             if self._draining:
-                if self._queue_during_drain_enabled():
-                    self._queue_or_replace_pending_event(_quick_key, event)
-                return (
-                    f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
-                    if self._queue_during_drain_enabled()
-                    else f"⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
-                )
+                if self._queue_during_drain_enabled() and self._queue_for_after_restart(_quick_key, event):
+                    return f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
+                return f"⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
             if self._busy_input_mode == "queue":
                 logger.debug("PRIORITY queue follow-up for session %s", _quick_key)
                 self._queue_or_replace_pending_event(_quick_key, event)
@@ -9607,6 +9787,9 @@ class GatewayRunner:
                         plabel = result.provider_label or result.target_provider
                         lines = [t("gateway.model.switched", model=result.new_model)]
                         lines.append(t("gateway.model.provider_label", provider=plabel))
+                        from janus_cli.model_switch import training_data_tier
+                        lines.append(t("gateway.model.training_data_label",
+                                     note=training_data_tier(result.target_provider, result.base_url or "")[1]))
                         # Gateway sessions are persistent, so a switch is
                         # almost always mid-conversation — surface the
                         # cache-invalidation cost (model-keyed prompt cache).
@@ -9806,6 +9989,9 @@ class GatewayRunner:
         provider_label = result.provider_label or result.target_provider
         lines = [t("gateway.model.switched", model=result.new_model)]
         lines.append(t("gateway.model.provider_label", provider=provider_label))
+        from janus_cli.model_switch import training_data_tier
+        lines.append(t("gateway.model.training_data_label",
+                     note=training_data_tier(result.target_provider, result.base_url or "")[1]))
         if reasoning is not None:
             lines.append(self._apply_model_reasoning(
                 session_key, reasoning, persist_global=persist_global,
@@ -12429,11 +12615,17 @@ class GatewayRunner:
         return t("gateway.resume.resumed_many", title=title, count=msg_count)
 
     async def _handle_branch_command(self, event: MessageEvent) -> str:
-        """Handle /branch [name] — fork the current session into a new independent copy.
+        """Handle /branch [--thread|--here] [name] — fork the current session.
 
         Copies conversation history to a new session so the user can explore
         a different approach without losing the original.
         Inspired by Claude Code's /branch command.
+
+        By default the branch replaces this chat's session (``--here``).  With
+        ``--thread`` (or ``branch_in_thread: true`` in config.yaml) the adapter
+        opens a sibling thread and the branch lives there, while this chat
+        keeps the original session.  Platforms or chats that can't hold a new
+        thread fall back to branching in place.
         """
         import uuid as _uuid
 
@@ -12450,7 +12642,15 @@ class GatewayRunner:
         if not history:
             return t("gateway.branch.no_conversation")
 
-        branch_name = event.get_command_args().strip()
+        tokens = event.get_command_args().split()
+        flags = {tok for tok in tokens if tok in ("--thread", "--here")}
+        branch_name = " ".join(tok for tok in tokens if tok not in flags).strip()
+        if "--here" in flags:
+            want_thread = False
+        elif "--thread" in flags:
+            want_thread = True
+        else:
+            want_thread = bool(getattr(self.config, "branch_in_thread", False))
 
         # Generate the new session ID
         from datetime import datetime as _dt
@@ -12512,6 +12712,34 @@ class GatewayRunner:
         except Exception:
             pass
 
+        msg_count = len([m for m in history if m.get("role") == "user"])
+
+        fallback_note = ""
+        if want_thread:
+            adapter = (getattr(self, "adapters", None) or {}).get(source.platform)
+            thread_source = None
+            if adapter is not None:
+                intro = t(
+                    "gateway.branch.thread_intro",
+                    title=branch_title,
+                    parent=parent_session_id,
+                )
+                try:
+                    thread_source = await adapter.open_branch_thread(source, branch_title, intro)
+                except Exception as e:
+                    logger.warning("Could not open a thread for /branch: %s", e)
+            if thread_source is not None:
+                # The thread gets the branch; this chat keeps its session.
+                self.session_store.bind_session(thread_source, new_session_id)
+                return t(
+                    "gateway.branch.branched_thread",
+                    title=branch_title,
+                    count=msg_count,
+                    parent=parent_session_id,
+                    new=new_session_id,
+                )
+            fallback_note = t("gateway.branch.thread_unavailable") + "\n"
+
         # Switch the session store entry to the new session
         new_entry = self.session_store.switch_session(session_key, new_session_id)
         if not new_entry:
@@ -12521,9 +12749,10 @@ class GatewayRunner:
         # Evict any cached agent for this session
         self._evict_cached_agent(session_key)
 
-        msg_count = len([m for m in history if m.get("role") == "user"])
         key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
-        return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
+        return fallback_note + t(
+            key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id
+        )
 
     async def _handle_usage_command(self, event: MessageEvent) -> str:
         """Handle /usage command -- show token usage for the current session.

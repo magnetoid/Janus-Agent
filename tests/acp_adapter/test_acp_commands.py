@@ -2,6 +2,9 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
+
+pytest.importorskip("acp", reason="agent-client-protocol not installed (the [acp] extra)")
+
 from acp.schema import TextContentBlock
 
 from acp_adapter.server import JanusACPAgent

@@ -558,6 +558,104 @@ def test_xai_loopback_login_timeout_falls_back_to_manual_paste(monkeypatch):
     assert creds["tokens"]["refresh_token"] == "rt-timeout"
 
 
+def test_xai_loopback_login_timeout_accepts_bare_code_paste(monkeypatch):
+    """After a loopback timeout, pasting the bare code xAI shows in-page must work.
+
+    xAI's consent page often renders the code instead of redirecting to
+    127.0.0.1, and the timeout prompt tells the user to paste it. A bare
+    code has no ``state``; PKCE still binds the exchange, so the local state
+    stands in, exactly as on the ``--manual-paste`` path.
+    """
+    monkeypatch.setattr(
+        auth_mod, "_xai_oauth_discovery",
+        lambda *_a, **_k: {
+            "authorization_endpoint": "https://auth.x.ai/oauth2/authorize",
+            "token_endpoint": "https://auth.x.ai/oauth2/token",
+        },
+    )
+
+    class _StubServer:
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    class _StubThread:
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(
+        auth_mod,
+        "_xai_start_callback_server",
+        lambda: (
+            _StubServer(),
+            _StubThread(),
+            {
+                "code": None,
+                "state": None,
+                "error": None,
+                "error_description": None,
+            },
+            "http://127.0.0.1:56121/callback",
+        ),
+    )
+
+    captured: dict = {"state": None, "prompt_calls": 0}
+    original_build = auth_mod._xai_oauth_build_authorize_url
+
+    def _capture(**kwargs):
+        captured["state"] = kwargs["state"]
+        return original_build(**kwargs)
+
+    monkeypatch.setattr(auth_mod, "_xai_oauth_build_authorize_url", _capture)
+
+    def _raise_timeout(*_a, **_k):
+        raise auth_mod.AuthError(
+            "xAI authorization timed out waiting for the local callback.",
+            provider="xai-oauth",
+            code="xai_callback_timeout",
+        )
+
+    monkeypatch.setattr(auth_mod, "_xai_wait_for_callback", _raise_timeout)
+
+    def _fake_prompt(_redirect_uri):
+        captured["prompt_calls"] += 1
+        return {
+            "code": "bare-code-from-xai-page",
+            "state": None,
+            "error": None,
+            "error_description": None,
+        }
+
+    monkeypatch.setattr(auth_mod, "_prompt_manual_callback_paste", _fake_prompt)
+    monkeypatch.setattr(
+        auth_mod.sys, "stdin", type("StubStdin", (), {"isatty": lambda self: True})()
+    )
+    monkeypatch.setattr(
+        auth_mod.httpx,
+        "post",
+        lambda *_a, **_k: _StubTokenResponse(
+            {
+                "access_token": "at-bare",
+                "refresh_token": "rt-bare",
+                "id_token": "",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            }
+        ),
+    )
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        creds = auth_mod._xai_oauth_loopback_login(manual_paste=False)
+
+    rendered = buf.getvalue()
+    assert captured["prompt_calls"] == 1
+    assert creds["tokens"]["access_token"] == "at-bare"
+    assert creds["tokens"]["refresh_token"] == "rt-bare"
+
+
 def test_xai_loopback_login_timeout_noninteractive_reraises(monkeypatch):
     """Non-interactive stdin must keep the original timeout error."""
     monkeypatch.setattr(

@@ -30,14 +30,14 @@ def _clean_approval_store():
     """Start every test from an empty session/permanent approval store.
 
     ``tools.approval`` calls ``load_permanent_allowlist()`` at import time,
-    and import happens during collection — before conftest's per-test
-    ``JANUS_HOME`` redirect is in effect — so the *real* ``config.yaml``'s
-    ``command_allowlist`` lands in ``_permanent_approved``.  On any machine
-    where an operator once answered "Always" to an execute_code prompt,
-    ``is_approved()`` short-circuits ``check_execute_code_guard`` to approved
-    before it ever reaches the branch under test, and the whole decision
-    matrix below silently stops testing anything.  Clear it both ways so the
-    guard's behavior — not the host's approval history — decides the result.
+    during collection.  tests/conftest.py points ``JANUS_HOME`` at an empty
+    throwaway home before collection, so that normally loads nothing (before
+    it did, the real ``config.yaml``'s ``command_allowlist`` landed here).
+    Any approval in the store makes ``is_approved()`` short-circuit
+    ``check_execute_code_guard`` to approved before it reaches the branch
+    under test, and the decision matrix below silently stops testing
+    anything.  Clear it both ways so the guard's behavior — not an approval
+    loaded at import or left by an earlier test — decides the result.
     """
     def _reset():
         with A._lock:

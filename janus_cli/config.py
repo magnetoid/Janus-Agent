@@ -92,6 +92,39 @@ def _backup_corrupt_config(config_path: Path) -> Optional[Path]:
         return None
 
 
+class ConfigParseError(ValueError):
+    """config.yaml exists but cannot be read as a mapping, so it must not be rewritten."""
+
+
+def _read_config_for_update(config_path: Path) -> Dict[str, Any]:
+    """Read config.yaml for a read-modify-write, refusing anything but a mapping.
+
+    A missing, empty or comments-only file is ``{}``. A file that does not
+    parse, cannot be read, or is not a mapping raises ``ConfigParseError``
+    (after a best-effort ``.bak`` snapshot): writing the update back would
+    replace the user's whole config with the one new key.
+    """
+    if not config_path.exists():
+        return {}
+    try:
+        text = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        problem = f"cannot be parsed ({exc})"
+    else:
+        if data is None:
+            return {}
+        if isinstance(data, dict):
+            return data
+        problem = f"is not a mapping (top level is {type(data).__name__})"
+    backup = _backup_corrupt_config(config_path)
+    message = f"{config_path} {problem}. Nothing was changed."
+    if backup is not None:
+        message += f" A copy was saved to {backup}."
+    message += " Fix the file (janus config edit), then run the command again."
+    raise ConfigParseError(message)
+
+
 def _warn_config_parse_failure(
     config_path: Path, exc: Exception, last_good: Optional[Path] = None,
 ) -> None:
@@ -865,6 +898,12 @@ DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
     "fallback_providers": [],
+    # Free-tier presets (`janus fallback add --free`) whose tier may train on
+    # your conversations are skipped at fallback time unless you said yes
+    # when adding them; true allows every such preset without asking.
+    "fallback": {
+        "allow_training_providers": False,
+    },
     "credential_pool_strategies": {},
     "toolsets": ["janus-cli"],
     # Sections below are owned by their own tools/commands. Empty means
@@ -906,6 +945,11 @@ DEFAULT_CONFIG = {
         # on flaky primaries; raise it if you prefer to tolerate longer
         # provider hiccups on a single provider.
         "api_max_retries": 3,
+        # Provider outage recovery: when every retry and fallback fails with
+        # an overload/5xx/timeout error, wait (30s, 60s, 120s … capped at
+        # 300s) and run the retry block again, up to this many times per
+        # turn, instead of ending the turn.  0 = end the turn (default).
+        "auto_recovery_cycles": 0,
         "service_tier": "",
         # Tool-use enforcement: injects system prompt guidance that tells the
         # model to actually call tools instead of describing intended actions.
@@ -1866,6 +1910,10 @@ DEFAULT_CONFIG = {
         # prompt-injection persistence vector. Widen deliberately, e.g.
         # ["cli", "telegram"], only for surfaces whose senders you trust.
         "graduate_sources": ["cli"],
+        # Append a human-readable summary of each completed cycle (what was
+        # graduated, retired, forgotten, synthesized) to memories/DREAMS.md.
+        # Read it with `janus memory log --digest`. Never loaded into prompts.
+        "dreams_digest": True,
     },
 
     # Spend budget (agent/cost_ledger.py). Every API turn is appended to a
@@ -2428,6 +2476,10 @@ DEFAULT_CONFIG = {
         "reactions": False,            # Add 👀/✅/❌ reactions to messages during processing
         "channel_prompts": {},         # Per-chat/topic ephemeral system prompts (topics inherit from parent group)
         "allowed_chats": "",           # If set, bot ONLY responds in these group/supergroup chat IDs (whitelist)
+        # Unset sentinels (None): the TELEGRAM_* env var, then the built-in
+        # default, decides — so a saved config.yaml doesn't pin them.
+        "bots_require_mention": None,       # true: other bots must @mention us (stops bot-to-bot loops); default off
+        "drop_pending_on_cold_boot": None,  # false: deliver messages sent while the gateway was offline; default true
     },
 
     # Mattermost platform settings (gateway mode)
@@ -3116,6 +3168,14 @@ OPTIONAL_ENV_VARS = {
         "prompt": "xAI base URL (leave empty for default)",
         "url": None,
         "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
+    "GROQ_API_KEY": {
+        "description": "Groq API key (free-tier fallback via `janus fallback add --free`)",
+        "prompt": "Groq API key",
+        "url": "https://console.groq.com/keys",
+        "password": True,
         "category": "provider",
         "advanced": True,
     },
@@ -6134,21 +6194,15 @@ def _check_non_ascii_credential(key: str, value: str) -> str:
     except UnicodeEncodeError:
         pass
 
-    # Build a readable list of the offending characters
-    bad_chars: list[str] = []
-    for i, ch in enumerate(value):
-        if ord(ch) > 127:
-            bad_chars.append(f"  position {i}: {ch!r} (U+{ord(ch):04X})")
     sanitized = value.encode("ascii", errors="ignore").decode("ascii")
 
+    # Name the variable only: nothing derived from the secret (characters,
+    # code points, positions) is printed, since terminals and logs keep it.
     print(
         f"\n  Warning: {key} contains non-ASCII characters that will break API requests.\n"
         f"  This usually happens when copy-pasting from a PDF, rich-text editor,\n"
         f"  or web page that substitutes lookalike Unicode glyphs for ASCII letters.\n"
-        f"\n"
-        + "\n".join(f"  {line}" for line in bad_chars[:5])
-        + ("\n  ... and more" if len(bad_chars) > 5 else "")
-        + f"\n\n  The non-ASCII characters have been stripped automatically.\n"
+        f"\n  The non-ASCII characters have been stripped automatically.\n"
         f"  If authentication fails, re-copy the key from the provider's dashboard.\n",
         file=sys.stderr,
     )
@@ -6670,14 +6724,9 @@ def set_config_value(key: str, value: str):
     # Read the raw user config (not merged with defaults) to avoid
     # dumping all default values back to the file
     config_path = get_config_path()
-    user_config = {}
-    if config_path.exists():
-        try:
-            with open(config_path, encoding="utf-8") as f:
-                user_config = yaml.safe_load(f) or {}
-        except Exception:
-            user_config = {}
-    
+    # Raises ConfigParseError rather than treating a broken file as empty.
+    user_config = _read_config_for_update(config_path)
+
     # Handle nested keys (e.g., "tts.provider") including numeric list
     # indices (e.g., "custom_providers.0.api_key").  Delegates to
     # _set_nested which preserves list-typed nodes; before #17876 the
@@ -6761,7 +6810,11 @@ def config_command(args):
             print("  janus config set terminal.backend docker")
             print("  janus config set OPENROUTER_API_KEY sk-or-...")
             sys.exit(1)
-        set_config_value(key, value)
+        try:
+            set_config_value(key, value)
+        except ConfigParseError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            sys.exit(1)
     
     elif subcmd == "get":
         key = getattr(args, 'key', None)

@@ -160,10 +160,6 @@ async def start_oauth_login(provider_id: str, request: web_server_mod.Request):
             return web_server_mod._start_anthropic_pkce()
         if catalog_entry["flow"] == "device_code":
             return await web_server_mod._start_device_code_flow(provider_id)
-        if catalog_entry["flow"] == "loopback" and provider_id == "xai-oauth":
-            return await web_server_mod.asyncio.get_running_loop().run_in_executor(
-                None, web_server_mod._start_xai_loopback_flow
-            )
     except web_server_mod.HTTPException:
         raise
     except Exception as e:
@@ -185,10 +181,9 @@ async def submit_oauth_code(provider_id: str, body: web_server_mod.OAuthSubmitBo
 async def poll_oauth_session(provider_id: str, session_id: str):
     """Poll a session's status (no auth — read-only state).
 
-    Shared by the device-code flows (OpenAI Codex, MiniMax) and the
-    loopback flow (xAI Grok). Both surface progress through the same
-    background-worker-updated ``status`` field, so a single poll endpoint
-    serves them all.
+    Shared by the device-code flows (OpenAI Codex, MiniMax, xAI Grok),
+    which all surface progress through the same background-worker-updated
+    ``status`` field.
     """
     with web_server_mod._oauth_sessions_lock:
         sess = web_server_mod._oauth_sessions.get(session_id)
@@ -211,32 +206,5 @@ async def cancel_oauth_session(session_id: str, request: web_server_mod.Request)
         sess = web_server_mod._oauth_sessions.pop(session_id, None)
     if sess is None:
         return {"ok": False, "message": "session not found"}
-    # Loopback sessions own a bound 127.0.0.1 callback server. Without an
-    # explicit shutdown the worker would keep that port held until
-    # _xai_wait_for_callback times out (up to 5 min). Free it immediately so
-    # an orphaned listener can't block a subsequent sign-in attempt.
-    if sess.get("flow") == "loopback":
-        # The worker is blocked in _xai_wait_for_callback, which polls
-        # callback_result rather than the server state. Flag the result as
-        # cancelled so that loop returns on its next tick instead of spinning
-        # until the timeout — otherwise repeated cancel/retry piles up daemon
-        # threads. (_cancelled() in the worker then short-circuits before any
-        # persist.)
-        result = sess.get("callback_result")
-        if isinstance(result, dict):
-            result["error"] = result.get("error") or "cancelled"
-        server = sess.get("server")
-        thread = sess.get("thread")
-        try:
-            if server is not None:
-                server.shutdown()
-                server.server_close()
-        except Exception:
-            pass
-        try:
-            if thread is not None:
-                thread.join(timeout=1.0)
-        except Exception:
-            pass
     return {"ok": True, "session_id": session_id}
 

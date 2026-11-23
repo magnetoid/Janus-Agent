@@ -15,6 +15,11 @@ import janus_cli.gateway as gateway_cli
 from janus_cli import doctor as doctor_mod
 from janus_cli.doctor import _has_provider_env_config
 
+# Every test here gets a fake home and project root, and no real gh/docker/npm
+# (see tests/janus_cli/conftest.py). `--fix` used to re-point the developer's
+# real ~/.local/bin/janus at this checkout's venv.
+pytestmark = pytest.mark.usefixtures("hermetic_doctor")
+
 
 class TestDoctorPlatformHints:
     def test_termux_package_hint(self, monkeypatch):
@@ -848,6 +853,33 @@ class TestGitHubTokenCheck:
         assert "gh auth" in str(call_log) or any(c[0] == "gh" for c in call_log), f"gh not called: {call_log}"
         assert "GitHub authenticated via gh CLI" in out or "token configured" in out
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="the fake CLIs are POSIX shell scripts")
+    def test_doctor_never_executes_gh_docker_or_npm(self, monkeypatch, tmp_path):
+        """gh reads the developer's GitHub login and can reach the network;
+        npm audit queries the registry; docker asks the local daemon."""
+        bin_dir = tmp_path / "fakebin"
+        ran_dir = tmp_path / "ran"
+        bin_dir.mkdir()
+        ran_dir.mkdir()
+        for name in ("gh", "docker", "npm"):
+            script = bin_dir / name
+            script.write_text(f'#!/bin/sh\ntouch "{ran_dir / name}"\nexit 1\n', encoding="utf-8")
+            script.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+        # Make every CLI-backed check live: forget the per-process docker
+        # lookups and give `npm audit` a node_modules to audit.
+        from tools.environments import docker as docker_env
+
+        monkeypatch.delenv("JANUS_DOCKER_BINARY", raising=False)
+        monkeypatch.setattr(docker_env, "_docker_executable", None)
+        monkeypatch.setattr(docker_env, "_docker_usable_cache", None)
+        (tmp_path / "project" / "node_modules").mkdir(parents=True)
+
+        out = TestDoctorMemoryProviderSection()._run_doctor_and_capture(monkeypatch, tmp_path)
+
+        assert sorted(p.name for p in ran_dir.iterdir()) == []
+        assert "No GITHUB_TOKEN" in out
+
 
 def _run_doctor_with_healthy_oauth_fallback(
     monkeypatch,
@@ -1331,6 +1363,44 @@ class TestDoctorStaleMaxIterationsDrift:
         env_after = (janus_home / ".env").read_text(encoding="utf-8")
         assert "JANUS_MAX_ITERATIONS" not in env_after
         assert "OPENAI_API_KEY=sk-test" in env_after  # other keys preserved
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Command Installation is Unix-only")
+    @pytest.mark.parametrize("existing_target", [None, "/nonexistent/janus"])
+    def test_fix_never_touches_the_command_link_in_the_real_home(
+        self, monkeypatch, tmp_path, existing_target
+    ):
+        """`--fix` creates or re-points ~/.local/bin/janus. In tests that link
+        must land in the fake home, never in the home that HOME points at."""
+        real_home = tmp_path / "realhome"
+        link = real_home / ".local" / "bin" / "janus"
+        link.parent.mkdir(parents=True)
+        if existing_target is not None:
+            link.symlink_to(existing_target)
+        monkeypatch.setenv("HOME", str(real_home))
+        # A checkout with a venv entry point, so the symlink step runs.
+        project = tmp_path / "checkout"
+        (project / ".venv" / "bin").mkdir(parents=True)
+        (project / ".venv" / "bin" / "janus").write_text("#!/bin/sh\n", encoding="utf-8")
+        monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
+
+        out, _ = self._run_config_section(
+            monkeypatch, tmp_path, fix=True, ghost=90, cfg_turns=400,
+        )
+
+        if existing_target is None:
+            assert not os.path.lexists(link)
+        else:
+            assert os.readlink(link) == existing_target
+        assert "Created symlink" in out  # the fix did run, against the fake home
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Command Installation is Unix-only")
+    def test_fix_never_acts_on_this_checkout(self, monkeypatch, tmp_path):
+        """Doctor must not see this checkout as PROJECT_ROOT. --fix would
+        link its venv, and npm audit would run in its node_modules."""
+        out, _ = self._run_config_section(
+            monkeypatch, tmp_path, fix=True, ghost=90, cfg_turns=400,
+        )
+        assert "Venv entry point not found" in out
 
     def test_no_drift_when_values_match(self, monkeypatch, tmp_path):
         out, _ = self._run_config_section(
