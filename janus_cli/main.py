@@ -3831,6 +3831,7 @@ def _model_flow_xai_oauth(_config, current_model="", *, args=None):
                 # can't reach the manual-paste path via ``janus model``.
                 mock_args = argparse.Namespace(
                     manual_paste=bool(getattr(args, "manual_paste", False)),
+                    loopback=bool(getattr(args, "loopback", False)),
                     no_browser=bool(getattr(args, "no_browser", False)),
                     timeout=getattr(args, "timeout", None),
                 )
@@ -3853,6 +3854,7 @@ def _model_flow_xai_oauth(_config, current_model="", *, args=None):
         try:
             mock_args = argparse.Namespace(
                 manual_paste=bool(getattr(args, "manual_paste", False)),
+                loopback=bool(getattr(args, "loopback", False)),
                 no_browser=bool(getattr(args, "no_browser", False)),
                 timeout=getattr(args, "timeout", None),
             )
@@ -13294,6 +13296,14 @@ def main():
         help="Do not attempt to open the browser automatically during Nous login",
     )
     model_parser.add_argument(
+        "--loopback",
+        action="store_true",
+        help=(
+            "xai-oauth only: sign in with the browser-redirect (127.0.0.1 "
+            "callback) flow instead of the default device code."
+        ),
+    )
+    model_parser.add_argument(
         "--manual-paste",
         action="store_true",
         help=(
@@ -13914,6 +13924,14 @@ def main():
         "--no-browser",
         action="store_true",
         help="Do not auto-open a browser for OAuth login",
+    )
+    auth_add.add_argument(
+        "--loopback",
+        action="store_true",
+        help=(
+            "xai-oauth only: sign in with the browser-redirect (127.0.0.1 "
+            "callback) flow instead of the default device code."
+        ),
     )
     auth_add.add_argument(
         "--manual-paste",

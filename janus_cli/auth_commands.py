@@ -324,23 +324,30 @@ def auth_add_command(args) -> None:
         return
 
     if provider == "xai-oauth":
-        creds = auth_mod._xai_oauth_loopback_login(
-            timeout_seconds=getattr(args, "timeout", None) or 20.0,
-            open_browser=not getattr(args, "no_browser", False),
-            manual_paste=bool(getattr(args, "manual_paste", False)),
-        )
+        manual_paste = bool(getattr(args, "manual_paste", False))
+        if manual_paste or getattr(args, "loopback", False):
+            creds = auth_mod._xai_oauth_loopback_login(
+                timeout_seconds=getattr(args, "timeout", None) or 20.0,
+                open_browser=not getattr(args, "no_browser", False),
+                manual_paste=manual_paste,
+            )
+        else:
+            from janus_cli import xai_device_login
+
+            creds = xai_device_login.xai_device_code_login(
+                timeout_seconds=getattr(args, "timeout", None) or 20.0,
+                open_browser=not getattr(args, "no_browser", False),
+            )
         auth_mod._save_xai_oauth_tokens(
             creds["tokens"],
             discovery=creds.get("discovery"),
             redirect_uri=creds.get("redirect_uri", ""),
             last_refresh=creds.get("last_refresh"),
         )
-        pool = load_pool(provider)
-        entry = next((e for e in pool.entries() if getattr(e, "source", "") == "loopback_pkce"), None)
-        shown_label = entry.label if entry is not None else label_from_token(
-            creds["tokens"]["access_token"], _oauth_default_label(provider, 1)
-        )
-        print(f'Saved {provider} OAuth credentials: "{shown_label}"')
+        # load_pool seeds the pool's loopback_pkce entry from the singleton.
+        load_pool(provider)
+        # Fixed message: nothing decoded from the token is echoed to stdout.
+        print("Saved xai-oauth OAuth credentials.")
         return
 
     if provider == "google-gemini-cli":
