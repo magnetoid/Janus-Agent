@@ -6,8 +6,16 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from gateway.config import PlatformConfig
+from gateway.platforms import wecom_callback
 from gateway.platforms.wecom_callback import WecomCallbackAdapter
 from gateway.platforms.wecom_crypto import WXBizMsgCrypt
+
+# _build_event parses the decrypted callback body with defusedxml (ET is None
+# without it). Only the classes that build events need it; the crypto,
+# routing and token tests run either way.
+requires_defusedxml = pytest.mark.skipif(
+    not wecom_callback.DEFUSEDXML_AVAILABLE, reason="defusedxml not installed"
+)
 
 
 def _app(name="test-app", corp_id="ww1234567890", agent_id="1000002"):
@@ -54,6 +62,7 @@ class TestWecomCrypto:
             crypt.decrypt("bad-sig", "1", "n", root.findtext("Encrypt", default=""))
 
 
+@requires_defusedxml
 class TestWecomCallbackEventConstruction:
     def test_build_event_extracts_text_message(self):
         adapter = WecomCallbackAdapter(_config())
@@ -277,6 +286,7 @@ class TestWecomCallbackSendTokenRefresh:
         assert len(post_calls) == 2
 
 
+@requires_defusedxml
 class TestWecomCallbackPollLoop:
     @pytest.mark.asyncio
     async def test_poll_loop_dispatches_handle_message(self, monkeypatch):

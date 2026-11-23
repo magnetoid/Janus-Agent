@@ -16,6 +16,8 @@ from io import StringIO
 
 import pytest
 
+pytest.importorskip("acp", reason="agent-client-protocol not installed (the [acp] extra)")
+
 from acp.exceptions import RequestError
 
 from acp_adapter.entry import _BenignProbeMethodFilter
