@@ -212,6 +212,76 @@ def test_replay_accepts_an_injected_sender_for_standalone_use(ledger, db, clock)
     assert calls[0]["platform"] == "slack" and calls[0]["chat_id"] == "C1"
 
 
+# --- uncertain outcomes (timeouts) -----------------------------------------
+# A read/write timeout means the platform may already have posted the reply.
+# The adapters refuse to resend one (BasePlatformAdapter._send_with_retry, the
+# Telegram send path), so the ledger must not resend it either, or the user
+# gets the same answer again with a fresh push notification.
+
+class ReadTimeout(Exception):
+    """Named like httpx.ReadTimeout: the request went out, the answer did not come back."""
+
+
+class ConnectTimeout(Exception):
+    """Named like httpx.ConnectTimeout: no connection, so nothing was sent."""
+
+
+@pytest.mark.parametrize("outcome", [
+    pytest.param({"result": SendResult(success=False, error="Timed out", retryable=False)},
+                 id="adapter-timeout-result"),
+    pytest.param({"error": ReadTimeout("The read operation timed out")}, id="raised-read-timeout"),
+    pytest.param({"error": "delivery to telegram:42 failed: Timed out"}, id="cron-error-string"),
+])
+def test_a_live_send_that_timed_out_is_never_replayed(ledger, db, clock, outcome):
+    oid = _record(ledger)
+    ledger.settle(oid, **outcome)
+    row = db.get_obligation(oid)
+    assert row["status"] == "abandoned"              # terminal, still listed for the operator
+    assert "timed out" in row["last_error"].lower()  # with the reason it was not resent
+
+    clock.t += 3600
+    adapter = RecordingAdapter()
+    _run(ledger.replay_once({Platform.TELEGRAM: adapter}))
+    assert adapter.sent == []
+
+
+@pytest.mark.parametrize("outcome", [
+    # Telegram marks a wrapped connect or pool timeout retryable even though
+    # its text is the generic "Timed out": the request never left.
+    pytest.param({"result": SendResult(success=False, error="Timed out", retryable=True)},
+                 id="adapter-says-safe-to-resend"),
+    pytest.param({"result": SendResult(success=False, error="ConnectTimeout: connection timed out")},
+                 id="connect-timeout-result"),
+    pytest.param({"error": ConnectTimeout("connection timed out")}, id="raised-connect-timeout"),
+])
+def test_a_timeout_that_never_reached_the_platform_is_still_replayed(ledger, db, clock, outcome):
+    oid = _record(ledger)
+    ledger.settle(oid, **outcome)
+    assert db.get_obligation(oid)["status"] == "pending"
+
+    clock.t += dl.BACKOFF_SCHEDULE_S[0] + 1
+    adapter = RecordingAdapter()
+    counts = _run(ledger.replay_once({Platform.TELEGRAM: adapter}))
+    assert counts["delivered"] == 1 and len(adapter.sent) == 1
+
+
+@pytest.mark.parametrize("replay_outcome", [
+    pytest.param(SendResult(success=False, error="Timed out", retryable=False), id="timeout-result"),
+    pytest.param(ReadTimeout("The read operation timed out"), id="raised-read-timeout"),
+])
+def test_a_replay_that_times_out_is_not_sent_again(ledger, db, clock, replay_outcome):
+    oid = _pending(ledger, db, clock)                # live send failed cleanly: owed
+    adapter = RecordingAdapter(results=[replay_outcome])
+    counts = _run(ledger.replay_once({Platform.TELEGRAM: adapter}))
+    assert counts["failed"] == 0 and counts["abandoned"] == 1
+
+    for _ in range(dl.MAX_ATTEMPTS):
+        clock.t += dl.BACKOFF_SCHEDULE_S[-1] + 1
+        _run(ledger.replay_once({Platform.TELEGRAM: adapter}))
+    assert len(adapter.sent) == 1
+    assert db.get_obligation(oid)["status"] == "abandoned"
+
+
 def test_replay_reclaims_a_send_left_in_flight_by_a_dead_process(ledger, db, clock):
     # Recorded, never settled: the previous gateway died mid-send.
     oid = _record(ledger)
