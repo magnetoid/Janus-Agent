@@ -638,28 +638,168 @@ def test_oneshot_rejects_invalid_only_toolsets(monkeypatch, capsys):
     assert "did not contain any valid toolsets" in err
 
 
-def test_oneshot_fails_closed_on_empty_final_response(monkeypatch, capsys):
-    _stub_plugin_discovery(monkeypatch)
+def _stub_oneshot_agent(monkeypatch, result, session_db=None):
+    """Stub what ``oneshot._run_agent`` imports so the turn returns *result*.
+
+    *result* is shaped like ``AIAgent.run_conversation()``'s return dict.
+    Returns a dict that records the AIAgent kwargs and the prompt.
+    """
+    captured = {}
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.suppress_status_output = False
+            self.stream_delta_callback = object()
+            self.tool_gen_callback = object()
+
+        def run_conversation(self, user_message, **_kwargs):
+            captured["prompt"] = user_message
+            return result
+
+        def chat(self, message, stream_callback=None):
+            # Same as AIAgent.chat(): only final_response survives.
+            return self.run_conversation(message, stream_callback=stream_callback)["final_response"]
+
+    def mod(name, **attrs):
+        module = types.ModuleType(name)
+        for key, value in attrs.items():
+            setattr(module, key, value)
+        return module
+
+    monkeypatch.setitem(sys.modules, "run_agent", mod("run_agent", AIAgent=FakeAgent))
+    monkeypatch.setitem(sys.modules, "janus_state", mod("janus_state", SessionDB=lambda: session_db))
+    monkeypatch.setitem(
+        sys.modules,
+        "janus_cli.config",
+        mod("janus_cli.config", load_config=lambda: {"model": {"default": "m"}}),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "janus_cli.models",
+        mod("janus_cli.models", detect_provider_for_model=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "janus_cli.runtime_provider",
+        mod(
+            "janus_cli.runtime_provider",
+            resolve_runtime_provider=lambda **_kwargs: {
+                "api_key": "k",
+                "base_url": "u",
+                "provider": "p",
+                "api_mode": "chat_completions",
+                "credential_pool": None,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "janus_cli.tools_config",
+        mod("janus_cli.tools_config", _get_platform_tools=lambda *_args, **_kwargs: {"session_search"}),
+    )
+    return captured
+
+
+# Turn results shaped like agent/conversation_loop.py's return paths.
+_ANSWERED = {
+    "final_response": "Paris.",
+    "completed": True,
+    "failed": False,
+    "partial": False,
+    "interrupted": False,
+    "turn_exit_reason": "text_response(finish_reason=stop)",
+}
+# The iteration budget ran out and the model summarised: still an answer.
+_MAX_ITERATIONS_SUMMARY = {
+    "final_response": "I ran out of steps; here is what I found so far.",
+    "completed": False,
+    "failed": False,
+    "partial": False,
+    "interrupted": False,
+    "turn_exit_reason": "max_iterations_reached(90/90)",
+}
+_RETRIES_EXHAUSTED = {
+    "final_response": "API call failed after 3 retries: Connection error.",
+    "completed": False,
+    "failed": True,
+    "error": "Connection error.",
+    "failure_reason": "timeout",
+}
+# Several failure returns carry no final_response key at all.
+_COMPRESSION_EXHAUSTED = {
+    "completed": False,
+    "failed": True,
+    "partial": True,
+    "error": "Request payload too large (413). Cannot compress further.",
+    "compression_exhausted": True,
+}
+_THINKING_BUDGET_EXHAUSTED = {
+    "final_response": "⚠️ **Thinking Budget Exhausted**\n\nThe model used all its output tokens.",
+    "completed": False,
+    "partial": True,
+    "error": "Model used all output tokens on reasoning with none left for the response.",
+}
+_STILL_TRUNCATED = {
+    "final_response": "The answer starts here and is cut off mid-",
+    "completed": False,
+    "partial": True,
+    "error": "Response remained truncated after 3 continuation attempts",
+}
+_INTERRUPTED = {
+    "final_response": "Operation interrupted: waiting for model response (2.0s elapsed).",
+    "completed": False,
+    "failed": False,
+    "partial": False,
+    "interrupted": True,
+}
+
+
+@pytest.mark.parametrize(
+    ("result", "reason"),
+    [
+        (_RETRIES_EXHAUSTED, "API call failed after 3 retries: Connection error."),
+        (_COMPRESSION_EXHAUSTED, "Request payload too large (413). Cannot compress further."),
+        (_THINKING_BUDGET_EXHAUSTED, "Model used all output tokens on reasoning"),
+        (_STILL_TRUNCATED, "Response remained truncated after 3 continuation attempts"),
+        (_INTERRUPTED, "Operation interrupted: waiting for model response"),
+    ],
+    ids=["failed", "failed-no-final-response", "partial-notice", "partial-cut-off-text", "interrupted"],
+)
+def test_oneshot_failed_turn_reports_on_stderr_and_exits_nonzero(monkeypatch, capsys, result, reason):
     import janus_cli.oneshot as oneshot_mod
 
-    monkeypatch.setattr(oneshot_mod, "_run_agent", lambda *_args, **_kwargs: "")
+    _stub_oneshot_agent(monkeypatch, result)
+
+    assert oneshot_mod.run_oneshot("hello") == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert reason in captured.err
+
+
+@pytest.mark.parametrize(
+    "result", [_ANSWERED, _MAX_ITERATIONS_SUMMARY], ids=["answered", "max-iterations-summary"]
+)
+def test_oneshot_prints_answer_and_exits_zero(monkeypatch, capsys, result):
+    import janus_cli.oneshot as oneshot_mod
+
+    _stub_oneshot_agent(monkeypatch, result)
+
+    assert oneshot_mod.run_oneshot("hello") == 0
+    captured = capsys.readouterr()
+    assert captured.out == result["final_response"] + "\n"
+    assert captured.err == ""
+
+
+def test_oneshot_fails_closed_on_empty_final_response(monkeypatch, capsys):
+    import janus_cli.oneshot as oneshot_mod
+
+    _stub_oneshot_agent(monkeypatch, {**_ANSWERED, "final_response": None, "completed": False})
 
     assert oneshot_mod.run_oneshot("hello") == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no final response" in captured.err
-
-
-def test_oneshot_prints_nonempty_final_response(monkeypatch, capsys):
-    _stub_plugin_discovery(monkeypatch)
-    import janus_cli.oneshot as oneshot_mod
-
-    monkeypatch.setattr(oneshot_mod, "_run_agent", lambda *_args, **_kwargs: "done")
-
-    assert oneshot_mod.run_oneshot("hello") == 0
-    captured = capsys.readouterr()
-    assert captured.out == "done\n"
-    assert captured.err == ""
 
 
 def test_oneshot_fails_closed_on_agent_exception(monkeypatch, capsys):
@@ -796,63 +936,10 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
     """janus -z bypasses JanusCLI, but recall still needs SessionDB."""
     from janus_cli.oneshot import _run_agent
 
-    captured = {}
     sentinel_db = object()
+    captured = _stub_oneshot_agent(monkeypatch, _ANSWERED, session_db=sentinel_db)
 
-    class FakeAgent:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.suppress_status_output = False
-            self.stream_delta_callback = object()
-            self.tool_gen_callback = object()
-
-        def chat(self, prompt):
-            captured["prompt"] = prompt
-            return "ok"
-
-    class FakeSessionDB:
-        def __new__(cls):
-            return sentinel_db
-
-    def mod(name, **attrs):
-        module = types.ModuleType(name)
-        for key, value in attrs.items():
-            setattr(module, key, value)
-        return module
-
-    monkeypatch.setitem(sys.modules, "run_agent", mod("run_agent", AIAgent=FakeAgent))
-    monkeypatch.setitem(sys.modules, "janus_state", mod("janus_state", SessionDB=FakeSessionDB))
-    monkeypatch.setitem(
-        sys.modules,
-        "janus_cli.config",
-        mod("janus_cli.config", load_config=lambda: {"model": {"default": "m"}}),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "janus_cli.models",
-        mod("janus_cli.models", detect_provider_for_model=lambda *_args, **_kwargs: None),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "janus_cli.runtime_provider",
-        mod(
-            "janus_cli.runtime_provider",
-            resolve_runtime_provider=lambda **_kwargs: {
-                "api_key": "k",
-                "base_url": "u",
-                "provider": "p",
-                "api_mode": "chat_completions",
-                "credential_pool": None,
-            },
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "janus_cli.tools_config",
-        mod("janus_cli.tools_config", _get_platform_tools=lambda *_args, **_kwargs: {"session_search"}),
-    )
-
-    assert _run_agent("recall this") == "ok"
+    _run_agent("recall this")
     assert captured["session_db"] is sentinel_db
     assert captured["enabled_toolsets"] == ["session_search"]
     assert captured["prompt"] == "recall this"

@@ -156,6 +156,14 @@ janus -z "What's the capital of France?"
 answer=$(janus -z "summarize this" < /path/to/file.txt)
 ```
 
+Exit status tells an answer from an error: `0` means stdout holds the final reply. `1` means the run produced no usable answer: the agent raised an error, the provider failed or retries ran out, the output stayed truncated, the turn was interrupted, or the reply was empty. In that case stdout stays empty and the reason goes to stderr, prefixed `janus -z:`. `2` means bad arguments (for example `--provider` without `--model`).
+
+```bash
+if ! answer=$(janus -z "summarize this" < /path/to/file.txt); then
+  echo "janus failed" >&2; exit 1
+fi
+```
+
 Per-run overrides (no mutation to `~/.janus/config.yaml`):
 
 | Flag | Equivalent env var | Purpose |
