@@ -84,21 +84,6 @@ def format_secret_source_suffix(env_var: str) -> str:
     return f" (from {source})"
 
 
-def _format_offending_chars(value: str, limit: int = 3) -> str:
-    """Return a compact 'U+XXXX ('c'), ...' summary of non-ASCII codepoints."""
-    seen: list[str] = []
-    for ch in value:
-        if ord(ch) > 127:
-            label = f"U+{ord(ch):04X}"
-            if ch.isprintable():
-                label += f" ({ch!r})"
-            if label not in seen:
-                seen.append(label)
-            if len(seen) >= limit:
-                break
-    return ", ".join(seen)
-
-
 def _sanitize_loaded_credentials() -> None:
     """Strip non-ASCII characters from credential env vars in os.environ.
 
@@ -124,12 +109,12 @@ def _sanitize_loaded_credentials() -> None:
         if key in _WARNED_KEYS:
             continue
         _WARNED_KEYS.add(key)
-        stripped = len(value) - len(cleaned)
-        detail = _format_offending_chars(value) or "non-printable"
+        # Name the variable only: nothing derived from the secret (its
+        # characters, code points or length) is printed, since terminals
+        # and logs keep it.
         print(
-            f"  Warning: {key} contained {stripped} non-ASCII character"
-            f"{'s' if stripped != 1 else ''} ({detail}) — stripped so the "
-            f"key can be sent as an HTTP header.",
+            f"  Warning: {key} contained non-ASCII characters — stripped so "
+            f"the key can be sent as an HTTP header.",
             file=sys.stderr,
         )
         print(
