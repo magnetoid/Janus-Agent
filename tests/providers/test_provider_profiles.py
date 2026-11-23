@@ -1,5 +1,7 @@
 """Tests for the provider module registry and profiles."""
 
+from urllib.parse import urlparse
+
 from providers import get_provider_profile, _REGISTRY
 from providers.base import ProviderProfile, OMIT_TEMPERATURE
 
@@ -38,7 +40,7 @@ class TestNvidiaProfile:
 
     def test_base_url(self):
         p = get_provider_profile("nvidia")
-        assert "nvidia.com" in p.base_url
+        assert urlparse(p.base_url).hostname.endswith(".nvidia.com")
 
     def test_billing_header_not_profile_wide(self):
         p = get_provider_profile("nvidia")

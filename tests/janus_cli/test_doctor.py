@@ -7,6 +7,7 @@ import io
 import contextlib
 from argparse import Namespace
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import pytest
 
@@ -701,7 +702,9 @@ def test_run_doctor_dashscope_retries_china_endpoint_after_intl_unauthorized(mon
 
     def fake_get(url, headers=None, timeout=None):
         calls.append((url, headers, timeout))
-        status = 200 if "dashscope.aliyuncs.com" in url else 401
+        host = urlparse(url).hostname or ""
+        china = host == "dashscope.aliyuncs.com" or host.endswith(".dashscope.aliyuncs.com")
+        status = 200 if china else 401
         return types.SimpleNamespace(status_code=status)
 
     import httpx
