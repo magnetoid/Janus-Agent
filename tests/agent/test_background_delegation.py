@@ -185,6 +185,34 @@ def test_request_stop_interrupts_the_child_in_this_process(db):
     assert mgr.request_stop(handle["id"]) is False
 
 
+def test_request_stop_after_the_child_finished_does_not_interrupt_it(db):
+    # The worker settles the row first and only then drops the child from the
+    # running set (after announcing it). A stop in that window must not
+    # interrupt a child that has already finished, nor report success.
+    announcing = threading.Event()
+    release = threading.Event()
+
+    def slow_sink(_evt):
+        announcing.set()
+        release.wait(5)
+
+    child = FakeChild()
+    mgr = _manager(db, sink=slow_sink)
+    handle = mgr.start(child=child, goal="g", parent_agent=_parent(),
+                       run_child=lambda: _entry(), role="leaf", model="m")
+    try:
+        assert announcing.wait(5), "the completion was never announced"
+        assert db.get_delegation(handle["id"])["status"] == "completed"
+        assert mgr.owns(handle["id"]), "precondition: still in the running set"
+
+        assert mgr.request_stop(handle["id"]) is False
+        assert child.interrupted == []
+        assert db.get_delegation(handle["id"])["stop_requested"] is False
+    finally:
+        release.set()
+    assert _wait(lambda: mgr.running_count() == 0)
+
+
 def test_stop_requested_from_another_process_is_picked_up_by_polling(db):
     release = threading.Event()
     child = FakeChild()
