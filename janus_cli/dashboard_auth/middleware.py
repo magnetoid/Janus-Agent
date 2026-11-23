@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from janus_cli.dashboard_auth import list_providers
 from janus_cli.dashboard_auth.audit import AuditEvent, audit_log
+from janus_cli.dashboard_auth.audit import client_ip as _client_ip
 from janus_cli.dashboard_auth.base import ProviderError, RefreshExpiredError
 from janus_cli.dashboard_auth.cookies import read_session_cookies
 from janus_cli.dashboard_auth.public_paths import PUBLIC_API_PATHS
@@ -69,13 +70,6 @@ def _path_is_public(path: str) -> bool:
         path == prefix or path.startswith(prefix)
         for prefix in _GATE_PUBLIC_PREFIXES
     )
-
-
-def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else ""
 
 
 def _unauth_response(request: Request, *, reason: str) -> Response:

@@ -553,6 +553,28 @@ class TelegramAdapter(BasePlatformAdapter):
         allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
         return "*" in allowed_ids or normalized_user_id in allowed_ids
 
+    def _is_event_source_authorized(self, source: Any) -> bool:
+        """Whether the runner will serve this inbound event's sender.
+
+        Asks the runner's ``_is_user_authorized`` with the event's own source,
+        so chat-allowlisted posts that carry no ``from_user`` are judged
+        exactly as the runner judges them. Without a runner (adapter used
+        standalone) it falls back to the env-only callback check.
+        """
+        runner = getattr(getattr(self, "_message_handler", None), "__self__", None)
+        auth_fn = getattr(runner, "_is_user_authorized", None)
+        if callable(auth_fn):
+            try:
+                return bool(auth_fn(source))
+            except Exception:
+                logger.debug("[Telegram] Runner auth check failed; using env-only check", exc_info=True)
+        return self._is_callback_user_authorized(
+            getattr(source, "user_id", None) or "",
+            chat_id=getattr(source, "chat_id", None),
+            chat_type=getattr(source, "chat_type", None),
+            thread_id=getattr(source, "thread_id", None),
+        )
+
     @classmethod
     def _metadata_thread_id(cls, metadata: Optional[Dict[str, Any]]) -> Optional[str]:
         if not metadata:
@@ -5439,7 +5461,21 @@ class TelegramAdapter(BasePlatformAdapter):
         # Add caption as text
         if msg.caption:
             event.text = self._clean_bot_trigger_text(msg.caption)
-        
+
+        # Any DM passes _should_process_message, and the runner checks the
+        # sender only after we return. Download nothing (and run no vision on
+        # stickers) for a sender it will not serve; it still gets the event
+        # without media so it can send a pairing code or ignore it.
+        if not self._is_event_source_authorized(event.source):
+            logger.info(
+                "[Telegram] Not downloading media from unauthorized sender %s in chat %s",
+                event.source.user_id, event.source.chat_id,
+            )
+            event.media_urls = []
+            event.media_types = []
+            await self.handle_message(event)
+            return
+
         # Handle stickers: describe via vision tool with caching
         if msg.sticker:
             await self._handle_sticker(msg, event)

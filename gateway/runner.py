@@ -5552,7 +5552,11 @@ class GatewayRunner:
             return True
 
         check_ids = {user_id}
-        if "@" in user_id:
+        # WhatsApp JIDs (<phone>@s.whatsapp.net) also match the bare phone.
+        # Never for other platforms: for email or iMessage handles the part
+        # before "@" is chosen by the sender, so an allowlisted Telegram ID
+        # would authorize <id>@any-domain.
+        if "@" in user_id and source.platform == Platform.WHATSAPP:
             check_ids.add(user_id.split("@")[0])
 
         # WhatsApp: resolve phone↔LID aliases from bridge session mapping files

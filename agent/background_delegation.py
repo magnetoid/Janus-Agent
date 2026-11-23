@@ -204,13 +204,21 @@ class BackgroundDelegationManager:
         }
 
     def request_stop(self, delegation_id: str) -> bool:
-        """Interrupt a child this process owns; always flags the row too."""
+        """Flag the row and interrupt the child if this process owns it.
+
+        False when the delegation is no longer running. The row is the
+        source of truth: the worker settles it before it drops the child
+        from ``_running`` (it announces the completion in between), so a
+        record can still be registered for a child that has already
+        finished, and interrupting that one would be wrong.
+        """
         flagged = bool(self._db.request_delegation_stop(delegation_id, now=self._clock()))
+        if not flagged:
+            return False
         with self._lock:
             record = self._running.get(delegation_id)
-        if record is None:
-            return flagged
-        self._interrupt(record, "stopped by `janus delegations stop`")
+        if record is not None:
+            self._interrupt(record, "stopped by `janus delegations stop`")
         return True
 
     def reconcile_orphans(

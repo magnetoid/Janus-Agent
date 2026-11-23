@@ -1610,14 +1610,18 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
 
     agent = None
 
-    # Mark this as a cron session so the approval system can apply cron_mode.
-    # This env var is process-wide and persists for the lifetime of the
-    # scheduler process — every job this process runs is a cron job.
-    os.environ["JANUS_CRON_SESSION"] = "1"
-
     # Use ContextVars for per-job session/delivery state so parallel jobs
     # don't clobber each other's targets (os.environ is process-global).
     from gateway.session_context import set_session_vars, clear_session_vars, _VAR_MAP
+
+    # Mark this job as a cron session so the approval system can apply
+    # cron_mode. A contextvar, not os.environ: the gateway and the desktop
+    # backend run this scheduler in-process, and a process-wide flag would make
+    # every live chat turn after the first job a cron session (execute_code
+    # blocked under cron_mode: deny, silently approved under approve). The
+    # agent, tool and execute_code RPC threads all copy this context, and local
+    # terminal subprocesses get the flag through their env (environments/local).
+    _cron_session_token = _VAR_MAP["JANUS_CRON_SESSION"].set("1")
 
     # Cron execution is an internal scheduler context, not a live inbound
     # gateway message. Do not seed JANUS_SESSION_* contextvars from the
@@ -2061,6 +2065,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         for _var_name in _cron_delivery_vars:
             _VAR_MAP[_var_name].set("")
         _VAR_MAP["JANUS_TERMINAL_BACKEND"].set("")
+        _VAR_MAP["JANUS_CRON_SESSION"].reset(_cron_session_token)
         if _session_db:
             # Title the cron session from the job (name → short prompt → id) so
             # sidebars/history show a meaningful label instead of the injected
