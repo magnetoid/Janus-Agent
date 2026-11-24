@@ -3,18 +3,17 @@ import { useGpuTier } from "@/hooks/use-gpu-tier";
 import fillerBgUrl from "@/assets/filler-bg0.webp";
 
 /**
- * Replicates the visual layer stack of `<Overlays dark />` from
- * `@nous-research/ui` without pulling in its leva / gsap / three peer deps.
+ * Replicates the visual layer stack of the original design system's
+ * `<Overlays dark />` without pulling in its leva / gsap / three peer deps.
  *
- * See `design-language/src/ui/components/overlays/index.tsx` for the source of
- * truth. Defaults match LENS_0 (the Janus teal dark preset); the deep canvas
+ * Defaults match LENS_0 (the Janus teal dark preset); the deep canvas
  * and the warm vignette both read theme-switchable CSS custom properties so
  * `ThemeProvider` can repaint the stack without remounting.
  *
  *   z-1   bg = `var(--background-base)`, mix-blend-mode driven by
  *         `--component-backdrop-bg-blend-mode` (default `difference`).
- *         Both LENS_0-style dark themes and the LENS_5I-style Nous Blue
- *         light theme keep `difference` here — the canvas is flipped by
+ *         LENS_0-style dark themes and LENS_5I-style inverted light
+ *         themes keep `difference` here — the canvas is flipped by
  *         the z-200 FG inversion layer, not by changing this blend mode.
  *         The CSS var is exposed as a hook so future presets can override
  *         it (e.g. `multiply` to paint the bg as-is before inversion)

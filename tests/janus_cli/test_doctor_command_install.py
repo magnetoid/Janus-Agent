@@ -44,7 +44,6 @@ def _setup_doctor_env(monkeypatch, tmp_path, venv_name="venv"):
     # Stub auth checks
     try:
         from janus_cli import auth as _auth_mod
-        monkeypatch.setattr(_auth_mod, "get_nous_auth_status", lambda: {})
         monkeypatch.setattr(_auth_mod, "get_codex_auth_status", lambda: {})
     except Exception:
         pass
@@ -179,7 +178,6 @@ class TestDoctorCommandInstallation:
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
         try:
             from janus_cli import auth as _auth_mod
-            monkeypatch.setattr(_auth_mod, "get_nous_auth_status", lambda: {})
             monkeypatch.setattr(_auth_mod, "get_codex_auth_status", lambda: {})
         except Exception:
             pass
@@ -264,7 +262,6 @@ class TestDoctorCommandInstallation:
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
         try:
             from janus_cli import auth as _auth_mod
-            monkeypatch.setattr(_auth_mod, "get_nous_auth_status", lambda: {})
             monkeypatch.setattr(_auth_mod, "get_codex_auth_status", lambda: {})
         except Exception:
             pass

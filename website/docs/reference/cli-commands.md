@@ -47,7 +47,7 @@ janus [global-options] <command> [subcommand/options]
 | `janus setup` | Interactive setup wizard for all or part of the configuration. |
 | `janus whatsapp` | Configure and pair the WhatsApp bridge. |
 | `janus slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
-| `janus auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Nous/Anthropic. |
+| `janus auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Anthropic/xAI and others. |
 | `janus logout` | Clear stored credentials for a provider. (`janus login` was removed — use `janus auth`.) |
 | `janus send` | Send a one-shot message to a configured messaging platform (Telegram, Discord, Slack, Signal, SMS, …). Useful from shell scripts, cron jobs, CI hooks, and monitoring daemons — no agent loop, no LLM. |
 | `janus secrets` | Manage external secret sources (currently Bitwarden Secrets Manager) for pulling API keys at process startup instead of from `~/.janus/.env`. |
@@ -76,7 +76,6 @@ janus [global-options] <command> [subcommand/options]
 | `janus acp` | Run Janus as an ACP server for editor integration. |
 | `janus mcp` | Manage MCP server configurations and run Janus as an MCP server. |
 | `janus plugins` | Manage Janus Agent plugins (install, enable, disable, remove). |
-| `janus portal` | Cloud Industry Portal status, subscription link, and Tool Gateway routing. See [Tool Gateway](../user-guide/features/tool-gateway.md). |
 | `janus tools` | Configure enabled tools per platform. |
 | `janus computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
 | `janus sessions` | Browse, export, prune, rename, and delete sessions. |
@@ -117,7 +116,7 @@ Common options:
 | `-q`, `--query "..."` | One-shot, non-interactive prompt. |
 | `-m`, `--model <model>` | Override the model for this run. |
 | `-t`, `--toolsets <csv>` | Enable a comma-separated set of toolsets. |
-| `--provider <provider>` | Force a provider: `auto`, `openrouter`, `nous`, `openai-codex`, `copilot-acp`, `copilot`, `anthropic`, `gemini`, `google-gemini-cli`, `huggingface`, `novita` (aliases `novita-ai`, `novitaai`), `openai-api`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `alibaba`, `alibaba-coding-plan` (alias `alibaba_coding`), `deepseek`, `nvidia`, `ollama-cloud`, `xai` (alias `grok`), `xai-oauth` (alias `grok-oauth`), `qwen-oauth`, `bedrock`, `opencode-zen`, `opencode-go`, `azure-foundry`, `lmstudio`, `stepfun`, `tencent-tokenhub` (alias `tencent`, `tokenhub`). |
+| `--provider <provider>` | Force a provider: `auto`, `openrouter`, `openai-codex`, `copilot-acp`, `copilot`, `anthropic`, `gemini`, `google-gemini-cli`, `huggingface`, `novita` (aliases `novita-ai`, `novitaai`), `openai-api`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `alibaba`, `alibaba-coding-plan` (alias `alibaba_coding`), `deepseek`, `nvidia`, `ollama-cloud`, `xai` (alias `grok`), `xai-oauth` (alias `grok-oauth`), `qwen-oauth`, `bedrock`, `opencode-zen`, `opencode-go`, `azure-foundry`, `lmstudio`, `stepfun`, `tencent-tokenhub` (alias `tencent`, `tokenhub`). |
 | `-s`, `--skills <name>` | Preload one or more skills for the session (can be repeated or comma-separated). |
 | `-v`, `--verbose` | Verbose output. |
 | `-Q`, `--quiet` | Programmatic mode: suppress banner/spinner/tool previews. |
@@ -189,7 +188,7 @@ janus model
 
 Use this when you want to:
 - **add a new provider** (OpenRouter, Anthropic, Copilot, DeepSeek, custom, etc.)
-- log into OAuth-backed providers (Anthropic, Copilot, Codex, Cloud Industry Portal)
+- log into OAuth-backed providers (Anthropic, Copilot, Codex, xAI Grok)
 - enter or update API keys
 - pick from provider-specific model lists
 - configure a custom/self-hosted endpoint
@@ -332,10 +331,8 @@ the full guide, supported languages, and configuration knobs.
 ## `janus setup`
 
 ```bash
-janus setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
+janus setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset] [--quick] [--reconfigure]
 ```
-
-**Easiest path:** `janus setup --portal` — OAuth into Cloud Industry Portal and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md) in one shot.
 
 **First run:** launches the first-time wizard.
 
@@ -359,23 +356,6 @@ Options:
 | `--non-interactive` | Use defaults / environment values without prompts. |
 | `--reset` | Reset configuration to defaults before setup. |
 | `--reconfigure` | Backwards-compat alias — bare `janus setup` on an existing install now does this by default. |
-| `--portal` | One-shot Cloud Industry Portal setup: log in via OAuth, set Nous as the inference provider, and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md). Skips the rest of the wizard. |
-
-## `janus portal`
-
-```bash
-janus portal [status|open|tools]
-```
-
-Inspect Cloud Industry Portal auth, Tool Gateway routing, and reach the subscription page. Subcommand-less invocation runs `status`.
-
-| Subcommand | Description |
-|------------|-------------|
-| `status` (default) | Portal auth state + per-tool Tool Gateway routing summary. Also shown when no subcommand is given. |
-| `open` | Open `portal.cloud-industry.com/manage-subscription` in your default browser. |
-| `tools` | List every Tool Gateway partner (Firecrawl, FAL, OpenAI TTS, Browser Use, Modal) and which are routed via Nous. |
-
-For configuration of the gateway itself, see [Tool Gateway](../user-guide/features/tool-gateway.md). For the one-shot setup path, see `janus setup --portal` above.
 
 ## `janus whatsapp`
 
@@ -496,11 +476,11 @@ Common flags for migration subcommands:
 janus proxy <subcommand>
 ```
 
-Run a local OpenAI-compatible HTTP server that forwards requests to an OAuth-authenticated upstream provider (e.g. Cloud Industry Portal, xAI). External apps can point at the proxy with any bearer token; the proxy attaches your real OAuth credentials on the way out. See [Subscription Proxy](../user-guide/features/subscription-proxy.md) for the full guide.
+Run a local OpenAI-compatible HTTP server that forwards requests to an OAuth-authenticated upstream provider (currently xAI Grok OAuth). External apps can point at the proxy with any bearer token; the proxy attaches your real OAuth credentials on the way out. See [Subscription Proxy](../user-guide/features/subscription-proxy.md) for the full guide.
 
 | Subcommand | Description |
 |------------|-------------|
-| `start` | Run the proxy in the foreground. Flags: `--provider <nous\|xai>` (default `nous`), `--host <addr>` (default `127.0.0.1`; use `0.0.0.0` to expose on LAN), `--port <int>` (default `8645`). |
+| `start` | Run the proxy in the foreground. Flags: `--provider <name>` (see `janus proxy providers`; currently `xai`), `--host <addr>` (default `127.0.0.1`; use `0.0.0.0` to expose on LAN), `--port <int>` (default `8645`). |
 | `status` | Show which proxy upstreams are ready (credentials present, OAuth valid). |
 | `providers` | List available proxy upstream providers. |
 
@@ -748,7 +728,6 @@ api_keys:
   openrouter           set
   openai               not set
   anthropic            set
-  nous                 not set
   firecrawl            set
   ...
 
@@ -1271,8 +1250,8 @@ Manage MCP (Model Context Protocol) server configurations and run Janus as an MC
 
 | Subcommand | Description |
 |------------|-------------|
-| *(none)* or `picker` | Interactive catalog picker — browse Nous-approved MCPs and install/enable/disable. |
-| `catalog` | List Nous-approved MCPs (plain text, scriptable). |
+| *(none)* or `picker` | Interactive catalog picker — browse the curated MCP catalog and install/enable/disable. |
+| `catalog` | List curated catalog MCPs (plain text, scriptable). |
 | `install <name>` | Install a catalog entry (e.g. `janus mcp install n8n`). |
 | `serve [-v\|--verbose]` | Run Janus as an MCP server — expose conversations to other agents. |
 | `add <name> [--url URL] [--command CMD] [--args ...] [--auth oauth\|header]` | Add a custom MCP server with automatic tool discovery. |
@@ -1475,22 +1454,6 @@ janus dashboard
 # Custom port, no browser
 janus dashboard --port 8080 --no-open
 ```
-
-### `janus dashboard register`
-
-Register this install as a self-hosted dashboard with your Cloud Industry Portal account, so the dashboard's OAuth (Nous) auth gate can be used. Resolves your existing Nous login (run `janus setup` first if you're not logged in), creates an OAuth client, writes `JANUS_DASHBOARD_OAUTH_CLIENT_ID` into `~/.janus/.env`, and prints how to engage the login gate. You can also register, name, and revoke dashboards from the Portal [`/local-dashboards`](https://portal.cloud-industry.com/local-dashboards) page.
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--name` | auto-generated | Human-readable label for the dashboard |
-| `--redirect-uri` | — | Public HTTPS OAuth redirect URI for an internet-facing host, e.g. `https://janus.example.com/auth/callback`. Omit for localhost-only use. |
-
-```bash
-janus dashboard register
-# ✓ Registered dashboard "swift_falcon"
-# …writes JANUS_DASHBOARD_OAUTH_CLIENT_ID to ~/.janus/.env
-```
-
 
 ## `janus profile`
 

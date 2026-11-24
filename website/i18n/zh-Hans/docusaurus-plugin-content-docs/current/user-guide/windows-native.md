@@ -78,10 +78,6 @@ iex (irm https://raw.githubusercontent.com/magnetoid/janus/main/scripts/install.
 9. **将 `%LOCALAPPDATA%\janus\bin` 添加到用户 PATH** — 打开新终端后即可使用 `janus` 命令。
 10. **运行 `janus setup`** — 正常的首次运行向导（模型、提供商、工具集）。使用 `-SkipSetup` 跳过。
 
-:::tip 在 Windows 上跳过繁琐的提供商配置
-在 Windows 上，逐个配置工具 API key（Firecrawl、FAL、Browser Use、OpenAI TTS）是获得可用 agent 摩擦最大的部分。[Cloud Industry Portal](/user-guide/features/tool-gateway) 订阅通过一次 OAuth 登录即可覆盖模型**以及**所有这些工具。安装程序完成后，运行 `janus setup --portal` 完成配置。
-:::
-
 ## 功能矩阵
 
 除 dashboard 内嵌终端面板外，所有功能均可在 Windows 上原生运行。

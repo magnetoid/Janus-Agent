@@ -540,7 +540,6 @@ export const en: Translations = {
       noProviderOptions: 'This toolset has no provider options — enable it and it works with your current setup.',
       noProviders: 'No providers are available for this toolset right now.',
       ready: 'Ready',
-      nousIncluded: 'Included with a Nous subscription — sign in to Cloud Industry Portal to activate.',
       noApiKeyRequired: 'No API key required.',
       postSetupHint: step =>
         `This backend needs a one-time install (${step}). Runs on this machine — may take a few minutes.`,
@@ -1301,13 +1300,9 @@ export const en: Translations = {
     preparingInstall: 'Janus is finishing install. This usually takes under a minute on first run.',
     starting: 'Starting Janus…',
     lookingUpProviders: 'Looking up providers...',
-    collapse: 'Collapse',
-    otherProviders: 'Other providers',
     haveApiKey: 'I have an API key',
     chooseLater: "I'll choose a provider later",
-    recommended: 'Recommended',
     connected: 'Connected',
-    featuredPitch: 'One subscription, 300+ frontier models — the recommended way to run Janus',
     openRouterPitch: 'One key, hundreds of models — a solid default',
     apiKeyOptions: {
       openrouter: {
@@ -1358,8 +1353,6 @@ export const en: Translations = {
     reopenVerification: 'Re-open verification page',
     copy: 'Copy',
     defaultModel: 'Default model',
-    freeTier: 'Free tier',
-    pro: 'Pro',
     free: 'Free',
     price: (input, output) => `${input} in / ${output} out per Mtok`,
     change: 'Change',
@@ -1378,10 +1371,7 @@ export const en: Translations = {
     addProvider: 'Add provider',
     loadFailed: 'Could not load models',
     noAuthenticatedProviders: 'No authenticated providers.',
-    pro: 'Pro',
-    proNeedsSubscription: 'Pro models need a paid Nous subscription.',
     free: 'Free',
-    freeTier: 'Free tier',
     priceTitle: 'Input / Output price per million tokens'
   },
 

@@ -11,12 +11,6 @@ Janus uses two kinds of model slots:
 
 This page covers configuring both from the dashboard. If you prefer config files or the CLI, jump to [Alternative methods](#alternative-methods) at the bottom.
 
-:::tip Fastest path: Cloud Industry Portal
-[Cloud Industry Portal](/user-guide/features/tool-gateway) provides 300+ models under one subscription. On a fresh install, run `janus setup --portal` to log in and set Nous as your provider in one command. Inspect what's wired up with `janus portal info`.
-
-- Portal subscribers also get **10% off token-billed providers**.
-:::
-
 :::note `model:` schema — empty string vs. mapping
 On a brand-new install the bundled default config has `model: ""` (an empty string sentinel meaning "not configured yet"). The first time you run `janus setup` or `janus model`, that key is upgraded in-place to a mapping with `provider`, `default`, `base_url`, and `api_mode` sub-keys — the shape shown throughout this page and in [`profiles.md`](./profiles.md) / [`configuration.md`](./configuration.md). If you ever see an empty string in `config.yaml`, run `janus model` (or click **Change** in the dashboard) and Janus will write the dict form for you.
 :::

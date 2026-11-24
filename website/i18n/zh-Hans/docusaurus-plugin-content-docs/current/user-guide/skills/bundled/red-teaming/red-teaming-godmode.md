@@ -346,7 +346,6 @@ print(response.choices[0].message.content)
 | GPT-4/4o（OpenAI） | OG GODMODE l33t + prefill | 对经典分隔符格式有响应 |
 | Gemini（Google） | 拒绝反转 + 叛逆人格 | Gemini 的拒绝可被语义反转 |
 | Grok（xAI） | 无过滤解放 + GODMODE 分隔符 | Grok 本身过滤较少；轻度 prompt 即可 |
-| Janus（Nous） | 无需越狱 | 已无审查——直接使用 |
 | DeepSeek | Parseltongue + 多次尝试 | 输入分类器基于关键词；混淆有效 |
 | Llama（Meta） | Prefill + 简单系统 prompt | 开放模型对 prefill 工程响应良好 |
 
@@ -401,7 +400,7 @@ Claude Sonnet 4 对所有当前技术在明显有害内容方面具有鲁棒性�
 
 4. **单独 prefill 对 Claude 不足** — 仅用"GODMODE ENABLED"预热不能覆盖 Claude 的训练。Prefill 与系统 prompt 技巧组合时效果更好。
 
-5. **对于硬拒绝，切换模型** — 当所有技术在某个模型上失败时，ULTRAPLINIAN（竞速多个模型）是实际的备选方案。Janus 模型和 Grok 通常过滤最少。
+5. **对于硬拒绝，切换模型** — 当所有技术在某个模型上失败时，ULTRAPLINIAN（竞速多个模型）是实际的备选方案。无审查的开放权重模型和 Grok 通常过滤最少。
 
 6. **auto_jailbreak 能正确区分部分合规与完全拒绝** — 基线撬锁得分 190（合规但有 hedge）vs 钓鱼得分 -9999（硬拒绝）。"无需越狱"的阈值（score > 100 且 hedges == 0）效果良好。
 
@@ -411,11 +410,10 @@ Claude Sonnet 4 对所有当前技术在明显有害内容方面具有鲁棒性�
 2. **Prefill 是最可靠的技术** — 它不依赖特定措辞；它建立行为模式。即使越狱系统 prompt 被部分忽略，prefill 也向模型展示"我之前已经合规了"。
 3. **不要过度编码** — 重度 Parseltongue（Tier 3）可能使查询对模型本身也变得难以理解。从 Tier 1（轻度）开始，仅在被拒绝时升级。
 4. **ULTRAPLINIAN 需要花钱** — 竞速 55 个模型意味着 55 次 API 调用。快速测试使用 `fast` 层级（10 个模型），仅在需要最大覆盖时使用 `ultra`。
-5. **Janus 模型无需越狱** — imbalabs/hermes-3-* 和 hermes-4-* 已无审查。直接使用它们是最快路径。
-6. **编码升级顺序很重要** — Plain → Leetspeak → Bubble → Braille → Morse。每个级别可读性更低，因此尝试能奏效的最轻编码。
-7. **Prefill 消息是临时的** — 它们在 API 调用时注入，但永远不会保存到会话或轨迹中。Janus 重启后，prefill 会自动从 JSON 文件重新加载。
-8. **system_prompt 与临时系统 prompt** — config.yaml 中的 `agent.system_prompt` 附加在 Janus 自身系统 prompt 之后。它不替换默认 prompt；它是对其的扩充。这意味着越狱指令与 Janus 的正常人格共存。
-9. **在 execute_code 中始终使用 `load_godmode.py`** — 各个脚本（`parseltongue.py`、`godmode_race.py`、`auto_jailbreak.py`）有带 `if __name__ == '__main__'` 块的 argparse CLI 入口点。在 execute_code 中通过 `exec()` 加载时，`__name__` 为 `'__main__'`，argparse 会触发并导致脚本崩溃。`load_godmode.py` loader 通过将 `__name__` 设置为非 main 值并管理 sys.argv 来处理这个问题。
-10. **boundary_inversion 与模型版本相关** — 在 Claude 3.5 Sonnet 上有效，但在 Claude Sonnet 4 或 Claude 4.6 上无效。auto_jailbreak 中的策略顺序对 Claude 模型优先尝试它，但失败后会回退到 refusal_inversion。如果你知道模型版本，请更新策略顺序。
-11. **灰色地带查询 vs 硬查询** — 越狱技术对"双重用途"查询（撬锁、安全工具、化学）效果远好于明显有害的查询（钓鱼模板、恶意软件）。对于硬查询，直接跳到 ULTRAPLINIAN 或使用不拒绝的 Janus/Grok 模型。
-12. **execute_code 沙箱没有环境变量** — 当 Janus 通过 execute_code 运行 auto_jailbreak 时，沙箱不继承 `~/.janus/.env`。显式加载 dotenv：`from dotenv import load_dotenv; load_dotenv(os.path.expanduser("~/.janus/.env"))`
+5. **编码升级顺序很重要** — Plain → Leetspeak → Bubble → Braille → Morse。每个级别可读性更低，因此尝试能奏效的最轻编码。
+6. **Prefill 消息是临时的** — 它们在 API 调用时注入，但永远不会保存到会话或轨迹中。Janus 重启后，prefill 会自动从 JSON 文件重新加载。
+7. **system_prompt 与临时系统 prompt** — config.yaml 中的 `agent.system_prompt` 附加在 Janus 自身系统 prompt 之后。它不替换默认 prompt；它是对其的扩充。这意味着越狱指令与 Janus 的正常人格共存。
+8. **在 execute_code 中始终使用 `load_godmode.py`** — 各个脚本（`parseltongue.py`、`godmode_race.py`、`auto_jailbreak.py`）有带 `if __name__ == '__main__'` 块的 argparse CLI 入口点。在 execute_code 中通过 `exec()` 加载时，`__name__` 为 `'__main__'`，argparse 会触发并导致脚本崩溃。`load_godmode.py` loader 通过将 `__name__` 设置为非 main 值并管理 sys.argv 来处理这个问题。
+9. **boundary_inversion 与模型版本相关** — 在 Claude 3.5 Sonnet 上有效，但在 Claude Sonnet 4 或 Claude 4.6 上无效。auto_jailbreak 中的策略顺序对 Claude 模型优先尝试它，但失败后会回退到 refusal_inversion。如果你知道模型版本，请更新策略顺序。
+10. **灰色地带查询 vs 硬查询** — 越狱技术对"双重用途"查询（撬锁、安全工具、化学）效果远好于明显有害的查询（钓鱼模板、恶意软件）。对于硬查询，直接跳到 ULTRAPLINIAN 或使用不拒绝的无审查开放权重模型或 Grok 模型。
+11. **execute_code 沙箱没有环境变量** — 当 Janus 通过 execute_code 运行 auto_jailbreak 时，沙箱不继承 `~/.janus/.env`。显式加载 dotenv：`from dotenv import load_dotenv; load_dotenv(os.path.expanduser("~/.janus/.env"))`

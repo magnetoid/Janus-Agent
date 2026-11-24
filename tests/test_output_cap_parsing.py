@@ -3,7 +3,7 @@ from agent.model_metadata import parse_available_output_tokens_from_error
 
 
 class TestParseOpenRouterOutputCap:
-    """OpenRouter/Nous phrase the output-cap error as a context breakdown."""
+    """OpenRouter phrases the output-cap error as a context breakdown."""
 
     def test_openrouter_breakdown_format(self):
         msg = ("This endpoint's maximum context length is 200000 tokens. "

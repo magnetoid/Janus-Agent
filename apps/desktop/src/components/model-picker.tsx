@@ -213,8 +213,6 @@ function ModelResults({
           return null
         }
 
-        const unavailable = new Set(provider.unavailable_models ?? [])
-
         return (
           <CommandGroup heading={<ProviderHeading provider={provider} />} key={provider.slug}>
             {provider.warning && (
@@ -227,36 +225,23 @@ function ModelResults({
             {models.map(model => {
               const isCurrent = model === currentModel && provider.slug === currentProvider
               const price = provider.pricing?.[model]
-              const locked = unavailable.has(model)
 
               return (
                 <CommandItem
                   className={cn(
                     'flex items-center gap-2 pl-6 font-mono',
                     isCurrent &&
-                      'bg-primary text-primary-foreground data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground',
-                    locked && 'cursor-not-allowed opacity-45'
+                      'bg-primary text-primary-foreground data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground'
                   )}
-                  disabled={locked}
                   key={`${provider.slug}:${model}`}
-                  onSelect={() => {
-                    if (!locked) {
-                      onSelectModel(provider, model)
-                    }
-                  }}
+                  onSelect={() => onSelectModel(provider, model)}
                   value={`${provider.slug}:${model}`}
                 >
                   <span className="min-w-0 flex-1 truncate">{model}</span>
-                  {locked && <span className="shrink-0 text-[0.62rem] uppercase tracking-wide opacity-80">{copy.pro}</span>}
                   <ModelPrice isCurrent={isCurrent} price={price} />
                 </CommandItem>
               )
             })}
-            {unavailable.size > 0 && (
-              <div className="px-6 pb-2 pt-1 text-[0.62rem] leading-relaxed text-muted-foreground">
-                {copy.proNeedsSubscription}
-              </div>
-            )}
           </CommandGroup>
         )
       })}
@@ -313,28 +298,12 @@ function LoadingResults() {
 }
 
 function ProviderHeading({ provider }: { provider: ModelOptionProvider }) {
-  const { t } = useI18n()
-  const copy = t.modelPicker
-
-  // free_tier is only set for Nous. true → "Free tier", false → "Pro".
-  const tierBadge =
-    provider.free_tier === true ? (
-      <span className="rounded-sm bg-emerald-500/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-        {copy.freeTier}
-      </span>
-    ) : provider.free_tier === false ? (
-      <span className="rounded-sm bg-primary/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-primary">
-        {copy.pro}
-      </span>
-    ) : null
-
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span className="truncate">{provider.name}</span>
       <span className="font-mono text-xs font-normal normal-case tracking-normal text-muted-foreground">
         {provider.slug} · {provider.total_models ?? provider.models?.length ?? 0}
       </span>
-      {tierBadge}
     </span>
   )
 }

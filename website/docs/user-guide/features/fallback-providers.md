@@ -48,7 +48,6 @@ Each entry requires both `provider` and `model`. Entries missing either field ar
 | Provider | Value | Requirements |
 |----------|-------|-------------|
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
-| Cloud Industry Portal | `nous` | `janus setup --portal` (fresh) or `janus auth add nous` (OAuth) |
 | OpenAI Codex | `openai-codex` | `janus model` (ChatGPT OAuth) |
 | GitHub Copilot | `copilot` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` |
 | GitHub Copilot ACP | `copilot-acp` | External process (editor integration) |
@@ -166,15 +165,15 @@ fallback_providers:
     model: anthropic/claude-sonnet-4
 ```
 
-**Cloud Industry Portal as fallback for OpenRouter:**
+**Direct Anthropic as fallback for OpenRouter:**
 ```yaml
 model:
   provider: openrouter
   default: anthropic/claude-opus-4
 
 fallback_providers:
-  - provider: nous
-    model: nous-hermes-3
+  - provider: anthropic
+    model: claude-opus-4
 ```
 
 **Local model as fallback for cloud:**
@@ -233,15 +232,15 @@ When a task's provider is set to `"auto"` (the default), Janus tries providers i
 **For text tasks (compression, web extract, etc.):**
 
 ```text
-OpenRouter → Cloud Industry Portal → Custom endpoint → Codex OAuth →
+OpenRouter → Custom endpoint → Codex OAuth →
 API-key providers (z.ai, Kimi, MiniMax, Xiaomi MiMo, Hugging Face, Anthropic) → give up
 ```
 
 **For vision tasks:**
 
 ```text
-Main provider (if vision-capable) → OpenRouter → Cloud Industry Portal →
-Codex OAuth → Anthropic → Custom endpoint → give up
+Main provider (if vision-capable) → OpenRouter → Codex OAuth →
+Anthropic → Custom endpoint → give up
 ```
 
 If the resolved provider fails at call time, Janus also has an internal retry: if the provider is not OpenRouter and no explicit `base_url` is set, it tries OpenRouter as a last-resort fallback.
@@ -253,7 +252,7 @@ Each task can be configured independently in `config.yaml`:
 ```yaml
 auxiliary:
   vision:
-    provider: "auto"              # auto | openrouter | nous | codex | main | anthropic
+    provider: "auto"              # auto | openrouter | codex | main | anthropic
     model: ""                     # e.g. "openai/gpt-4o"
     base_url: ""                  # direct endpoint (takes precedence over provider)
     api_key: ""                   # API key for base_url
@@ -304,7 +303,6 @@ These options apply to `auxiliary:`, `compression:`, and `fallback_providers:` e
 |----------|-------------|-------------|
 | `"auto"` | Try providers in order until one works (default) | At least one provider configured |
 | `"openrouter"` | Force OpenRouter | `OPENROUTER_API_KEY` |
-| `"nous"` | Force Cloud Industry Portal | `janus auth` |
 | `"codex"` | Force Codex OAuth | `janus model` → Codex |
 | `"main"` | Use whatever provider the main agent uses (auxiliary tasks only) | Active main provider configured |
 | `"anthropic"` | Force Anthropic native | `ANTHROPIC_API_KEY` or Claude Code credentials |
@@ -350,8 +348,8 @@ auxiliary:
     fallback_chain:
       - provider: openrouter
         model: google/gemini-3-flash-preview
-      - provider: nous
-        model: anthropic/claude-sonnet-4
+      - provider: anthropic
+        model: claude-sonnet-4
 
   compression:
     provider: openrouter
@@ -381,7 +379,7 @@ Context compression uses the `auxiliary.compression` config block to control whi
 ```yaml
 auxiliary:
   compression:
-    provider: "auto"                              # auto | openrouter | nous | main
+    provider: "auto"                              # auto | openrouter | anthropic | main
     model: "google/gemini-3-flash-preview"
 ```
 

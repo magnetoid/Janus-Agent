@@ -13,8 +13,6 @@ model:
   # Inference provider selection:
   #   "auto"         - Auto-detect from credentials (default)
   #   "openrouter"   - OpenRouter (requires: OPENROUTER_API_KEY or OPENAI_API_KEY)
-  #   "nous"         - Cloud Industry Portal OAuth (requires: janus login)
-  #   "nous-api"     - Cloud Industry Portal API key (requires: NOUS_API_KEY)
   #   "anthropic"    - Direct Anthropic API (requires: ANTHROPIC_API_KEY)
   #   "openai-codex" - OpenAI Codex (requires: janus auth)
   #   "copilot"      - GitHub Copilot / GitHub Models (requires: GITHUB_TOKEN)
@@ -445,11 +443,11 @@ prompt_caching:
 # Janus uses lightweight "auxiliary" models for side tasks: image analysis,
 # browser screenshot analysis, web page summarization, and context compression.
 #
-# By default these use Gemini Flash via OpenRouter or Cloud Industry Portal and are
+# By default these use Gemini Flash via OpenRouter and are
 # auto-detected from your credentials.  You do NOT need to change anything
 # here for normal usage.
 #
-# WARNING: Overriding these with providers other than OpenRouter or Cloud Industry Portal
+# WARNING: Overriding these with providers other than OpenRouter
 # is EXPERIMENTAL and may not work.  Not all models/providers support vision,
 # produce usable summaries, or accept the same API format.  Change at your own
 # risk — if things break, reset to "auto" / empty values.
@@ -459,9 +457,8 @@ prompt_caching:
 # local endpoint for compression (just needs text).
 #
 # Provider options:
-#   "auto"       - Best available: OpenRouter → Cloud Industry Portal → main endpoint (default)
+#   "auto"       - Best available: OpenRouter → main endpoint (default)
 #   "openrouter" - Force OpenRouter (requires OPENROUTER_API_KEY)
-#   "nous"       - Force Cloud Industry Portal (requires: janus login)
 #   "gemini"      - Force Google AI Studio direct (requires: GOOGLE_API_KEY or GEMINI_API_KEY)
 #   "ollama-cloud" - Ollama Cloud (requires: OLLAMA_API_KEY)
 #   "codex"       - Force Codex OAuth (requires: janus model → Codex).
@@ -471,7 +468,7 @@ prompt_caching:
 #                  endpoint.  Also falls back to Codex OAuth and API-key providers.
 #
 # Model: leave empty to use the provider's default.  When empty, OpenRouter
-# uses "google/gemini-3-flash-preview" and Nous uses "gemini-3-flash".
+# uses "google/gemini-3-flash-preview".
 # Other providers pick a sensible default automatically.
 #
 # auxiliary:
@@ -638,7 +635,7 @@ agent:
   # Enable verbose logging
   verbose: false
   
-  # Reasoning effort level (OpenRouter and Cloud Industry Portal)
+  # Reasoning effort level (OpenRouter and other reasoning-capable providers)
   # Controls how much "thinking" the model does before responding.
   # Options: "xhigh" (max), "high", "medium", "low", "minimal", "none" (disable)
   reasoning_effort: "medium"
@@ -931,7 +928,7 @@ delegation:
   # model: "google/gemini-3-flash-preview"    # Override model for subagents (empty = inherit parent)
   # provider: "openrouter"                    # Override provider for subagents (empty = inherit parent)
   #                                           # Resolves full credentials (base_url, api_key) automatically.
-  #                                           # Supported: openrouter, nous, zai, kimi-coding, minimax
+  #                                           # Supported: openrouter, zai, kimi-coding, minimax
 
 # =============================================================================
 # Honcho Integration (Cross-Session User Modeling)
@@ -1196,27 +1193,17 @@ updates:
 # =============================================================================
 # Web Dashboard
 # =============================================================================
-# OAuth gate configuration for `janus dashboard --host <non-loopback>`.
-# The bundled Cloud Industry Portal plugin reads these on startup; settings here are
-# the canonical surface. Each can be overridden by an environment variable:
+# Auth-gate settings for `janus dashboard --host <non-loopback>`, used by
+# whichever dashboard_auth plugin is active. Can be overridden by an
+# environment variable:
 #
-#   dashboard.oauth.client_id   <-  JANUS_DASHBOARD_OAUTH_CLIENT_ID
-#   dashboard.oauth.portal_url  <-  JANUS_DASHBOARD_PORTAL_URL
 #   dashboard.public_url        <-  JANUS_DASHBOARD_PUBLIC_URL
 #
-# Env wins when set to a non-empty value. This is what Fly.io's platform-
-# secret injection uses to push per-deploy client_ids without needing to
-# bake a config.yaml into the image. Empty env values are treated as unset
-# so a provisioned-but-not-populated secret can't shadow a valid entry here.
-#
-# Local dev / on-prem deploys should typically set these via config.yaml
-# (the ~/.janus/.env file is reserved for API keys and secrets).
+# Env wins when set to a non-empty value. Empty env values are treated as
+# unset so a provisioned-but-not-populated secret can't shadow a valid entry
+# here.
 #
 # dashboard:
-#   oauth:
-#     client_id: ""    # agent:{instance_id}; Portal provisions this at deploy
-#     portal_url: ""   # blank → default https://portal.cloud-industry.com
-#
 #   # Force the absolute base URL the OAuth callback (and any other public
 #   # URL the dashboard hands to external systems) is built from. Set this
 #   # for deploys behind reverse proxies that don't reliably forward

@@ -31,7 +31,6 @@ class TestMoonshotModelDetection:
             "kimi-k2-thinking",
             "moonshotai/Kimi-K2.6",
             "moonshotai/kimi-k2.6",
-            "nous/moonshotai/kimi-k2.6",
             "openrouter/moonshotai/kimi-k2-thinking",
             "MOONSHOTAI/KIMI-K2.6",
         ],

@@ -48,7 +48,6 @@ fallback_model:
 | 提供商 | 值 | 要求 |
 |----------|-------|-------------|
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
-| Cloud Industry Portal | `nous` | `janus setup --portal`（全新安装）或 `janus auth add nous`（OAuth） |
 | OpenAI Codex | `openai-codex` | `janus model`（ChatGPT OAuth） |
 | GitHub Copilot | `copilot` | `COPILOT_GITHUB_TOKEN`、`GH_TOKEN` 或 `GITHUB_TOKEN` |
 | GitHub Copilot ACP | `copilot-acp` | 外部进程（编辑器集成） |
@@ -133,15 +132,15 @@ fallback_model:
   model: anthropic/claude-sonnet-4
 ```
 
-**以 Cloud Industry Portal 作为 OpenRouter 的备用：**
+**以直连 Anthropic 作为 OpenRouter 的备用：**
 ```yaml
 model:
   provider: openrouter
   default: anthropic/claude-opus-4
 
 fallback_model:
-  provider: nous
-  model: nous-hermes-3
+  provider: anthropic
+  model: claude-opus-4
 ```
 
 **以本地模型作为云端的备用：**
@@ -200,15 +199,15 @@ Janus 为附属任务使用独立的轻量级模型。每个任务都有自己�
 **文本任务（压缩、网页提取等）：**
 
 ```text
-OpenRouter → Cloud Industry Portal → 自定义端点 → Codex OAuth →
+OpenRouter → 自定义端点 → Codex OAuth →
 API 密钥提供商（z.ai、Kimi、MiniMax、Xiaomi MiMo、Hugging Face、Anthropic）→ 放弃
 ```
 
 **视觉任务：**
 
 ```text
-主提供商（若支持视觉）→ OpenRouter → Cloud Industry Portal →
-Codex OAuth → Anthropic → 自定义端点 → 放弃
+主提供商（若支持视觉）→ OpenRouter → Codex OAuth →
+Anthropic → 自定义端点 → 放弃
 ```
 
 若解析到的提供商在调用时失败，Janus 还有内部重试机制：若该提供商不是 OpenRouter 且未设置显式 `base_url`，则尝试以 OpenRouter 作为最后备用。
@@ -220,7 +219,7 @@ Codex OAuth → Anthropic → 自定义端点 → 放弃
 ```yaml
 auxiliary:
   vision:
-    provider: "auto"              # auto | openrouter | nous | codex | main | anthropic
+    provider: "auto"              # auto | openrouter | codex | main | anthropic
     model: ""                     # 例如 "openai/gpt-4o"
     base_url: ""                  # 直接端点（优先于 provider）
     api_key: ""                   # base_url 的 API 密钥
@@ -271,7 +270,6 @@ fallback_model:
 |----------|-------------|-------------|
 | `"auto"` | 按顺序尝试各提供商直到找到可用的（默认） | 至少配置一个提供商 |
 | `"openrouter"` | 强制使用 OpenRouter | `OPENROUTER_API_KEY` |
-| `"nous"` | 强制使用 Cloud Industry Portal | `janus auth` |
 | `"codex"` | 强制使用 Codex OAuth | `janus model` → Codex |
 | `"main"` | 使用主 Agent 当前的提供商（仅限辅助任务） | 已配置活跃的主提供商 |
 | `"anthropic"` | 强制使用 Anthropic 原生 | `ANTHROPIC_API_KEY` 或 Claude Code 凭据 |
@@ -317,8 +315,8 @@ auxiliary:
     fallback_chain:
       - provider: openrouter
         model: google/gemini-3-flash-preview
-      - provider: nous
-        model: anthropic/claude-sonnet-4
+      - provider: anthropic
+        model: claude-sonnet-4
 
   compression:
     provider: openrouter
@@ -348,7 +346,7 @@ Janus 将以下情况识别为等同于 402 额度耗尽的容量错误（而非
 ```yaml
 auxiliary:
   compression:
-    provider: "auto"                              # auto | openrouter | nous | main
+    provider: "auto"                              # auto | openrouter | anthropic | main
     model: "google/gemini-3-flash-preview"
 ```
 

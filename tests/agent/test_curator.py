@@ -964,13 +964,13 @@ def test_review_model_new_slot_wins_over_legacy(curator_env):
     cfg = {
         "model": {"provider": "openrouter", "default": "openai/gpt-5.5"},
         "auxiliary": {
-            "curator": {"provider": "nous", "model": "new-winner"},
+            "curator": {"provider": "openrouter", "model": "new-winner"},
         },
         "curator": {
             "auxiliary": {"provider": "openrouter", "model": "legacy-loser"},
         },
     }
-    assert curator._resolve_review_model(cfg) == ("nous", "new-winner")
+    assert curator._resolve_review_model(cfg) == ("openrouter", "new-winner")
 
 
 def test_review_model_handles_missing_sections(curator_env):

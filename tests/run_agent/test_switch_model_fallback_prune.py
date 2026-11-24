@@ -56,7 +56,7 @@ def _switch_to_anthropic(agent):
 def test_switch_drops_old_primary_from_fallback_chain():
     agent = _make_agent([
         {"provider": "openrouter", "model": "x-ai/grok-4"},
-        {"provider": "nous", "model": "hermes-4"},
+        {"provider": "deepseek", "model": "deepseek-chat"},
     ])
 
     _switch_to_anthropic(agent)
@@ -65,8 +65,8 @@ def test_switch_drops_old_primary_from_fallback_chain():
 
     assert "openrouter" not in providers, "old primary must be pruned"
     assert "anthropic" not in providers, "new primary is redundant in the chain"
-    assert providers == ["nous"]
-    assert agent._fallback_model == {"provider": "nous", "model": "hermes-4"}
+    assert providers == ["deepseek"]
+    assert agent._fallback_model == {"provider": "deepseek", "model": "deepseek-chat"}
 
 
 def test_switch_with_empty_chain_stays_empty():

@@ -215,7 +215,7 @@ app.add_middleware(
 # OAuth gate middleware can honour the same allowlist — keeping the two
 # gates in lockstep avoids drift like the wildcard-subdomain regression
 # where ``/api/status`` was public under the legacy gate but 401'd under
-# the OAuth gate (breaking the portal's liveness probe).
+# the OAuth gate (breaking the hosted dashboard's liveness probe).
 #
 # Keep the upstream list minimal — only truly non-sensitive, read-only
 # endpoints belong there.
@@ -816,12 +816,6 @@ def _media_serve_roots() -> list[Path]:
     return out
 
 
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Curator endpoints — background skill-maintenance status + controls.
 #
@@ -831,14 +825,8 @@ def _media_serve_roots() -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-
-
 class CuratorPause(BaseModel):
     paused: bool
-
-
-
-
 
 
 def _safe_call(mod, fn_name: str, default):
@@ -856,55 +844,22 @@ def _safe_call(mod, fn_name: str, default):
 # ---------------------------------------------------------------------------
 
 
-
-
-
 class AspirationCreate(BaseModel):
     goal: str
-
-
-
-
-
-
 
 
 class InterestCreate(BaseModel):
     field: str
 
 
-
-
-
-
-
-
-
-
 class SleepPause(BaseModel):
     paused: bool
-
-
-
-
-# ---------------------------------------------------------------------------
-# Portal endpoint — Cloud Industry Portal auth + Tool Gateway routing status (read-only).
-# ---------------------------------------------------------------------------
-
-
-
 
 # ---------------------------------------------------------------------------
 # Diagnostics: prompt-size, support dump, debug upload, config migrate.
 # All produce text output, so they spawn background actions tailed via
 # /api/actions/<name>/status.
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
 
 
 class DebugShareRequest(BaseModel):
@@ -914,8 +869,6 @@ class DebugShareRequest(BaseModel):
     redact: bool = True
     # Recent log lines included in the summary tail (full logs are separate).
     lines: int = 200
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -1031,14 +984,6 @@ def _tail_lines(path: Path, n: int) -> List[str]:
     return lines[-n:] if n > 0 else lines
 
 
-
-
-
-
-
-
-
-
 class TTSSpeakRequest(BaseModel):
     text: str
 
@@ -1048,18 +993,6 @@ def _elevenlabs_voice_label(voice: Dict[str, Any]) -> str:
     category = str(voice.get("category") or "").strip()
 
     return f"{name} ({category})" if category else name
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _normalize_config_for_web(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1085,12 +1018,6 @@ def _normalize_config_for_web(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-
-
-
-
-
-
 _EMPTY_MODEL_INFO: dict = {
     "model": "",
     "provider": "",
@@ -1099,8 +1026,6 @@ _EMPTY_MODEL_INFO: dict = {
     "effective_context_length": 0,
     "capabilities": {},
 }
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -1124,16 +1049,6 @@ _AUX_TASK_SLOTS: Tuple[str, ...] = (
     "profile_describer",
     "curator",
 )
-
-
-
-
-
-
-
-
-
-
 
 
 def _denormalize_config_from_web(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1188,12 +1103,6 @@ def _denormalize_config_from_web(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-
-
-
-
-
-
 # Live credential probes keyed by env var. Each entry is (method, url, auth)
 # where auth is "bearer" (Authorization header) or "query" (?key=). A cheap
 # read-only models/key call that 401s on a bad token — enough to catch a
@@ -1232,12 +1141,6 @@ def _parse_model_ids(resp: "Any") -> List[str]:
         if mid:
             ids.append(mid)
     return ids
-
-
-
-
-
-
 
 
 # Entries omit fields they don't need to override; the catalog builder fills
@@ -2009,27 +1912,13 @@ async def _telegram_onboarding_request(
     )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # OAuth provider endpoints — status + disconnect (Phase 1)
 # ---------------------------------------------------------------------------
 #
 # Phase 1 surfaces *which OAuth providers exist* and whether each is
 # connected, plus a disconnect button. The actual login flow (PKCE for
-# Anthropic, device-code for Nous/Codex) still runs in the CLI for now;
+# Anthropic, device-code for Codex) still runs in the CLI for now;
 # Phase 2 will add in-browser flows. For unconnected providers we return
 # the canonical ``janus auth add <provider>`` command so the dashboard
 # can surface a one-click copy.
@@ -2158,14 +2047,6 @@ def _claude_code_only_status() -> Dict[str, Any]:
 # to a third-party CLI like Claude Code or Qwen).
 _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
     {
-        "id": "nous",
-        "name": "Cloud Industry Portal",
-        "flow": "device_code",
-        "cli_command": "janus auth add nous",
-        "docs_url": "https://portal.cloud-industry.com",
-        "status_fn": None,  # dispatched via auth.get_nous_auth_status
-    },
-    {
         "id": "openai-codex",
         "name": "OpenAI OAuth (ChatGPT)",
         "flow": "device_code",
@@ -2187,7 +2068,7 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
         # MiniMax's flow is structurally device-code (verification URI +
         # user code, backend polls the token endpoint) with a PKCE
         # extension for code-binding. The dashboard renders the same UX
-        # as Nous's device-code flow; the PKCE bit is a security
+        # as Codex's device-code flow; the PKCE bit is a security
         # extension that doesn't change the operator experience.
         "flow": "device_code",
         "cli_command": "janus auth add minimax-oauth",
@@ -2237,16 +2118,6 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
             return {"logged_in": False, "error": str(e)}
     try:
         from janus_cli import auth as hauth
-        if provider_id == "nous":
-            raw = hauth.get_nous_auth_status()
-            return {
-                "logged_in": bool(raw.get("logged_in")),
-                "source": "nous_portal",
-                "source_label": raw.get("portal_base_url") or "Cloud Industry Portal",
-                "token_preview": _truncate_token(raw.get("access_token")),
-                "expires_at": raw.get("access_expires_at"),
-                "has_refresh_token": bool(raw.get("has_refresh_token")),
-            }
         if provider_id == "openai-codex":
             raw = hauth.get_codex_auth_status()
             return {
@@ -2297,10 +2168,6 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
     return {"logged_in": False}
 
 
-
-
-
-
 # ---------------------------------------------------------------------------
 # OAuth Phase 2 — in-browser PKCE & device-code flows
 # ---------------------------------------------------------------------------
@@ -2318,7 +2185,7 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
 #          → persists to ~/.janus/.anthropic_oauth.json AND credential pool
 #          → returns { ok: true, status: "approved" }
 #
-#   Device code (Nous, OpenAI Codex, MiniMax, xAI Grok):
+#   Device code (OpenAI Codex, MiniMax, xAI Grok):
 #     1. POST /api/providers/oauth/{provider}/start
 #          → server hits provider's device-auth endpoint
 #          → gets { user_code, verification_url, device_code, interval, expires_in }
@@ -2544,64 +2411,12 @@ def _submit_anthropic_pkce(session_id: str, code_input: str) -> Dict[str, Any]:
 
 
 async def _start_device_code_flow(provider_id: str) -> Dict[str, Any]:
-    """Initiate a device-code flow (Nous, OpenAI Codex, or MiniMax).
+    """Initiate a device-code flow (OpenAI Codex or MiniMax).
 
     Calls the provider's device-auth endpoint via the existing CLI helpers,
     then spawns a background poller. Returns the user-facing display fields
     so the UI can render the verification page link + user code.
     """
-    if provider_id == "nous":
-        from janus_cli.auth import (
-            _request_device_code,
-            PROVIDER_REGISTRY,
-        )
-        import httpx
-        pconfig = PROVIDER_REGISTRY["nous"]
-        portal_base_url = (
-            os.getenv("JANUS_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or pconfig.portal_base_url
-        ).rstrip("/")
-        client_id = pconfig.client_id
-        scope = pconfig.scope
-
-        def _do_nous_device_request():
-            with httpx.Client(
-                timeout=httpx.Timeout(15.0),
-                headers={"Accept": "application/json"},
-            ) as client:
-                return (
-                    _request_device_code(
-                        client=client,
-                        portal_base_url=portal_base_url,
-                        client_id=client_id,
-                        scope=scope,
-                    ),
-                    scope,
-                )
-
-        device_data, effective_scope = await asyncio.get_running_loop().run_in_executor(
-            None, _do_nous_device_request
-        )
-        sid, sess = _new_oauth_session("nous", "device_code")
-        sess["device_code"] = str(device_data["device_code"])
-        sess["interval"] = int(device_data["interval"])
-        sess["expires_at"] = time.time() + int(device_data["expires_in"])
-        sess["portal_base_url"] = portal_base_url
-        sess["client_id"] = client_id
-        sess["scope"] = effective_scope
-        threading.Thread(
-            target=_nous_poller, args=(sid,), daemon=True, name=f"oauth-poll-{sid[:6]}"
-        ).start()
-        return {
-            "session_id": sid,
-            "flow": "device_code",
-            "user_code": str(device_data["user_code"]),
-            "verification_url": str(device_data["verification_uri_complete"]),
-            "expires_in": int(device_data["expires_in"]),
-            "poll_interval": int(device_data["interval"]),
-        }
-
     if provider_id == "openai-codex":
         # Codex uses fixed OpenAI device-auth endpoints; reuse the helper.
         sid, _ = _new_oauth_session("openai-codex", "device_code")
@@ -2640,7 +2455,7 @@ async def _start_device_code_flow(provider_id: str) -> Dict[str, Any]:
     if provider_id == "minimax-oauth":
         # MiniMax uses a device-code-style flow (verification URI + user
         # code + background poll) with a PKCE extension on top. From the
-        # operator's perspective it's identical to Nous's device-code
+        # operator's perspective it's identical to a plain device-code
         # flow; the PKCE bit (verifier + challenge from
         # _minimax_pkce_pair) is a security extension that binds the
         # token exchange to the original session.
@@ -2819,75 +2634,12 @@ def _drop_stale_dashboard_xai_pool_entries() -> None:
         _log.warning("xai-oauth stale dashboard pool cleanup failed: %s", e)
 
 
-def _nous_poller(session_id: str) -> None:
-    """Background poller that drives a Nous device-code flow to completion."""
-    from janus_cli.auth import (
-        _poll_for_token,
-        refresh_nous_oauth_from_state,
-    )
-    from datetime import datetime, timezone
-    import httpx
-    with _oauth_sessions_lock:
-        sess = _oauth_sessions.get(session_id)
-    if not sess:
-        return
-    portal_base_url = sess["portal_base_url"]
-    client_id = sess["client_id"]
-    device_code = sess["device_code"]
-    interval = sess["interval"]
-    scope = sess.get("scope")
-    expires_in = max(60, int(sess["expires_at"] - time.time()))
-    try:
-        with httpx.Client(timeout=httpx.Timeout(15.0), headers={"Accept": "application/json"}) as client:
-            token_data = _poll_for_token(
-                client=client,
-                portal_base_url=portal_base_url,
-                client_id=client_id,
-                device_code=device_code,
-                expires_in=expires_in,
-                poll_interval=interval,
-            )
-        # Same post-processing as _nous_device_code_login (validate/refresh JWT)
-        now = datetime.now(timezone.utc)
-        token_ttl = int(token_data.get("expires_in") or 0)
-        auth_state = {
-            "portal_base_url": portal_base_url,
-            "inference_base_url": token_data.get("inference_base_url"),
-            "client_id": client_id,
-            "scope": token_data.get("scope") or scope,
-            "token_type": token_data.get("token_type", "Bearer"),
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "obtained_at": now.isoformat(),
-            "expires_at": (
-                datetime.fromtimestamp(now.timestamp() + token_ttl, tz=timezone.utc).isoformat()
-                if token_ttl else None
-            ),
-            "expires_in": token_ttl,
-        }
-        full_state = refresh_nous_oauth_from_state(
-            auth_state,
-            timeout_seconds=15.0,
-            force_refresh=False,
-        )
-        from janus_cli.auth import persist_nous_credentials
-        persist_nous_credentials(full_state)
-        with _oauth_sessions_lock:
-            sess["status"] = "approved"
-        _log.info("oauth/device: nous login completed (session=%s)", session_id)
-    except Exception as e:
-        _log.warning("nous device-code poll failed (session=%s): %s", session_id, e)
-        with _oauth_sessions_lock:
-            sess["status"] = "error"
-            sess["error_message"] = str(e)
-
-
 def _minimax_poller(session_id: str) -> None:
     """Background poller that drives a MiniMax OAuth flow to completion.
 
-    Mirrors `_nous_poller` but calls the MiniMax-specific token endpoint,
-    which uses a PKCE-style ``code_verifier`` + ``user_code`` rather than
-    the ``device_code`` field used by Nous. On success, builds the same
+    Calls the MiniMax-specific token endpoint, which uses a PKCE-style
+    ``code_verifier`` + ``user_code`` rather than a plain RFC 8628
+    ``device_code``. On success, builds the same
     auth_state dict that ``_minimax_oauth_login`` (the CLI flow) builds
     and persists via ``_minimax_save_auth_state`` — so the dashboard
     path leaves the system in the same state as
@@ -3083,23 +2835,14 @@ def _codex_full_login_worker(session_id: str) -> None:
                 s["error_message"] = str(e)
 
 
-
-
 class OAuthSubmitBody(BaseModel):
     session_id: str
     code: str
 
 
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Session detail endpoints
 # ---------------------------------------------------------------------------
-
 
 
 def _session_latest_descendant(session_id: str):
@@ -3193,14 +2936,6 @@ class BulkDeleteSessions(BaseModel):
     ids: List[str]
 
 
-
-
-
-
-
-
-
-
 def _open_session_db_for_profile(profile: Optional[str]):
     """Open a SessionDB for read paths, optionally for another profile.
 
@@ -3216,14 +2951,6 @@ def _open_session_db_for_profile(profile: Optional[str]):
     return SessionDB(db_path=Path(home) / "state.db")
 
 
-
-
-
-
-
-
-
-
 class SessionRename(BaseModel):
     title: Optional[str] = None
     archived: Optional[bool] = None
@@ -3232,22 +2959,14 @@ class SessionRename(BaseModel):
     profile: Optional[str] = None
 
 
-
-
-
-
 class SessionPrune(BaseModel):
     older_than_days: int = 90
     source: Optional[str] = None
 
 
-
-
 # ---------------------------------------------------------------------------
 # Log viewer endpoint
 # ---------------------------------------------------------------------------
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3332,26 +3051,6 @@ def _find_cron_job_profile(job_id: str) -> Optional[str]:
     return None
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # MCP server endpoints — list / add / remove / test.
 #
@@ -3400,20 +3099,8 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-
-
-
-
-
-
-
-
 class MCPEnabledToggle(BaseModel):
     enabled: bool
-
-
-
-
 
 
 class MCPCatalogInstall(BaseModel):
@@ -3421,8 +3108,6 @@ class MCPCatalogInstall(BaseModel):
     # env: KEY=VALUE map for catalog entries that declare required env vars.
     env: Dict[str, str] = {}
     enable: bool = True
-
-
 
 
 # Register the mcp-install action log so /api/actions/mcp-install/status works.
@@ -3451,14 +3136,6 @@ def _pairing_store():
     from gateway.pairing import PairingStore
 
     return PairingStore()
-
-
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3501,16 +3178,8 @@ def _webhook_route_summary(name: str, route: Dict[str, Any], base_url: str) -> D
     }
 
 
-
-
-
-
-
-
 class WebhookEnabledToggle(BaseModel):
     enabled: bool
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3521,10 +3190,6 @@ class WebhookEnabledToggle(BaseModel):
 # spawn the real `janus gateway <verb>` so behaviour matches the CLI exactly.
 # Status is already surfaced by /api/status (gateway_running/state/platforms).
 # ---------------------------------------------------------------------------
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3564,12 +3229,6 @@ def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
     }
 
 
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Memory provider endpoints — status / list providers / select / disable / reset.
 #
@@ -3591,12 +3250,6 @@ class MemoryReset(BaseModel):
     target: str = "all"
 
 
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Operations endpoints — doctor / security audit / backup / import /
 # checkpoints / hooks.
@@ -3610,23 +3263,13 @@ class MemoryReset(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
 class BackupRequest(BaseModel):
     # Optional output path; defaults to a timestamped zip in the home dir.
     output: Optional[str] = None
 
 
-
-
 class ImportRequest(BaseModel):
     archive: str
-
-
-
-
 
 
 class HookCreate(BaseModel):
@@ -3640,17 +3283,9 @@ class HookCreate(BaseModel):
     approve: bool = True
 
 
-
-
 class HookDelete(BaseModel):
     event: str
     command: str
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3667,20 +3302,14 @@ class SkillInstallRequest(BaseModel):
     identifier: str
 
 
-
-
 class SkillUninstallRequest(BaseModel):
     name: str
-
-
-
-
 
 
 # Human-readable labels for each hub source id (matches `janus skills search`
 # provenance).  Keep in sync with create_source_router()'s source list.
 _SKILL_HUB_SOURCE_LABELS = {
-    "official": "Official (Nous)",
+    "official": "Official",
     "janus-index": "Janus Index",
     "skills-sh": "skills.sh",
     "well-known": "Well-Known",
@@ -3726,14 +3355,6 @@ def _installed_hub_identifiers() -> dict:
         return out
     except Exception:
         return {}
-
-
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3899,32 +3520,6 @@ def _write_profile_model(profile_dir: Path, provider: str, model: str) -> None:
         reset_janus_home_override(token)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Skills & Tools endpoints
 # ---------------------------------------------------------------------------
@@ -3935,36 +3530,20 @@ class SkillToggle(BaseModel):
     enabled: bool
 
 
-
-
-
-
-
-
 class ToolsetToggle(BaseModel):
     enabled: bool
-
-
-
-
 
 
 class ToolsetProviderSelect(BaseModel):
     provider: str
 
 
-
-
 class ToolsetEnvUpdate(BaseModel):
     env: Dict[str, str]
 
 
-
-
 class ToolsetPostSetup(BaseModel):
     key: str
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -3976,17 +3555,9 @@ class RawConfigUpdate(BaseModel):
     yaml_text: str
 
 
-
-
-
-
 # ---------------------------------------------------------------------------
 # Token / cost analytics endpoint
 # ---------------------------------------------------------------------------
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -4406,8 +3977,6 @@ def _ws_close_reason(text: str) -> str:
     return encoded[:120].decode("utf-8", "ignore") + "..."
 
 
-
-
 # ---------------------------------------------------------------------------
 # /api/ws — JSON-RPC WebSocket sidecar for the dashboard "Chat" tab.
 #
@@ -4417,8 +3986,6 @@ def _ws_close_reason(text: str) -> str:
 # already paints. Both transports bind to the same session id when one is
 # active, so a tool.start emitted by the agent fans out to both sinks.
 # ---------------------------------------------------------------------------
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -4431,10 +3998,6 @@ def _ws_close_reason(text: str) -> str:
 # gives the React sidebar its tool-call feed without breaking the PTY
 # child's stdio handshake with Ink.
 # ---------------------------------------------------------------------------
-
-
-
-
 
 
 def _normalise_prefix(raw: Optional[str]) -> str:
@@ -4581,7 +4144,6 @@ def mount_spa(application: FastAPI):
 _BUILTIN_DASHBOARD_THEMES = [
     {"name": "default",       "label": "Janus Teal",         "description": "Classic dark teal — the canonical Janus look"},
     {"name": "default-large", "label": "Janus Teal (Large)", "description": "Janus Teal with bigger fonts and roomier spacing"},
-    {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
@@ -4826,12 +4388,8 @@ def _discover_user_themes() -> list:
     return result
 
 
-
-
 class ThemeSetBody(BaseModel):
     name: str
-
-
 
 
 # Curated font-override ids. Kept in sync with FONT_CHOICES in
@@ -4848,12 +4406,8 @@ _FONT_CHOICES = frozenset({
 })
 
 
-
-
 class FontSetBody(BaseModel):
     font: str
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -5015,10 +4569,6 @@ def _get_dashboard_plugins(force_rescan: bool = False) -> list:
     return _dashboard_plugins_cache
 
 
-
-
-
-
 class _AgentPluginInstallBody(BaseModel):
     identifier: str
     force: bool = False
@@ -5144,10 +4694,6 @@ def _merged_plugins_hub() -> Dict[str, Any]:
     }
 
 
-
-
-
-
 def _validate_plugin_name(name: str) -> str:
     """Reject path-traversal attempts in plugin name URL parameters."""
     name = name.strip("/")
@@ -5156,27 +4702,13 @@ def _validate_plugin_name(name: str) -> str:
     return name
 
 
-
-
-
-
-
-
-
-
 class _PluginProvidersPutBody(BaseModel):
     memory_provider: Optional[str] = None
     context_engine: Optional[str] = None
 
 
-
-
 class _PluginVisibilityBody(BaseModel):
     hidden: bool
-
-
-
-
 
 
 def _mount_plugin_api_routes():
@@ -5282,8 +4814,6 @@ from janus_cli.routers.skills import router as skills_router
 app.include_router(skills_router)
 from janus_cli.routers.sleep import router as sleep_router
 app.include_router(sleep_router)
-from janus_cli.routers.portal import router as portal_router
-app.include_router(portal_router)
 from janus_cli.routers.ops import router as ops_router
 app.include_router(ops_router)
 from janus_cli.routers.gateway import router as gateway_router
@@ -5363,18 +4893,18 @@ def start_server(
         from janus_cli.dashboard_auth import list_providers
         if not list_providers():
             # Surface the *specific* reason any bundled provider declined
-            # to register (e.g. missing JANUS_DASHBOARD_OAUTH_CLIENT_ID).
+            # to register (e.g. missing credentials).
             # Each provider plugin that ships with Janus Agent exposes a
             # module-level ``LAST_SKIP_REASON`` string for this purpose;
             # without it the operator would only see "no providers" which
             # is misleading when the provider IS installed but unconfigured.
             skip_reasons: list[str] = []
             try:
-                from plugins.dashboard_auth import nous as _nous_plugin
+                from plugins.dashboard_auth import basic as _basic_plugin
 
-                if _nous_plugin.LAST_SKIP_REASON:
+                if _basic_plugin.LAST_SKIP_REASON:
                     skip_reasons.append(
-                        f"  • nous: {_nous_plugin.LAST_SKIP_REASON}"
+                        f"  • basic: {_basic_plugin.LAST_SKIP_REASON}"
                     )
             except Exception:
                 pass
@@ -5396,7 +4926,7 @@ def start_server(
                 f"Refusing to bind dashboard to {host} — the OAuth auth "
                 f"gate engages on non-loopback binds, but no auth providers "
                 f"are registered and no bundled plugin reported a reason "
-                f"(was the dashboard_auth/nous plugin removed?).\n"
+                f"(was the dashboard_auth/basic plugin removed?).\n"
                 f"Install a DashboardAuthProvider plugin, or pass --insecure "
                 f"to skip the auth gate (NOT recommended on untrusted "
                 f"networks)."

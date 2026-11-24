@@ -4,8 +4,6 @@ Standalone Web Tools Module
 
 This module provides generic web tools that work with multiple backend providers.
 Backend is selected during ``janus tools`` setup (web.backend in config.yaml).
-When available, Janus can route Firecrawl calls through a Nous-hosted tool-gateway
-for Nous Subscribers only.
 
 Available tools:
 - web_search_tool: Search the web for information
@@ -13,7 +11,7 @@ Available tools:
 
 Backend compatibility:
 - Exa: https://exa.ai (search, extract)
-- Firecrawl: https://docs.firecrawl.dev/introduction (search, extract; direct or derived firecrawl-gateway.<domain> for Nous Subscribers)
+- Firecrawl: https://docs.firecrawl.dev/introduction (search, extract; cloud API or self-hosted)
 - Parallel: https://docs.parallel.ai (search, extract)
 - Tavily: https://tavily.com (search, extract)
 
@@ -52,10 +50,7 @@ if TYPE_CHECKING:
     from firecrawl import Firecrawl  # noqa: F401 — type hints only
 from plugins.web.firecrawl.provider import (
     Firecrawl,  # noqa: F401  # re-exported for tests that mock.patch("tools.web_tools.Firecrawl")
-    _firecrawl_backend_help_suffix,
     _get_firecrawl_client,  # noqa: F401  # re-exported for tests that `from tools.web_tools import _get_firecrawl_client`
-    _get_firecrawl_gateway_url,
-    _is_tool_gateway_ready,
     check_firecrawl_api_key,
 )
 # Tavily helpers re-exported for backward-compat with existing unit tests
@@ -89,19 +84,6 @@ from agent.auxiliary_client import (
     get_async_text_auxiliary_client,
 )
 from tools.debug_helpers import DebugSession
-# Imported solely so unit tests can monkeypatch these names on
-# tools.web_tools (the firecrawl plugin reads them via its own import chain).
-from tools.managed_tool_gateway import (  # noqa: F401 — backward-compat names for tests
-    build_vendor_gateway_url,
-    peek_nous_access_token as _peek_nous_access_token,
-    read_nous_access_token as _read_nous_access_token,
-    resolve_managed_tool_gateway,
-)
-from tools.tool_backend_helpers import (  # noqa: F401
-    managed_nous_tools_enabled,
-    nous_tool_gateway_unavailable_message,
-    prefers_gateway,
-)
 from tools.url_safety import async_is_safe_url, normalize_url_for_request
 import sys
 
@@ -153,12 +135,11 @@ def _get_backend() -> str:
         return configured
 
     # Fallback for manual / legacy config — pick the highest-priority
-    # available backend. Firecrawl also counts as available when the managed
-    # tool gateway is configured for Nous subscribers.
+    # available backend.
     # Free-tier backends (searxng / brave-free / ddgs) trail the paid ones so
     # existing paid setups are unaffected.
     backend_candidates = (
-        ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
+        ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL")),
         ("parallel", _has_env("PARALLEL_API_KEY")),
         ("tavily", _has_env("TAVILY_API_KEY")),
         ("exa", _has_env("EXA_API_KEY")),
@@ -265,27 +246,13 @@ def _ddgs_package_importable() -> bool:
 
 
 def _web_requires_env() -> list[str]:
-    """Return tool metadata env vars for the currently enabled web backends.
-
-    The gateway env vars are always reported — they're metadata strings
-    used by the tool registry to light up the tool when the variable is
-    set.  Gating them on ``managed_nous_tools_enabled()`` only saved
-    string noise in the metadata list, but cost a synchronous HTTP
-    refresh against the Nous portal on every CLI startup (invoked at
-    tool-registration time).  The behavioral contract is: if the env var
-    is set, the tool sees it; if not, it doesn't.  Not-logged-in users
-    simply don't have the vars set, so the extra entries are harmless.
-    """
+    """Return tool metadata env vars for the currently enabled web backends."""
     return [
         "EXA_API_KEY",
         "PARALLEL_API_KEY",
         "TAVILY_API_KEY",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
-        "FIRECRAWL_GATEWAY_URL",
-        "TOOL_GATEWAY_DOMAIN",
-        "TOOL_GATEWAY_SCHEME",
-        "TOOL_GATEWAY_USER_TOKEN",
     ]
 
 
@@ -297,40 +264,24 @@ def _web_requires_env() -> list[str]:
 #   - firecrawl: plugins/web/firecrawl/provider.py
 # The names from the firecrawl plugin (Firecrawl proxy, _get_firecrawl_client,
 # _to_plain_object, _normalize_result_list, _extract_web_search_results,
-# _extract_scrape_payload, _is_tool_gateway_ready, etc.) are re-exported at
+# _extract_scrape_payload, etc.) are re-exported at
 # the top of this module for backward-compat with integration tests and
 # unit-test patches.
 
 
 DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION = 5000
 
-def _is_nous_auxiliary_client(client: Any) -> bool:
-    """Return True when the resolved auxiliary backend is Cloud Industry Portal."""
-    from urllib.parse import urlparse
-
-    base_url = str(getattr(client, "base_url", "") or "")
-    host = (urlparse(base_url).hostname or "").lower()
-    return host == "cloud-industry.com" or host.endswith(".cloud-industry.com")
-
-
-def _resolve_web_extract_auxiliary(model: Optional[str] = None) -> tuple[Optional[Any], Optional[str], Dict[str, Any]]:
-    """Resolve the current web-extract auxiliary client, model, and extra body."""
+def _resolve_web_extract_auxiliary(model: Optional[str] = None) -> tuple[Optional[Any], Optional[str]]:
+    """Resolve the current web-extract auxiliary client and model."""
     client, default_model = get_async_text_auxiliary_client("web_extract")
     configured_model = os.getenv("AUXILIARY_WEB_EXTRACT_MODEL", "").strip()
     effective_model = model or configured_model or default_model
-
-    extra_body: Dict[str, Any] = {}
-    if client is not None and _is_nous_auxiliary_client(client):
-        from agent.auxiliary_client import get_auxiliary_extra_body
-        from agent.portal_tags import nous_portal_tags
-        extra_body = get_auxiliary_extra_body() or {"tags": nous_portal_tags()}
-
-    return client, effective_model, extra_body
+    return client, effective_model
 
 
 def _get_default_summarizer_model() -> Optional[str]:
     """Return the current default model for web extraction summarization."""
-    _, model, _ = _resolve_web_extract_auxiliary()
+    _, model = _resolve_web_extract_auxiliary()
     return model
 
 _debug = DebugSession("web_tools", env_var="WEB_TOOLS_DEBUG")
@@ -506,7 +457,7 @@ Create a markdown summary that captures all key information in a well-organized,
 
     for attempt in range(max_retries):
         try:
-            aux_client, effective_model, extra_body = _resolve_web_extract_auxiliary(model)
+            aux_client, effective_model = _resolve_web_extract_auxiliary(model)
             if aux_client is None or not effective_model:
                 logger.warning("No auxiliary model available for web content processing")
                 return None
@@ -525,8 +476,6 @@ Create a markdown summary that captures all key information in a well-organized,
                 # agent/auxiliary_client.py). Users with slow local models should set
                 # or increase auxiliary.web_extract.timeout in config.yaml.
             }
-            if extra_body:
-                call_kwargs["extra_body"] = extra_body
             response = await async_call_llm(**call_kwargs)
             content = extract_content_or_reasoning(response)
             if content:
@@ -653,7 +602,7 @@ Synthesize these into ONE cohesive, comprehensive summary that:
 Create a single, unified markdown summary."""
 
     try:
-        aux_client, effective_model, extra_body = _resolve_web_extract_auxiliary(model)
+        aux_client, effective_model = _resolve_web_extract_auxiliary(model)
         if aux_client is None or not effective_model:
             logger.warning("No auxiliary model for synthesis, concatenating summaries")
             fallback = "\n\n".join(summaries)
@@ -671,8 +620,6 @@ Create a single, unified markdown summary."""
             "temperature": 0.1,
             "max_tokens": 20000,
         }
-        if extra_body:
-            call_kwargs["extra_body"] = extra_body
         response = await async_call_llm(**call_kwargs)
         final_summary = extract_content_or_reasoning(response)
 
@@ -1204,7 +1151,7 @@ def check_web_api_key() -> bool:
 
 def check_auxiliary_model() -> bool:
     """Check if an auxiliary text model is available for LLM content processing."""
-    client, _, _ = _resolve_web_extract_auxiliary()
+    client, _ = _resolve_web_extract_auxiliary()
     return client is not None
 
 
@@ -1219,10 +1166,9 @@ if __name__ == "__main__":
     
     # Check if API keys are available
     web_available = check_web_api_key()
-    tool_gateway_available = _is_tool_gateway_ready()
     firecrawl_key_available = bool(os.getenv("FIRECRAWL_API_KEY", "").strip())
     firecrawl_url_available = bool(os.getenv("FIRECRAWL_API_URL", "").strip())
-    nous_available = check_auxiliary_model()
+    aux_available = check_auxiliary_model()
     default_summarizer_model = _get_default_summarizer_model()
 
     if web_available:
@@ -1244,20 +1190,17 @@ if __name__ == "__main__":
             print(f"   Using self-hosted Firecrawl: {os.getenv('FIRECRAWL_API_URL').strip().rstrip('/')}")
         elif firecrawl_key_available:
             print("   Using direct Firecrawl cloud API")
-        elif tool_gateway_available:
-            print(f"   Using Firecrawl tool-gateway: {_get_firecrawl_gateway_url()}")
         else:
             print("   Firecrawl backend selected but not configured")
     else:
         print("❌ No web search backend configured")
         print(
             "Set EXA_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, FIRECRAWL_API_KEY, FIRECRAWL_API_URL"
-            f"{_firecrawl_backend_help_suffix()}"
         )
 
-    if not nous_available:
+    if not aux_available:
         print("❌ No auxiliary model available for LLM content processing")
-        print("Set OPENROUTER_API_KEY, configure Cloud Industry Portal, or set OPENAI_BASE_URL + OPENAI_API_KEY")
+        print("Set OPENROUTER_API_KEY, or set OPENAI_BASE_URL + OPENAI_API_KEY")
         print("⚠️  Without an auxiliary model, LLM content processing will be disabled")
     else:
         print(f"✅ Auxiliary model available: {default_summarizer_model}")
@@ -1267,7 +1210,7 @@ if __name__ == "__main__":
 
     print("🛠️  Web tools ready for use!")
     
-    if nous_available:
+    if aux_available:
         print(f"🧠 LLM content processing available with {default_summarizer_model}")
         print(f"   Default min length for processing: {DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION} chars")
     
@@ -1290,7 +1233,7 @@ if __name__ == "__main__":
     print("      content = await web_extract_tool(['https://example.com'])")
     print("  asyncio.run(main())")
     
-    if nous_available:
+    if aux_available:
         print("\nLLM-enhanced usage:")
         print("  # Content automatically processed for pages >5000 chars (default)")
         print("  content = await web_extract_tool(['https://python.org/about/'])")

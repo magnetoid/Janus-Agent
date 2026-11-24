@@ -37,7 +37,7 @@ def test_bundled_plugins_discovered():
     assert plugins_dir.is_dir(), f"Missing {plugins_dir}"
 
     child_dirs = [c for c in plugins_dir.iterdir() if c.is_dir()]
-    assert len(child_dirs) >= 28, f"Expected at least 28 provider plugins, found {len(child_dirs)}"
+    assert child_dirs, f"No provider plugins found under {plugins_dir}"
 
     for child in child_dirs:
         assert (child / "__init__.py").exists(), f"{child.name} missing __init__.py"

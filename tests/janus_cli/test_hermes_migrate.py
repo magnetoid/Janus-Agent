@@ -9,7 +9,7 @@ def _make_hermes(root: Path) -> Path:
     (src / "memories").mkdir(parents=True)
     (src / "skills" / "my-skill").mkdir(parents=True)
     (src / "config.yaml").write_text(
-        "model: hermes-3-405b\nprovider: nous\npaths:\n  home: /home/u/.hermes\n",
+        "model: hermes-coder-7b\nprovider: openrouter\npaths:\n  home: /home/u/.hermes\n",
         encoding="utf-8")
     (src / ".env").write_text("HERMES_HOME=/home/u/.hermes\nOPENAI_API_KEY=sk-x\n", encoding="utf-8")
     (src / "memories" / "MEMORY.md").write_text("- a durable fact\n", encoding="utf-8")
@@ -49,8 +49,8 @@ def test_migrate_copies_nondestructive_and_rewrites(tmp_path):
     assert "/.janus" in cfg and "/.hermes" not in cfg
     assert "JANUS_HOME=" in env and "HERMES_HOME" not in env
     # model ID + provider slug PRESERVED (not brand-swept)
-    assert "hermes-3-405b" in cfg
-    assert "provider: nous" in cfg
+    assert "hermes-coder-7b" in cfg
+    assert "provider: openrouter" in cfg
     assert "OPENAI_API_KEY=sk-x" in env
     assert "config.yaml" in res["rewritten"] and ".env" in res["rewritten"]
 
@@ -65,7 +65,7 @@ def test_migrate_skips_conflicts_unless_overwrite(tmp_path):
     # overwrite replaces it (and then rewrites tokens)
     res2 = hm.migrate(src, dst, overwrite=True)
     assert "config.yaml" in res2["imported"]
-    assert "hermes-3-405b" in (dst / "config.yaml").read_text(encoding="utf-8")
+    assert "hermes-coder-7b" in (dst / "config.yaml").read_text(encoding="utf-8")
 
 
 def test_dry_run_makes_no_changes(tmp_path):
@@ -82,10 +82,10 @@ def test_missing_source_is_best_effort(tmp_path):
 
 
 def test_rewrite_preserves_model_ids():
-    text = "model: nous-hermes-2\nft: Hermes-4-70B\nhome: /u/.hermes\nHERMES_HOME=/u/.hermes\n"
+    text = "model: my-hermes-2\nft: Hermes-Coder-70B\nhome: /u/.hermes\nHERMES_HOME=/u/.hermes\n"
     out = hm._rewrite_brand_tokens(text)
-    assert "nous-hermes-2" in out          # model family preserved
-    assert "Hermes-4-70B" in out           # model ID preserved
+    assert "my-hermes-2" in out            # model family preserved
+    assert "Hermes-Coder-70B" in out       # model ID preserved
     assert "/.janus" in out and "/.hermes" not in out
     assert "JANUS_HOME=/u/.janus" in out
 

@@ -209,8 +209,8 @@ async def gated_auth_middleware(
         # unreachable, so it can neither confirm nor deny the token). With
         # multiple providers stacked, that MUST NOT abort the chain — the
         # token may belong to a *different*, reachable provider. (Concretely:
-        # a self-hosted-OIDC session hits the `nous` provider first, which
-        # tries to reach Cloud Industry Portal's JWKS; if that's unreachable it raises,
+        # a self-hosted-OIDC session may hit another OIDC provider first,
+        # which tries to reach its IDP's JWKS; if that's unreachable it raises,
         # but the `self-hosted` provider can still verify the token.) So we
         # remember the unreachable error and keep going. Only if NO provider
         # verifies the token AND at least one was unreachable do we surface a
@@ -256,10 +256,10 @@ async def gated_auth_middleware(
             new_session, refreshing_provider = refreshed
             request.state.session = new_session
             response = await call_next(request)
-            # Persist the ROTATED tokens. Portal rotates the refresh token on
-            # every refresh and runs reuse-detection, so writing the new RT
+            # Persist the ROTATED tokens. IDPs that rotate the refresh token on
+            # every refresh run reuse-detection, so writing the new RT
             # back is mandatory: a stale RT cookie would replay a rotated
-            # token on the next refresh and (outside Portal's grace) revoke
+            # token on the next refresh and (outside the IDP's grace) revoke
             # the whole session. Bind cookie Secure/Path to the request shape.
             from janus_cli.dashboard_auth.cookies import (
                 detect_https,
@@ -324,7 +324,7 @@ def _attempt_refresh(request: Request, *, refresh_token):
     there's no RT or every provider's ``refresh_session`` failed with
     ``RefreshExpiredError`` (dead/revoked/reuse-detected RT → force re-login).
 
-    A ``ProviderError`` (Portal unreachable) is NOT swallowed into a re-login
+    A ``ProviderError`` (IDP unreachable) is NOT swallowed into a re-login
     here — re-raising would 500 the request; instead we log and return None so
     the caller forces a clean re-login, which is the safer UX than a hard
     error on a transient network blip during the narrow refresh window.

@@ -113,12 +113,11 @@ class TestReconfigureWritesProvider:
 
         assert config["video_gen"]["provider"] == "xai_fake"
         assert config["video_gen"]["model"] == "xai_fake-video-v1"
-        assert config["video_gen"]["use_gateway"] is False
 
     def test_reconfigure_with_no_env_vars_writes_provider(
         self, monkeypatch, tmp_path
     ):
-        """No env vars at all (managed-style plugin) → writes
+        """No env vars at all (keyless plugin) → writes
         video_gen.provider via the no-env-vars early-return branch."""
         from janus_cli import tools_config
 
@@ -145,7 +144,6 @@ class TestReconfigureWritesProvider:
 
         assert config["video_gen"]["provider"] == "noenv_video"
         assert config["video_gen"]["model"] == "noenv_video-video-v1"
-        assert config["video_gen"]["use_gateway"] is False
 
 
 class TestPluginVideoProvidersRow:

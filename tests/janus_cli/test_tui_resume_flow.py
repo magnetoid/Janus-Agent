@@ -966,14 +966,14 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
 
     with pytest.raises(SystemExit):
         main_mod._launch_tui(
-            model="nous/janus-test", provider="nous", toolsets="web, terminal"
+            model="openrouter/janus-test", provider="openrouter", toolsets="web, terminal"
         )
 
     env = captured["env"]
-    assert env["JANUS_MODEL"] == "nous/janus-test"
-    assert env["JANUS_INFERENCE_MODEL"] == "nous/janus-test"
-    assert env["JANUS_TUI_PROVIDER"] == "nous"
-    assert env["JANUS_INFERENCE_PROVIDER"] == "nous"
+    assert env["JANUS_MODEL"] == "openrouter/janus-test"
+    assert env["JANUS_INFERENCE_MODEL"] == "openrouter/janus-test"
+    assert env["JANUS_TUI_PROVIDER"] == "openrouter"
+    assert env["JANUS_INFERENCE_PROVIDER"] == "openrouter"
     assert env["JANUS_TUI_TOOLSETS"] == "web,terminal"
     active_path = Path(env["JANUS_TUI_ACTIVE_SESSION_FILE"])
     assert active_path.name.startswith("janus-tui-active-session-")

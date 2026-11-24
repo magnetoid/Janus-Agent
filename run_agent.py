@@ -148,7 +148,6 @@ from agent.prompt_builder import (  # noqa: F401  # re-exported via _ra() / mock
     build_skills_system_prompt,
     build_context_files_prompt,
     build_environment_hints,
-    build_nous_subscription_prompt,
     load_soul_md,
 )
 from agent.process_bootstrap import _get_proxy_from_env  # noqa: F401
@@ -196,7 +195,7 @@ from agent.tool_dispatch_helpers import (
     _extract_error_preview,
     _trajectory_normalize_msg,  # noqa: F401  # re-exported for tests that `from run_agent import _trajectory_normalize_msg`
 )
-from utils import atomic_json_write, base_url_host_matches, base_url_hostname, is_truthy_value
+from utils import atomic_json_write, base_url_host_matches, base_url_hostname
 
 
 
@@ -1232,10 +1231,6 @@ class AIAgent:
     ) -> bool:
         """Return True when this provider/model pair should use Responses API."""
         normalized_provider = (provider or "").strip().lower()
-        # Nous serves GPT-5.x models via its OpenAI-compatible chat
-        # completions endpoint; its /v1/responses endpoint returns 404.
-        if normalized_provider == "nous":
-            return False
         if normalized_provider == "copilot":
             try:
                 from janus_cli.models import _should_use_copilot_responses_api
@@ -2750,125 +2745,6 @@ class AIAgent:
         """Return the last captured RateLimitState, or None."""
         return self._rate_limit_state
 
-    def _capture_credits(self, http_response: Any) -> None:
-        """Parse x-nous-credits-* headers, cache CreditsState, fire threshold notices.
-
-        Fail-open throughout — header issues never break the agent loop. The PARSE is
-        swallowed (any error → treated as a miss → keep last-known). The notice
-        EVALUATION/EMIT is a SEPARATE block that WARNS on failure (R1-M2): a bug in the
-        depletion-notice path must not vanish silently under the parse swallow.
-        """
-        # Dev test fixture (JANUS_DEV_CREDITS_FIXTURE): inject a chosen notice state
-        # each turn for repeatable testing, bypassing real headers. Throwaway scaffolding.
-        try:
-            from agent.credits_tracker import dev_fixture_credits_state
-            _fixture = dev_fixture_credits_state()
-        except Exception:
-            _fixture = None
-        if _fixture is not None:
-            self._credits_state = _fixture
-            if self._credits_session_start_micros is None:
-                self._credits_session_start_micros = _fixture.remaining_micros
-            _latch = getattr(self, "_credits_latch", None)
-            if isinstance(_latch, dict):
-                _latch["seen_below_90"] = True  # let warn90 fire without a real crossing
-            _used = _fixture.used_fraction
-            logger.info(
-                "credits ▸ [FIXTURE] remaining=%d (%s) · paid=%s · denom=%s · used=%s "
-                "(real headers bypassed — `echo clear` / unset JANUS_DEV_CREDITS_FIXTURE to restore)",
-                _fixture.remaining_micros,
-                _fixture.remaining_usd or "?",
-                _fixture.paid_access,
-                _fixture.denominator_kind,
-                ("%.0f%%" % (_used * 100)) if _used is not None else "n/a",
-            )
-            self._emit_credits_notices()
-            return
-        if http_response is None:
-            return
-        headers = getattr(http_response, "headers", None)
-        if not headers:
-            return
-        _dev = is_truthy_value(os.environ.get("JANUS_DEV_CREDITS"))
-
-        # ── Parse (fail-open → miss; never overwrite good state with None) ──
-        try:
-            from agent.credits_tracker import parse_credits_headers
-            state = parse_credits_headers(headers, provider=self.provider)
-        except Exception:
-            return  # parse error → treat as a miss, keep last-known
-        if state is None:
-            if _dev:
-                logger.info(
-                    "credits ▸ response had no valid x-nous-credits-* headers "
-                    "(miss — producer off / non-Nous path / >TTL stale)"
-                )
-            return
-
-        # retain-last-known: only overwrite on a fresh valid parse
-        self._credits_state = state
-        # Latch session-start remaining the first time we ever see a header
-        if self._credits_session_start_micros is None:
-            self._credits_session_start_micros = state.remaining_micros
-        if _dev:
-            # JANUS_DEV_CREDITS: stream each capture to agent.log — watch live with
-            # `janus logs -f` (grep 'credits ▸'). Dev-only; silent for normal users.
-            spent = self.get_credits_spent_micros()
-            used = state.used_fraction
-            logger.info(
-                "credits ▸ remaining=%d (%s) · paid=%s · denom=%s · used=%s "
-                "· Δspent=%s · age=%s%s",
-                state.remaining_micros,
-                state.remaining_usd or "?",
-                state.paid_access,
-                state.denominator_kind,
-                ("%.0f%%" % (used * 100)) if used is not None else "n/a",
-                ("%.1f¢" % (spent / 10000)) if spent is not None else "n/a",
-                ("%.0fs" % state.age_seconds) if state.age_seconds != float("inf") else "n/a",
-                (" · disabled=%s" % state.disabled_reason) if state.disabled_reason else "",
-            )
-
-        # Threshold notices — shared with the cold-start seed (see _emit_credits_notices).
-        self._emit_credits_notices()
-
-    def _emit_credits_notices(self) -> None:
-        """Run the threshold policy on the current credits state and emit notices.
-
-        Shared by the warm path (_capture_credits) and the L3 cold-start seed, so a
-        session that opens already depleted warns immediately — not only after the first
-        inference header. Runs only when a notice consumer is bound (messaging binds none
-        → state still cached for /usage, no policy). WARNS on failure rather than
-        swallowing (R1-M2): a depletion-path bug must not vanish silently. Emits clears
-        FIRST, then shows (so depleted lands last in a latest-wins slot).
-        """
-        if getattr(self, "notice_callback", None) is None and getattr(self, "notice_clear_callback", None) is None:
-            return
-        state = getattr(self, "_credits_state", None)
-        if state is None:
-            return
-        try:
-            from agent.credits_tracker import evaluate_credits_notices
-            latch = getattr(self, "_credits_latch", None)
-            if latch is None:
-                latch = self._credits_latch = {"active": set(), "seen_below_90": False, "usage_band": None}
-            to_show, to_clear = evaluate_credits_notices(state, latch)
-            for key in to_clear:        # clears FIRST …
-                self._emit_notice_clear(key)
-            for notice in to_show:      # … then shows (depleted lands last in a latest-wins slot)
-                self._emit_notice(notice)
-        except Exception:
-            logger.warning("credits notice evaluation/emit failed", exc_info=True)
-
-    def get_credits_state(self):
-        """Return the last captured CreditsState, or None."""
-        return self._credits_state
-
-    def get_credits_spent_micros(self):
-        """Session-cumulative micros spent = first_seen_remaining - current_remaining. None if no data."""
-        if self._credits_session_start_micros is None or self._credits_state is None:
-            return None
-        return self._credits_session_start_micros - self._credits_state.remaining_micros
-
     def _check_openrouter_cache_status(self, http_response: Any) -> None:
         """Read X-OpenRouter-Cache-Status from response headers and log it.
 
@@ -3683,44 +3559,6 @@ class AIAgent:
         self._client_kwargs["base_url"] = self.base_url
 
         if not self._replace_primary_openai_client(reason=f"{self.provider}_credential_refresh"):
-            return False
-
-        return True
-
-    def _try_refresh_nous_client_credentials(
-        self,
-        *,
-        force: bool = True,
-    ) -> bool:
-        if self.api_mode != "chat_completions" or self.provider != "nous":
-            return False
-
-        try:
-            from janus_cli.auth import resolve_nous_runtime_credentials
-
-            creds = resolve_nous_runtime_credentials(
-                timeout_seconds=float(os.getenv("JANUS_NOUS_TIMEOUT_SECONDS", "15")),
-                force_refresh=force,
-            )
-        except Exception as exc:
-            logger.debug("Nous credential refresh failed: %s", exc)
-            return False
-
-        api_key = creds.get("api_key")
-        base_url = creds.get("base_url")
-        if not isinstance(api_key, str) or not api_key.strip():
-            return False
-        if not isinstance(base_url, str) or not base_url.strip():
-            return False
-
-        self.api_key = api_key.strip()
-        self.base_url = base_url.strip().rstrip("/")
-        self._client_kwargs["api_key"] = self.api_key
-        self._client_kwargs["base_url"] = self.base_url
-        # Nous requests should not inherit OpenRouter-only attribution headers.
-        self._client_kwargs.pop("default_headers", None)
-
-        if not self._replace_primary_openai_client(reason="nous_credential_refresh"):
             return False
 
         return True
@@ -4672,10 +4510,8 @@ class AIAgent:
 
         OpenRouter forwards unknown extra_body fields to upstream providers.
         Some providers/routes reject `reasoning` with 400s, so gate it to
-        known reasoning-capable model families and direct Cloud Industry Portal.
+        known reasoning-capable model families.
         """
-        if base_url_host_matches(self._base_url_lower, "cloud-industry.com"):
-            return True
         if (
             base_url_host_matches(self._base_url_lower, "models.github.ai")
             or base_url_host_matches(self._base_url_lower, "api.githubcopilot.com")

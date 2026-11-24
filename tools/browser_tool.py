@@ -3,9 +3,8 @@
 Browser Tool Module
 
 This module provides browser automation tools using agent-browser CLI.  It
-supports multiple backends — **Browser Use** (cloud, default for Nous
-subscribers), **Browserbase** (cloud, direct credentials), and **local
-Chromium** — with identical agent-facing behaviour.  The backend is
+supports multiple backends — **Browser Use** (cloud, direct API key),
+**Browserbase** (cloud, direct credentials), and **local Chromium** — with identical agent-facing behaviour.  The backend is
 auto-detected from config and available credentials.
 
 The tool uses agent-browser's accessibility tree (ariaSnapshot) for text-based
@@ -491,8 +490,8 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
 
     Reads ``config["browser"]["cloud_provider"]`` once and caches the result
     for the process lifetime. An explicit ``local`` provider disables cloud
-    fallback. If unset, fall back to Browser Use (managed Nous gateway or
-    direct API key) and then Browserbase (direct credentials only) — the
+    fallback. If unset, fall back to Browser Use (direct API key) and then
+    Browserbase (direct credentials only) — the
     historic auto-detect order, now expressed as the
     :data:`agent.browser_registry._LEGACY_PREFERENCE` walk.
 
@@ -557,12 +556,12 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
                 return None
     except Exception as e:
         # Config file may be temporarily unreadable; still try auto-detect so
-        # env-based / managed-gateway credentials can resolve. Don't pin cache.
+        # env-based credentials can resolve. Don't pin cache.
         logger.debug("Could not read cloud_provider from config: %s", e)
 
     if resolved is None:
-        # Auto-detect path: Browser Use first (managed Nous gateway or
-        # direct API key), then Browserbase (direct credentials). Uses
+        # Auto-detect path: Browser Use first (direct API key), then
+        # Browserbase (direct credentials). Uses
         # the legacy class names imported at the top of this module so
         # tests that ``monkeypatch.setattr(browser_tool, "BrowserUseProvider", ...)``
         # keep driving this branch deterministically. Third-party browser

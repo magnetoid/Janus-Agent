@@ -21,7 +21,7 @@ import re
 import threading
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -122,11 +122,7 @@ class TestCLIUsagePercentClamp:
     """``JanusCLI._show_usage`` prints "Current context: X / Y (Z%)"."""
 
     def _render(self, cli_obj, capsys) -> str:
-        # The Nous credits block is an independent portal fetch with its own
-        # percentage gauge — silence it so the assertion stays scoped to the
-        # context-pressure line.
-        with patch.object(type(cli_obj), "_print_nous_credits_block", lambda self: False):
-            cli_obj._show_usage()
+        cli_obj._show_usage()
         return capsys.readouterr().out
 
     def test_over_context_clamped_at_100(self, capsys):
@@ -192,8 +188,7 @@ def _gateway_runner(agent):
 
 async def _render_gateway_usage(agent) -> str:
     runner = _gateway_runner(agent)
-    with patch("agent.account_usage.nous_credits_lines", return_value=[]):
-        return await runner._handle_usage_command(MagicMock())
+    return await runner._handle_usage_command(MagicMock())
 
 
 class TestGatewayUsagePercentClamp:

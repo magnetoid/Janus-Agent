@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -39,13 +38,6 @@ def _valid_manifest() -> dict:
                     {"id": "anthropic/claude-opus-4.7", "description": "recommended"},
                     {"id": "openai/gpt-5.4", "description": ""},
                     {"id": "openrouter/elephant-alpha", "description": "free"},
-                ],
-            },
-            "nous": {
-                "metadata": {"display_name": "Cloud Industry Portal"},
-                "models": [
-                    {"id": "anthropic/claude-opus-4.7"},
-                    {"id": "moonshotai/kimi-k2.6"},
                 ],
             },
         },
@@ -269,23 +261,11 @@ class TestCuratedAccessors:
             ("openrouter/elephant-alpha", "free"),
         ]
 
-    def test_nous_returns_ids(self, isolated_home):
-        from janus_cli import model_catalog
-        with patch.object(
-            model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-        ):
-            result = model_catalog.get_curated_nous_models()
-        assert result == ["anthropic/claude-opus-4.7", "moonshotai/kimi-k2.6"]
 
     def test_openrouter_returns_none_when_catalog_empty(self, isolated_home):
         from janus_cli import model_catalog
         with patch.object(model_catalog, "_fetch_manifest", return_value=None):
             assert model_catalog.get_curated_openrouter_models() is None
-
-    def test_nous_returns_none_when_catalog_empty(self, isolated_home):
-        from janus_cli import model_catalog
-        with patch.object(model_catalog, "_fetch_manifest", return_value=None):
-            assert model_catalog.get_curated_nous_models() is None
 
 
 class TestDisabled:
@@ -343,96 +323,12 @@ class TestProviderOverride:
         assert result == [("override/model", "custom")]
 
 
-class TestIntegrationWithModelsModule:
-    """Exercise the fallback paths via the real callers in janus_cli.models."""
-
-    def test_curated_nous_ids_falls_back_to_hardcoded_on_empty_catalog(
-        self, isolated_home
-    ):
-        from janus_cli import model_catalog
-        from janus_cli.models import get_curated_nous_model_ids, _PROVIDER_MODELS
-
-        with patch.object(model_catalog, "_fetch_manifest", return_value=None):
-            result = get_curated_nous_model_ids()
-
-        assert result == list(_PROVIDER_MODELS["nous"])
-
-    def test_curated_nous_ids_prefers_manifest(self, isolated_home):
-        from janus_cli import model_catalog
-        from janus_cli.models import get_curated_nous_model_ids
-
-        with patch.object(
-            model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-        ):
-            result = get_curated_nous_model_ids()
-
-        assert result == ["anthropic/claude-opus-4.7", "moonshotai/kimi-k2.6"]
-
-    def test_picker_nous_row_uses_curated_list(self, tmp_path, monkeypatch):
-        """The /model picker surfaces the curated ``_PROVIDER_MODELS["nous"]``
-        list in curated order — matching the ``janus model`` CLI — not the live
-        ``/v1/models`` catalog or the manifest. Portal free/paid recommendations
-        are unioned in when reachable; offline (as here, with the Portal calls
-        stubbed out) it's exactly the curated list.
-        """
-        # We deliberately do NOT use the ``isolated_home`` fixture here:
-        # that fixture monkeypatches ``Path.home`` to ``tmp_path``, which
-        # trips the auth-store seat-belt in ``_auth_file_path()`` because
-        # ``JANUS_HOME / auth.json`` then resolves to the same path the
-        # seat-belt thinks is the "real" user store. Use the autouse
-        # ``_hermetic_environment`` JANUS_HOME directly instead.
-        import importlib
-        from janus_cli import model_catalog
-        from janus_cli.models import get_curated_nous_model_ids
-        importlib.reload(model_catalog)
-        try:
-            from janus_cli.model_switch import list_picker_providers
-
-            active_home = Path(os.environ["JANUS_HOME"])
-            (active_home / "auth.json").write_text(
-                json.dumps(
-                    {
-                        "providers": {"nous": {"access_token": "fake"}},
-                        "credential_pool": {},
-                    }
-                )
-            )
-
-            # Stub the Portal recommendation union so the row is deterministic
-            # (the curated list alone) and never touches the network. ``expected``
-            # is computed from the same source the picker uses internally
-            # (``curated["nous"] = get_curated_nous_model_ids()``), so the test
-            # stays an invariant — it can't rot as the curated/manifest list grows.
-            with patch.object(
-                model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-            ), patch("janus_cli.models.check_nous_free_tier", return_value=False), patch(
-                "janus_cli.models.union_with_portal_free_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ), patch(
-                "janus_cli.models.union_with_portal_paid_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ):
-                expected = get_curated_nous_model_ids()
-                picker = list_picker_providers(
-                    current_provider="nous", max_models=99
-                )
-        finally:
-            model_catalog.reset_cache()
-
-        nous_row = next((r for r in picker if r["slug"] == "nous"), None)
-        assert nous_row is not None, "nous row must appear when authed"
-        assert nous_row["models"] == expected
-
-
 # -----------------------------------------------------------------------------
 # Drift guard — prevent the in-repo curated lists from going out of sync with
 # the docs-hosted manifest at website/static/api/model-catalog.json.
 #
-# History: qwen/qwen3.6-plus was added to _PROVIDER_MODELS["nous"] in commit
-# 9dd6e5510 but website/static/api/model-catalog.json was not regenerated for
-# weeks, so free-tier users on a new install fetched a stale manifest and the
-# free-tier picker showed "No free models currently available." even though
-# the Portal was serving qwen/qwen3.6-plus as free. CI must catch this.
+# A curated list edited without regenerating the manifest leaves new installs
+# fetching a stale catalog. CI must catch this.
 # -----------------------------------------------------------------------------
 
 
@@ -473,7 +369,7 @@ class TestManifestMatchesInRepoLists:
 
         assert self._strip_volatile(actual) == self._strip_volatile(expected), (
             "website/static/api/model-catalog.json is out of sync with "
-            "_PROVIDER_MODELS['nous'] / OPENROUTER_MODELS. "
+            "OPENROUTER_MODELS. "
             "Run: python scripts/build_model_catalog.py && "
             "git add website/static/api/model-catalog.json"
         )

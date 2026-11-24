@@ -133,7 +133,7 @@ class TurnController {
   private streamDelay = STREAM_IDLE_BATCH_MS
   private toolProgressTimer: Timer = null
 
-  // ── Credits notice machinery (Strategy B) ───────────────────────────
+  // ── Status-bar notice machinery (Strategy B) ───────────────────────────
   //
   // A notice arriving mid-turn must NOT show (FaceTicker wins while busy);
   // it is held here, latest-wins, and applied at turn end via onTurnEnd().
@@ -174,10 +174,10 @@ class TurnController {
   // A `notification.show` arrived. If a turn is in flight (`busy`), the
   // FaceTicker owns the verb slot, so we hold the notice (latest-wins) and
   // let onTurnEnd() apply it when the turn finishes. If idle, apply it now.
-  // The Python side emits STABLE ids per notice kind (e.g. `credits.warn90`,
-  // `credits.restored`), NOT unique-per-emission ids.  The id-guard in
-  // applyNotice() is a defensive backup; the primary latest-wins mechanism is
-  // that applyNotice/clearNotice always cancel the prior timer first.
+  // The Python side emits STABLE ids per notice kind, NOT unique-per-emission
+  // ids. The id-guard in applyNotice() is a defensive backup; the primary
+  // latest-wins mechanism is that applyNotice/clearNotice always cancel the
+  // prior timer first.
   showNotice(notice: Notice) {
     const stamped: Notice = { ...notice, id: notice.id || `n${++this.noticeIdSeq}` }
 
@@ -907,19 +907,6 @@ class TurnController {
     this.toolTokenAcc = 0
     this.interrupted = false
     this.persistedToolLabels.clear()
-    // "Flash and yield" notices clear when a new turn starts: a usage-band heads-up
-    // (credits.usage, 50/75/90%) and the one-time "grant spent" transition
-    // (credits.grant_spent) should show once, then get out of the way — not camp the
-    // bar (e.g. "Grant spent · $990 top-up left" sitting there with plenty of top-up
-    // left). Depletion (credits.depleted) and other notices stay — they're explicitly
-    // sticky until the policy clears them. The Python `active` latch retains the key,
-    // so a yielded notice won't re-fire on the next turn.
-    const yieldingNoticeKey = getUiState().notice?.key
-
-    if (yieldingNoticeKey === 'credits.usage' || yieldingNoticeKey === 'credits.grant_spent') {
-      this.clearNotice(yieldingNoticeKey)
-    }
-
     patchUiState({ busy: true })
     patchTurnState({ activity: [], outcome: '', subagents: [], toolTokens: 0, tools: [], turnTrail: [] })
   }

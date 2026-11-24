@@ -32,7 +32,7 @@ export type BusyInputMode = 'interrupt' | 'queue' | 'steer'
 
 export type NoticeLevel = 'error' | 'info' | 'success' | 'warn'
 
-// Credits/usage notice surfaced in the status bar. Shape is snake_case to
+// Notice surfaced in the status bar. Shape is snake_case to
 // match the gateway WS wire (`notification.show` payload) and the existing
 // `Usage` type — no camelCase mapping layer. The `text` already carries its
 // own leading glyph (⚠ • ✕ ✓) from the Python policy, so the renderer only

@@ -9,10 +9,6 @@ Janus can optionally hand `openai/*` and `openai-codex/*` turns to the [Codex CL
 
 This is **opt-in only**. Default Janus behavior is unchanged unless you flip the flag. Janus never auto-routes you onto this runtime.
 
-:::tip
-Not using OpenAI Codex? `janus setup --portal` configures a non-Codex backend with Claude/Gemini/etc. in one step. See [Cloud Industry Portal](/integrations/nous-portal).
-:::
-
 ## Why
 
 - Run OpenAI agent turns against your **ChatGPT subscription** (no API key required) using the same auth flow Codex CLI uses.

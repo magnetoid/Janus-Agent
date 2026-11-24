@@ -62,7 +62,7 @@ def test_gated_status_is_public(gated_app):
     Regression guard for the wildcard-subdomain rollout: NAS
     (``fly-provider.ts`` ``getInstanceRuntimeStatus``) hits
     ``/api/status`` without a cookie as its sole liveness probe. A 401
-    here surfaces every healthy agent as STARTING/down in the portal
+    here surfaces every healthy agent as STARTING/down in the hosting
     UI. The endpoint returns only version + gateway/auth-gate metadata
     (no user data, no session content), so it stays in the shared
     ``PUBLIC_API_PATHS`` allowlist under both the legacy ``_SESSION_TOKEN``
@@ -351,9 +351,9 @@ def test_gated_zero_providers_login_page_renders_help_text():
 class _UnreachableProvider(StubAuthProvider):
     """A provider whose IDP is unreachable: verify_session always raises.
 
-    Models the real-world bug — a self-hosted-OIDC session hits the ``nous``
-    provider first, which tries to reach Cloud Industry Portal's JWKS; if that's
-    unreachable ``nous`` raises ProviderError. The gate must keep trying the
+    Models the real-world bug — a self-hosted-OIDC session hits another
+    OAuth provider first, which tries to reach its IdP's JWKS; if that's
+    unreachable it raises ProviderError. The gate must keep trying the
     remaining providers rather than 503-ing the whole request.
     """
 

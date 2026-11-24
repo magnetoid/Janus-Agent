@@ -326,7 +326,7 @@ def render_notice_line(notice) -> str:
     one-shot standalone push. The notice policy already bakes the level glyph
     (⚠ / • / ✕ / ✓) into the text, and the TUI + CLI REPL render that text
     verbatim — so we emit it as-is here too. Prepending a per-level glyph would
-    DOUBLE it ("⚠ ⚠ Credits 90% used", "⛔ ✕ Credit access paused"). Plaintext
+    DOUBLE it ("⚠ ⚠ …", "⛔ ✕ …"). Plaintext
     only — no markdown — so it renders uniformly across Telegram/Discord/Slack/
     SMS without per-platform escaping. Fail-soft: a malformed/empty notice
     degrades to "" rather than raising on the agent's callback path.
