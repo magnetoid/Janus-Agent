@@ -44,6 +44,8 @@ _JANUS_CORE_TOOLS = [
     "browser_type", "browser_scroll", "browser_back",
     "browser_press", "browser_get_images",
     "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
+    # Hidden until browser.credential_fill.enabled (check_fn).
+    "browser_fill_credential",
     # PageMem's recording seam. browser_navigate already auto-captures page
     # structure and folds recalled playbooks into its output (page_memory.enabled
     # defaults True), but ONLY this tool can create a playbook — expose navigate
@@ -184,7 +186,8 @@ TOOLSETS = {
             "browser_type", "browser_scroll", "browser_back",
             "browser_press", "browser_get_images",
             "browser_vision", "browser_console", "browser_cdp",
-            "browser_dialog", "web_search", "pagemem_remember"
+            "browser_dialog", "web_search", "pagemem_remember",
+            "browser_fill_credential"
         ],
         "includes": []
     },

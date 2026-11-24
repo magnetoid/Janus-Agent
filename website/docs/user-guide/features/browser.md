@@ -591,6 +591,39 @@ Responds to a native JS dialog (`alert` / `confirm` / `prompt` / `beforeunload`)
 
 **Frame tree** inside `browser_snapshot.frame_tree` is capped to 30 frames and OOPIF depth 2 to keep payloads bounded on ad-heavy pages. A `truncated: true` flag surfaces when limits were hit; agents needing the full tree can use `browser_cdp` with `Page.getFrameTree`.
 
+### `browser_fill_credential`
+
+Signs in with a login saved in your password manager. The model never sees the password. Off by default, and the model doesn't see the tool until you turn it on:
+
+```yaml
+browser:
+  credential_fill:
+    enabled: true
+    source: 1password        # or: bitwarden
+    vault: ""                # 1Password vault to search; empty searches all
+    allowed_sites: []        # hosts filled without asking, e.g. [github.com]
+    allow_cloud_browser: false
+```
+
+| Source | What it needs |
+|---|---|
+| `1password` | The [`op` CLI](https://developer.1password.com/docs/cli/) with a service-account token in `OP_SERVICE_ACCOUNT_TOKEN`, or the 1Password desktop app integration |
+| `bitwarden` | The [`bw` CLI](https://bitwarden.com/help/cli/), unlocked: run `bw unlock` and export `BW_SESSION` where Janus runs. This is the Bitwarden password manager, not Secrets Manager (`bws`). |
+
+**What happens on each call:**
+
+1. Janus reads the page URL from the browser. The model doesn't supply it. The page must be HTTPS; plain HTTP is accepted only for `localhost`. The page must also have exactly one visible password field.
+2. You're asked to approve filling a login on that site. **Session** and **Always** apply only to that site. `allowed_sites` skips the question for hosts you list. `--yolo`, `approvals.mode: off` and smart approval do **not** skip it. Cron jobs and headless runs are refused unless the site is in `allowed_sites`.
+3. The page is read again. If it moved to another site while you were deciding, nothing is filled.
+4. Janus looks up the login. It is used only when its saved URL has the page's host, or the page is on a subdomain of it: a login for `github.com` works on `gist.github.com`, but never on `github.com.evil.io`. When several logins match, the model passes `username` to pick one.
+5. The password goes into the page's password field and nowhere else. If the model passes `username_ref`, the username goes into that field. The tool result names only the site and the saved item.
+
+The password then stays in the page, so every later tool result is scrubbed of it (`[credential redacted]`). That covers any `browser_console` eval or snapshot that would read it back.
+
+Not supported with Camofox or the Lightpanda engine. With a cloud browser (Browserbase, Browser Use, Firecrawl) the password would be sent to that provider, so it's refused unless you set `allow_cloud_browser: true`.
+
+Saved logins with a custom port (`https://intranet:8443`) are not matched. Saving a new login from Janus is not supported yet: add it in your password manager.
+
 ## Practical Examples
 
 ### Filling Out a Web Form
