@@ -115,8 +115,8 @@ janus model
 或直接设置模型：
 
 ```bash
-janus config set model MiniMax-M2.7
-janus config set provider minimax-oauth
+janus config set model.default MiniMax-M2.7
+janus config set model.provider minimax-oauth
 ```
 
 ## 配置参考

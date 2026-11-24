@@ -6759,6 +6759,33 @@ def edit_config():
     subprocess.run([editor, str(config_path)])
 
 
+def _model_write_key(config: Dict[str, Any], key: str) -> str:
+    """Return the key a ``config set`` write into ``model`` should use.
+
+    ``model:`` is a bare name or a mapping (default, provider, base_url,
+    api_key, ...). Every loader reads a bare name as ``{default: name}`` and
+    prefers ``default`` over the ``model`` alias. So, editing *config* in place:
+
+    - ``model`` on a mapping sets ``model.default``; provider and endpoint stay.
+    - ``model.model`` sets ``model.default``, which would otherwise shadow it.
+    - ``model.<sub>`` on a bare name keeps the name as ``model.default``.
+    - a ``model.default`` write drops a stale ``model.model`` alias, which
+      some readers prefer.
+
+    ``model`` on a bare name, or with no ``model`` yet, is still a bare name.
+    """
+    if key != "model" and not key.startswith("model."):
+        return key
+    model_cfg = config.get("model")
+    if key != "model" and isinstance(model_cfg, str) and model_cfg.strip():
+        model_cfg = config["model"] = {"default": model_cfg}
+    if key == "model.model" or (key == "model" and isinstance(model_cfg, dict)):
+        key = "model.default"
+    if key == "model.default" and isinstance(model_cfg, dict):
+        model_cfg.pop("model", None)
+    return key
+
+
 def set_config_value(key: str, value: str):
     """Set a configuration value."""
     if is_managed():
@@ -6804,8 +6831,9 @@ def set_config_value(key: str, value: str):
     elif value.replace('.', '', 1).isdigit():
         value = float(value)
 
-    _set_nested(user_config, key, value)
-    
+    effective_key = _model_write_key(user_config, key)
+    _set_nested(user_config, effective_key, value)
+
     # Write only user config back (not the full merged defaults)
     ensure_janus_home()
     from utils import atomic_yaml_write
@@ -6844,7 +6872,11 @@ def set_config_value(key: str, value: str):
     if key in _config_to_env_sync:
         save_env_value(_config_to_env_sync[key], str(value))
 
-    print(f"✓ Set {key} = {value} in {config_path}")
+    print(f"✓ Set {effective_key} = {value} in {config_path}")
+    if key == "model" and effective_key != key:
+        provider = user_config["model"].get("provider")
+        if provider:
+            print(f"  Provider unchanged ({provider}); run 'janus model' to switch provider.")
 
 
 # =============================================================================

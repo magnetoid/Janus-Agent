@@ -328,3 +328,135 @@ class TestBrokenConfigIsNotReplaced:
         cfg.write_text("# just comments\n", encoding="utf-8")
         set_config_value("display.bell", "true")
         assert "bell: true" in cfg.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# `config set model X` changes the model name, not the provider setup
+# ---------------------------------------------------------------------------
+
+_ENDPOINT = "http://127.0.0.1:59999/v1"
+
+
+class TestModelKeyKeepsProviderSetup:
+    """``model:`` is either a bare name or a mapping (default, provider,
+    base_url, api_key, ...). Every loader reads a bare name as
+    ``{default: name}``. ``config set model X`` used to replace the whole
+    mapping with the string, so a custom endpoint's provider, base_url and
+    api_key were silently gone and the next run fell back to auto-detection.
+    """
+
+    def _write(self, home, body):
+        (home / "config.yaml").write_text(body, encoding="utf-8")
+
+    def _model_on_disk(self, home):
+        import yaml
+
+        return yaml.safe_load(_read_config(home))["model"]
+
+    def test_set_model_keeps_provider_and_endpoint(self, _isolated_janus_home):
+        from janus_cli.runtime_provider import _get_model_config, resolve_requested_provider
+
+        self._write(_isolated_janus_home, (
+            "model:\n"
+            "  provider: custom\n"
+            f"  base_url: {_ENDPOINT}\n"
+            "  default: my-model\n"
+            "  api_key: k\n"
+        ))
+
+        set_config_value("model", "other-model")
+
+        assert self._model_on_disk(_isolated_janus_home) == {
+            "provider": "custom",
+            "base_url": _ENDPOINT,
+            "default": "other-model",
+            "api_key": "k",
+        }
+        runtime_model = _get_model_config()
+        assert runtime_model["default"] == "other-model"
+        assert runtime_model["base_url"] == _ENDPOINT
+        assert resolve_requested_provider() == "custom"
+
+    def test_set_model_reports_the_key_it_wrote(self, _isolated_janus_home, capsys):
+        self._write(_isolated_janus_home, (
+            "model:\n"
+            "  provider: custom\n"
+            "  default: my-model\n"
+        ))
+
+        set_config_value("model", "other-model")
+
+        out = capsys.readouterr().out
+        assert "✓ Set model.default = other-model" in out
+        assert "custom" in out  # the kept provider is named, not silent
+
+    def test_set_model_drops_a_stale_model_alias(self, _isolated_janus_home):
+        """Some readers prefer ``model.model`` over ``model.default``."""
+        self._write(_isolated_janus_home, (
+            "model:\n"
+            "  provider: openrouter\n"
+            "  default: old-model\n"
+            "  model: old-model\n"
+        ))
+
+        set_config_value("model", "other-model")
+
+        assert self._model_on_disk(_isolated_janus_home) == {
+            "provider": "openrouter",
+            "default": "other-model",
+        }
+
+    def test_model_model_alias_is_not_shadowed_by_default(self, _isolated_janus_home):
+        """``config set model.model X`` (multi-profile docs) must take effect.
+
+        Loaders prefer ``default`` over the ``model`` alias, so writing the
+        alias next to an existing ``default`` used to change nothing.
+        """
+        from janus_cli.runtime_provider import _get_model_config
+
+        self._write(_isolated_janus_home, (
+            "model:\n"
+            "  provider: openrouter\n"
+            "  default: old-model\n"
+        ))
+
+        set_config_value("model.model", "other-model")
+
+        assert self._model_on_disk(_isolated_janus_home) == {
+            "provider": "openrouter",
+            "default": "other-model",
+        }
+        assert _get_model_config()["default"] == "other-model"
+
+    def test_set_model_provider_keeps_a_bare_model_name(self, _isolated_janus_home):
+        """The mirror case: a sub-key write must not drop a string model."""
+        from janus_cli.runtime_provider import _get_model_config, resolve_requested_provider
+
+        self._write(_isolated_janus_home, "model: gpt-4o\n")
+
+        set_config_value("model.provider", "openrouter")
+
+        assert self._model_on_disk(_isolated_janus_home) == {
+            "default": "gpt-4o",
+            "provider": "openrouter",
+        }
+        assert _get_model_config()["default"] == "gpt-4o"
+        assert resolve_requested_provider() == "openrouter"
+
+    def test_string_model_is_still_replaced_by_a_string(self, _isolated_janus_home):
+        self._write(_isolated_janus_home, "model: old-model\n")
+
+        set_config_value("model", "other-model")
+
+        assert self._model_on_disk(_isolated_janus_home) == "other-model"
+
+    def test_config_without_model_still_gets_a_string(self, _isolated_janus_home, capsys):
+        import yaml
+
+        self._write(_isolated_janus_home, "terminal:\n  timeout: 99\n")
+
+        set_config_value("model", "other-model")
+
+        cfg = yaml.safe_load(_read_config(_isolated_janus_home))
+        assert cfg == {"terminal": {"timeout": 99}, "model": "other-model"}
+        assert "✓ Set model = other-model" in capsys.readouterr().out

@@ -37,7 +37,7 @@ janus config check        # Check for missing options (after updates)
 janus config migrate      # Interactively add missing options
 
 # Examples:
-janus config set model anthropic/claude-opus-4
+janus config set model anthropic/claude-opus-4  # Sets model.default; provider is kept
 janus config set terminal.backend docker
 janus config set OPENROUTER_API_KEY sk-or-...  # Saves to .env
 ```
