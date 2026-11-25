@@ -1,60 +1,78 @@
-"""Test that opencode-go appears in /model list when credentials are set."""
+"""opencode-go in the /model picker: listed when its key is set, with its curated models.
 
-import os
-from unittest.mock import patch
+The picker puts models.dev entries in front of the curated list for
+opencode-go and shows at most ``max_models`` of them. These tests decide
+what models.dev returns (nothing, or a couple of extra models) instead of
+reading the live registry: with the network fetch, the outcome depended on
+how many models models.dev listed that day, and the test broke once the
+live entries pushed curated ones past the cap.
+"""
+
+import socket
+
+import pytest
 
 from janus_cli.model_switch import list_authenticated_providers
+from janus_cli.models import _PROVIDER_MODELS
 
 
-# Minimum set of models that must be present for opencode-go no matter
-# whether the picker sourced its list from curated-only or curated+models.dev.
-# The curated list in janus_cli/models.py defines the floor; models.dev only
-# ever adds names on top of it via _merge_with_models_dev.
-_OPENCODE_GO_REQUIRED = {
-    "kimi-k2.6",
-    "kimi-k2.5",
-    "glm-5.1",
-    "glm-5",
-    "mimo-v2-pro",
-    "mimo-v2-omni",
-    "minimax-m2.7",
-    "minimax-m2.5",
-}
-
-
-@patch.dict(os.environ, {"OPENCODE_GO_API_KEY": "test-key"}, clear=False)
-def test_opencode_go_appears_when_api_key_set():
-    """opencode-go should appear in list_authenticated_providers when OPENCODE_GO_API_KEY is set."""
-    providers = list_authenticated_providers(current_provider="openrouter", max_models=50)
-
-    # Find opencode-go in results
-    opencode_go = next((p for p in providers if p["slug"] == "opencode-go"), None)
-
-    assert opencode_go is not None, "opencode-go should appear when OPENCODE_GO_API_KEY is set"
-    # Behavior check: the curated floor must be present. The list may also
-    # include extra models.dev entries (e.g. mimo-v2.5-pro) when the registry
-    # is reachable — that's the whole point of the models.dev-preferred merge
-    # introduced for opencode-go, so don't pin to an exact list here.
-    present = set(opencode_go["models"])
-    missing = _OPENCODE_GO_REQUIRED - present
-    assert not missing, (
-        f"opencode-go picker should include the curated floor; missing: {sorted(missing)}. "
-        f"Got: {opencode_go['models']}"
+def _models_dev_lists(monkeypatch, lists):
+    """Make models.dev list *lists[provider]* agentic models for a provider."""
+    monkeypatch.setattr(
+        "agent.models_dev.list_agentic_models",
+        lambda provider: list(lists.get(provider, [])),
     )
-    # opencode-go can appear as "built-in" (from PROVIDER_TO_MODELS_DEV when
-    # models.dev is reachable) or "janus" (from JANUS_OVERLAYS fallback when
-    # the API is unavailable, e.g. in CI).
-    assert opencode_go["source"] in {"built-in", "janus"}
 
 
-def test_opencode_go_not_appears_when_no_creds():
-    """opencode-go should NOT appear when no credentials are set."""
-    # Ensure OPENCODE_GO_API_KEY is not set
-    env_without_key = {k: v for k, v in os.environ.items() if k != "OPENCODE_GO_API_KEY"}
+@pytest.fixture(autouse=True)
+def _offline_catalog(monkeypatch):
+    """No network and no cached or live catalog: only what a test hands in."""
+    def _refuse(*_a, **_k):
+        raise OSError("network disabled in this test")
 
-    with patch.dict(os.environ, env_without_key, clear=True):
-        providers = list_authenticated_providers(current_provider="openrouter")
+    def _refuse_lookup(*_a, **_k):
+        raise socket.gaierror("network disabled in this test")
 
-        # opencode-go should not be in results
-        opencode_go = next((p for p in providers if p["slug"] == "opencode-go"), None)
-        assert opencode_go is None, "opencode-go should not appear without credentials"
+    monkeypatch.setattr(socket.socket, "connect", _refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", _refuse_lookup)
+    # The provider scan checks Copilot too, which would read `gh auth token`.
+    monkeypatch.setattr("janus_cli.copilot_auth._try_gh_cli_token",
+                        lambda *a, **k: None)
+    monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda *a, **k: {})
+    monkeypatch.setattr("janus_cli.models.cached_provider_model_ids",
+                        lambda *a, **k: [])
+    _models_dev_lists(monkeypatch, {})
+
+
+def _opencode_go():
+    providers = list_authenticated_providers(current_provider="openrouter", max_models=50)
+    return next((p for p in providers if p["slug"] == "opencode-go"), None)
+
+
+def test_opencode_go_lists_its_curated_models_when_the_key_is_set(monkeypatch):
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "test-key")
+
+    entry = _opencode_go()
+
+    assert entry is not None, "opencode-go should appear when OPENCODE_GO_API_KEY is set"
+    assert set(_PROVIDER_MODELS["opencode-go"]) <= set(entry["models"])
+    assert entry["source"] in {"built-in", "janus"}
+
+
+def test_models_dev_entries_are_added_to_the_curated_models(monkeypatch):
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "test-key")
+    _models_dev_lists(monkeypatch, {"opencode-go": ["fresh-model-a", "fresh-model-b"]})
+
+    entry = _opencode_go()
+
+    assert entry is not None
+    shown = set(entry["models"])
+    assert {"fresh-model-a", "fresh-model-b"} <= shown
+    assert set(_PROVIDER_MODELS["opencode-go"]) <= shown
+
+
+def test_opencode_go_is_not_listed_without_credentials(monkeypatch):
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+
+    assert _opencode_go() is None, "opencode-go should not appear without credentials"
