@@ -323,6 +323,52 @@ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List
         )
 
 
+def _turn_user_content(messages: List[Dict[str, Any]], idx: Optional[int]) -> Any:
+    """Content of the user message at *idx*, or None if *idx* is not one."""
+    if idx is None or not 0 <= idx < len(messages):
+        return None
+    msg = messages[idx]
+    if not isinstance(msg, dict) or msg.get("role") != "user":
+        return None
+    return msg.get("content")
+
+
+def _ends_with_content(candidate: Any, content: Any) -> bool:
+    """True when *candidate* is *content* with something put in front of it."""
+    if isinstance(content, str) and isinstance(candidate, str):
+        return bool(content) and candidate.endswith(content)
+    if isinstance(content, list) and isinstance(candidate, list):
+        return bool(content) and candidate[-len(content):] == content
+    return False
+
+
+def _relocate_turn_user_message(
+    messages: List[Dict[str, Any]], content: Any,
+) -> Optional[int]:
+    """Index of the turn's user message after compression rebuilt *messages*.
+
+    Compression returns a shorter list of copied dicts, so the index taken
+    at turn start no longer points at the turn's message. The compressor
+    keeps that message in the tail, and may merge the summary in front of
+    it. So: the last user message with the same content, else the last one
+    whose content ends with it. None when neither exists; attaching the
+    turn's context to some other message would be worse than dropping it.
+    """
+    if content is None:
+        return None
+    user_rows = [
+        i for i in range(len(messages) - 1, -1, -1)
+        if isinstance(messages[i], dict) and messages[i].get("role") == "user"
+    ]
+    for i in user_rows:
+        if messages[i].get("content") == content:
+            return i
+    for i in user_rows:
+        if _ends_with_content(messages[i].get("content"), content):
+            return i
+    return None
+
+
 def run_conversation(
     agent,
     user_message: str,
@@ -555,6 +601,16 @@ def run_conversation(
         user_msg["_persist_content"] = persist_user_message
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
+
+    def _compress_turn(msgs, *args, **kwargs):
+        """agent._compress_context, keeping current_turn_user_idx on the
+        turn's user message: memory prefetch, plugin context and lesson
+        recall all find that message by this index."""
+        nonlocal current_turn_user_idx
+        turn_content = _turn_user_content(msgs, current_turn_user_idx)
+        compressed, new_system_prompt = agent._compress_context(msgs, *args, **kwargs)
+        current_turn_user_idx = _relocate_turn_user_message(compressed, turn_content)
+        return compressed, new_system_prompt
     
     if not agent.quiet_mode:
         _print_preview = _summarize_user_message_for_log(user_message)
@@ -666,7 +722,7 @@ def run_conversation(
             # context windows (each pass summarises the middle N turns).
             for _pass in range(3):
                 _orig_len = len(messages)
-                messages, active_system_prompt = agent._compress_context(
+                messages, active_system_prompt = _compress_turn(
                     messages, system_message, approx_tokens=_preflight_tokens,
                     task_id=effective_task_id,
                 )
@@ -2845,7 +2901,7 @@ def run_conversation(
                     compression_attempts += 1
                     if compression_attempts <= max_compression_attempts:
                         original_len = len(messages)
-                        messages, active_system_prompt = agent._compress_context(
+                        messages, active_system_prompt = _compress_turn(
                             messages, system_message,
                             approx_tokens=approx_tokens,
                             task_id=effective_task_id,
@@ -2954,7 +3010,7 @@ def run_conversation(
                     agent._buffer_status(f"⚠️  Request payload too large (413) — compression attempt {compression_attempts}/{max_compression_attempts}...")
 
                     original_len = len(messages)
-                    messages, active_system_prompt = agent._compress_context(
+                    messages, active_system_prompt = _compress_turn(
                         messages, system_message, approx_tokens=approx_tokens,
                         task_id=effective_task_id,
                     )
@@ -3110,7 +3166,7 @@ def run_conversation(
                     agent._buffer_status(f"🗜️ Context too large (~{approx_tokens:,} tokens) — compressing ({compression_attempts}/{max_compression_attempts})...")
 
                     original_len = len(messages)
-                    messages, active_system_prompt = agent._compress_context(
+                    messages, active_system_prompt = _compress_turn(
                         messages, system_message, approx_tokens=approx_tokens,
                         task_id=effective_task_id,
                     )
@@ -4097,7 +4153,7 @@ def run_conversation(
 
                 if agent.compression_enabled and _compressor.should_compress(_real_tokens):
                     agent._safe_print("  ⟳ compacting context…")
-                    messages, active_system_prompt = agent._compress_context(
+                    messages, active_system_prompt = _compress_turn(
                         messages, system_message,
                         approx_tokens=agent.context_compressor.last_prompt_tokens,
                         task_id=effective_task_id,
