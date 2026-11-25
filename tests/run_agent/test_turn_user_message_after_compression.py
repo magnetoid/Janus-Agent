@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agent.context_compressor import SUMMARY_END_MARKER
 from agent.memory_manager import MemoryManager
 from agent.memory_provider import MemoryProvider
 from janus_state import SessionDB
@@ -151,7 +152,8 @@ def _summary():
     return summary
 
 
-def _run_turn(agent, *, preflight: bool, n_tool_iterations: int):
+def _run_turn(agent, *, preflight: bool, n_tool_iterations: int, history=None,
+              lesson=LESSON):
     """One turn that compresses once: before the first call or after the
     first tool round. Returns the ``messages`` of every request sent."""
     agent.client.chat.completions.create.side_effect = (
@@ -167,12 +169,13 @@ def _run_turn(agent, *, preflight: bool, n_tool_iterations: int):
         patch.object(compressor, "should_compress",
                      side_effect=lambda *_a, **_k: next(compress_now, False)),
         patch("agent.context_compressor.call_llm", return_value=_summary()),
-        patch("agent.lessons.recall_context_for_turn", return_value=LESSON),
+        patch("agent.lessons.recall_context_for_turn", return_value=lesson),
         patch("run_agent.handle_function_call", return_value=json.dumps({"ok": True})),
         patch.object(agent, "_save_trajectory"),
         patch.object(agent, "_cleanup_task_resources"),
     ):
-        agent.run_conversation(TURN_TEXT, conversation_history=_history())
+        agent.run_conversation(
+            TURN_TEXT, conversation_history=history if history is not None else _history())
     assert agent.session_id != "turn-idx-session", "compression did not run"
     return [
         c.kwargs["messages"]
@@ -222,6 +225,27 @@ def test_mid_turn_compression_keeps_memory_on_the_turn_message(db):
         _text(m.get("content")) for m in requests[1])
 
 
+def test_an_earlier_identical_message_keeps_its_bytes(db):
+    """The user repeats a message that is still in context (the protected
+    head here) and mid-turn compression merges the summary in front of the
+    current one. The old copy is then the only exact match; it must not get
+    this turn's memory context."""
+    agent = _make_agent(db)
+    history = _history()
+    history[0] = {"role": "user", "content": TURN_TEXT}
+
+    requests = _run_turn(agent, preflight=False, n_tool_iterations=1,
+                         history=history, lesson="")
+
+    after = requests[-1]
+    assert after[1] == {"role": "user", "content": TURN_TEXT}, "old copy rewritten"
+    current = [m for m in after if m.get("role") == "user"
+               and "EARLIER-WORK-SUMMARY" in _text(m.get("content"))
+               and TURN_TEXT in _text(m.get("content"))]
+    assert len(current) == 1, "summary was not merged into the current message"
+    assert _rows_with(after, MEMORY) == current
+
+
 # ---------------------------------------------------------------------------
 # _relocate_turn_user_message
 # ---------------------------------------------------------------------------
@@ -247,19 +271,41 @@ def test_relocate_prefers_the_latest_identical_message():
     assert _relocate_turn_user_message(msgs, "go on") == 2
 
 
+def _merged(content):
+    """*content* with a summary merged in front, as the compressor does it."""
+    prefix = "SUMMARY\n\n" + SUMMARY_END_MARKER + "\n\n"
+    if isinstance(content, list):
+        return [{"type": "text", "text": prefix}, *content]
+    return prefix + content
+
+
 def test_relocate_finds_the_message_with_the_summary_merged_in_front():
     msgs = [{"role": "user", "content": "old"},
             {"role": "assistant", "content": "answer"},
-            {"role": "user", "content": "SUMMARY\n\n--- END ---\n\nnow"},
+            {"role": "user", "content": _merged("now")},
             {"role": "user", "content": "[System: Continue now.]"}]
     assert _relocate_turn_user_message(msgs, "now") == 2
+
+
+def test_relocate_prefers_the_merged_current_message_over_an_older_copy():
+    msgs = [{"role": "user", "content": "go on"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": _merged("go on")}]
+    assert _relocate_turn_user_message(msgs, "go on") == 2
+
+
+def test_relocate_ignores_a_later_nudge_that_merely_ends_the_same_way():
+    msgs = [{"role": "user", "content": _merged("the task.")},
+            {"role": "assistant", "content": "(empty)"},
+            {"role": "user", "content": "Please continue with the task."}]
+    assert _relocate_turn_user_message(msgs, "the task.") == 0
 
 
 def test_relocate_finds_multimodal_content_with_a_text_block_prepended():
     parts = [{"type": "text", "text": "what is this"},
              {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA"}}]
     msgs = [{"role": "assistant", "content": "a"},
-            {"role": "user", "content": [{"type": "text", "text": "SUMMARY"}, *parts]}]
+            {"role": "user", "content": _merged(parts)}]
     assert _relocate_turn_user_message(msgs, parts) == 1
 
 

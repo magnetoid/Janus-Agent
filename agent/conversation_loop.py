@@ -28,6 +28,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from agent.codex_responses_adapter import _summarize_user_message_for_log
+from agent.context_compressor import SUMMARY_END_MARKER
 from agent.display import KawaiiSpinner, compose_spinner_message
 from agent.error_classifier import FailoverReason, classify_api_error
 from agent.iteration_budget import IterationBudget
@@ -333,12 +334,19 @@ def _turn_user_content(messages: List[Dict[str, Any]], idx: Optional[int]) -> An
     return msg.get("content")
 
 
-def _ends_with_content(candidate: Any, content: Any) -> bool:
-    """True when *candidate* is *content* with something put in front of it."""
+def _is_turn_message(candidate: Any, content: Any) -> bool:
+    """True when *candidate* is *content*, or *content* with the handoff
+    summary merged in front of it (ContextCompressor ends that prefix with
+    SUMMARY_END_MARKER and a blank line)."""
+    if candidate == content:
+        return True
     if isinstance(content, str) and isinstance(candidate, str):
-        return bool(content) and candidate.endswith(content)
-    if isinstance(content, list) and isinstance(candidate, list):
-        return bool(content) and candidate[-len(content):] == content
+        return candidate.endswith(SUMMARY_END_MARKER + "\n\n" + content)
+    if (isinstance(content, list) and isinstance(candidate, list)
+            and len(candidate) == len(content) + 1 and candidate[1:] == content):
+        first = candidate[0]
+        return (isinstance(first, dict) and first.get("type") == "text"
+                and str(first.get("text", "")).endswith(SUMMARY_END_MARKER + "\n\n"))
     return False
 
 
@@ -349,22 +357,19 @@ def _relocate_turn_user_message(
 
     Compression returns a shorter list of copied dicts, so the index taken
     at turn start no longer points at the turn's message. The compressor
-    keeps that message in the tail, and may merge the summary in front of
-    it. So: the last user message with the same content, else the last one
-    whose content ends with it. None when neither exists; attaching the
-    turn's context to some other message would be worse than dropping it.
+    keeps that message in the tail and may merge the summary in front of it.
+    So: the latest user message that has the same content, either as is or
+    behind a merged summary. Latest, because the user may have sent the same
+    text earlier and that copy can still be in context; it must keep its
+    bytes. None when there is no such message: attaching the turn's context
+    to some other message would be worse than dropping it.
     """
     if content is None:
         return None
-    user_rows = [
-        i for i in range(len(messages) - 1, -1, -1)
-        if isinstance(messages[i], dict) and messages[i].get("role") == "user"
-    ]
-    for i in user_rows:
-        if messages[i].get("content") == content:
-            return i
-    for i in user_rows:
-        if _ends_with_content(messages[i].get("content"), content):
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if (isinstance(msg, dict) and msg.get("role") == "user"
+                and _is_turn_message(msg.get("content"), content)):
             return i
     return None
 
