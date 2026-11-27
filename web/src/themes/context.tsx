@@ -409,10 +409,12 @@ function applyTheme(theme: DashboardTheme) {
     root.style.setProperty(k, v);
   }
 
-  // Native controls (select menus, scrollbars) follow the canvas: a light
-  // palette gets light controls.
-  root.style.colorScheme =
-    hexLuminance(theme.palette.background.hex) > 0.4 ? "light" : "dark";
+  // Whether the canvas is light decides two things: native controls
+  // (select menus, scrollbars) match it, and Tailwind's `dark:` variant,
+  // which keys on a `.dark` ancestor, is on for every dark canvas.
+  const lightCanvas = hexLuminance(theme.palette.background.hex) > 0.4;
+  root.style.colorScheme = lightCanvas ? "light" : "dark";
+  root.classList.toggle("dark", !lightCanvas);
 
   injectFontStylesheet(theme.typography.fontUrl);
   applyCustomCSS(theme.customCSS);

@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+/* `dark:` follows the active theme, not the operating system: ThemeProvider
+   puts `.dark` on <html> whenever the theme's canvas is dark. */
 @custom-variant dark (&:is(.dark *));
 
 /* ------------------------------------------------------------------ */
