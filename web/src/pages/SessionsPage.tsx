@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Database,
   MessageSquare,
   Search,
   Trash2,
@@ -45,6 +44,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ListItem } from "@/components/ui/list-item";
 import { Segmented } from "@/components/ui/segmented";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,15 +67,16 @@ import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 
-const SOURCE_CONFIG: Record<string, { icon: typeof Terminal; color: string }> =
-  {
-    cli: { icon: Terminal, color: "text-primary" },
-    telegram: { icon: MessageCircle, color: "text-[oklch(0.65_0.15_250)]" },
-    discord: { icon: Hash, color: "text-[oklch(0.65_0.15_280)]" },
-    slack: { icon: MessageSquare, color: "text-[oklch(0.7_0.15_155)]" },
-    whatsapp: { icon: Globe, color: "text-success" },
-    cron: { icon: Clock, color: "text-warning" },
-  };
+/** An icon per origin, so a list of sessions can be scanned by shape.
+ *  The badge on each row names the source in words. */
+const SOURCE_ICONS: Record<string, typeof Terminal> = {
+  cli: Terminal,
+  telegram: MessageCircle,
+  discord: Hash,
+  slack: MessageSquare,
+  whatsapp: Globe,
+  cron: Clock,
+};
 
 /** Render an FTS5 snippet with highlighted matches.
  *  The backend wraps matches in >>> and <<< delimiters. */
@@ -121,25 +123,27 @@ function ToolCallBlock({
   }
 
   return (
-    <div className="mt-2 border border-warning/20 bg-warning/5 rounded-lg">
+    <div className="mt-2 overflow-hidden rounded-md border border-border bg-background/60">
       <ListItem
         onClick={() => setOpen(!open)}
         aria-label={`${open ? t.common.collapse : t.common.expand} tool call ${toolCall.function.name}`}
         aria-expanded={open}
-        className="px-3 py-2 text-xs text-warning hover:bg-warning/10 hover:text-warning"
+        className="rounded-none px-3 py-1.5 text-xs"
       >
         {open ? (
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3 shrink-0" />
         ) : (
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-3 w-3 shrink-0" />
         )}
-        <span className="font-mono-ui font-medium">
+        <span className="min-w-0 truncate font-mono-ui font-medium text-foreground">
           {toolCall.function.name}
         </span>
-        <span className="text-warning/50 ml-auto">{toolCall.id}</span>
+        <span className="ml-auto shrink-0 font-mono-ui text-text-tertiary">
+          {toolCall.id}
+        </span>
       </ListItem>
       {open && (
-        <pre className="border-t border-warning/20 px-3 py-2 text-xs text-warning/80 overflow-x-auto whitespace-pre-wrap font-mono">
+        <pre className="overflow-x-auto whitespace-pre-wrap border-t border-border px-3 py-2 font-mono-ui text-xs leading-relaxed text-text-secondary">
           {args}
         </pre>
       )}
@@ -156,28 +160,32 @@ function MessageBubble({
 }) {
   const { t } = useI18n();
 
+  // A transcript is mostly the assistant's replies, so those are plain
+  // text. What the user said sits on a surface, and what a tool returned
+  // sits in a recessed well, so the three read apart at a glance without
+  // tinting every message.
   const ROLE_STYLES: Record<
     string,
     { bg: string; text: string; label: string }
   > = {
     user: {
-      bg: "bg-primary/10",
-      text: "text-primary",
+      bg: "rounded-lg bg-muted px-3 py-2.5",
+      text: "text-foreground",
       label: t.sessions.roles.user,
     },
     assistant: {
-      bg: "bg-success/10",
-      text: "text-success",
+      bg: "px-3 py-1",
+      text: "text-text-secondary",
       label: t.sessions.roles.assistant,
     },
     system: {
-      bg: "bg-muted",
-      text: "text-muted-foreground",
+      bg: "rounded-lg border border-dashed border-border px-3 py-2.5",
+      text: "text-text-tertiary",
       label: t.sessions.roles.system,
     },
     tool: {
-      bg: "bg-warning/10",
-      text: "text-warning",
+      bg: "rounded-lg border border-border bg-background/60 px-3 py-2.5",
+      text: "text-text-tertiary",
       label: t.sessions.roles.tool,
     },
   };
@@ -201,11 +209,11 @@ function MessageBubble({
 
   return (
     <div
-      className={`${style.bg} p-3 ${isHit ? "ring-1 ring-warning/40" : ""}`}
+      className={`${style.bg} ${isHit ? "rounded-lg ring-1 ring-warning/50" : ""}`}
       data-search-hit={isHit || undefined}
     >
       <div className="flex items-center gap-2 mb-1">
-        <span className={`text-xs font-semibold ${style.text}`}>{label}</span>
+        <span className={`text-xs font-medium ${style.text}`}>{label}</span>
         {isHit && (
           <Badge tone="warning" className="text-xs py-0 px-1.5">
             {t.common.match}
@@ -221,6 +229,12 @@ function MessageBubble({
         (msg.role === "system" ? (
           <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
             {msg.content}
+          </div>
+        ) : msg.role === "tool" ? (
+          // Tool output can run to hundreds of lines; cap it so the
+          // conversation around it stays in view.
+          <div className="max-h-72 overflow-y-auto text-text-secondary">
+            <Markdown content={msg.content} highlightTerms={highlightTerms} />
           </div>
         ) : (
           <Markdown content={msg.content} highlightTerms={highlightTerms} />
@@ -261,7 +275,7 @@ function MessageList({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-2"
+      className="flex max-h-[600px] flex-col gap-2.5 overflow-y-auto pr-2"
     >
       {messages.map((msg, i) => (
         <MessageBubble key={i} msg={msg} highlight={highlight} />
@@ -303,10 +317,8 @@ function SessionRow({
     }
   }, [isExpanded, session.id, messages, loading]);
 
-  const sourceInfo = (session.source
-    ? SOURCE_CONFIG[session.source]
-    : null) ?? { icon: Globe, color: "text-muted-foreground" };
-  const SourceIcon = sourceInfo.icon;
+  const SourceIcon =
+    (session.source ? SOURCE_ICONS[session.source] : null) ?? Globe;
   const hasTitle = session.title && session.title !== "Untitled";
 
   const submitRename = async () => {
@@ -324,17 +336,19 @@ function SessionRow({
     }
   };
 
+  const sourceBadge = (
+    <Badge tone="outline" className="shrink-0 text-xs">
+      {session.source ?? "local"}
+    </Badge>
+  );
+
   const actionButtons = (
     <>
-      <Badge tone="outline" className="text-xs">
-        {session.source ?? "local"}
-      </Badge>
-
       {resumeInChatEnabled && (
         <Button
           ghost
           size="icon"
-          className="text-muted-foreground hover:text-success"
+          className="size-8 text-text-tertiary hover:text-foreground"
           aria-label={t.sessions.resumeInChat}
           title={t.sessions.resumeInChat}
           onClick={(e) => {
@@ -349,7 +363,7 @@ function SessionRow({
       <Button
         ghost
         size="icon"
-        className="text-muted-foreground hover:text-foreground"
+        className="size-8 text-text-tertiary hover:text-foreground"
         aria-label="Rename session"
         title="Rename session"
         onClick={(e) => {
@@ -368,7 +382,7 @@ function SessionRow({
       <Button
         ghost
         size="icon"
-        className="text-muted-foreground hover:text-foreground"
+        className="size-8 text-text-tertiary hover:text-foreground"
         aria-label="Export session"
         title="Export session JSON"
         onClick={(e) => {
@@ -383,7 +397,9 @@ function SessionRow({
         ghost
         destructive
         size="icon"
+        className="size-8"
         aria-label={t.sessions.deleteSession}
+        title={t.sessions.deleteSession}
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
@@ -394,15 +410,10 @@ function SessionRow({
     </>
   );
 
-  // Selected rows get a stronger left-edge accent + tinted background so the
-  // selection state is unambiguous even when scrolling past the bulk-action
-  // bar at the top. Beat the is_active styling — explicit user selection
-  // takes priority over "this session is live".
-  const containerClasses = isSelected
-    ? "border-primary/40 bg-primary/[0.06]"
-    : session.is_active
-      ? "border-success/30 bg-success/[0.03]"
-      : "border-border";
+  // A selected row is tinted so the selection is unmistakable while
+  // scrolling past the bulk-action bar. A live session is marked by its
+  // badge alone.
+  const containerClasses = isSelected ? "bg-primary/[0.07]" : "";
 
   // Clicking the checkbox must NOT toggle row expansion; selection and
   // expansion are independent gestures. We bind ``onClick`` directly on
@@ -419,10 +430,10 @@ function SessionRow({
 
   return (
     <div
-      className={`max-w-full min-w-0 overflow-hidden border transition-colors ${containerClasses}`}
+      className={`group/row min-w-0 max-w-full border-b border-border transition-colors last:border-b-0 ${containerClasses}`}
     >
       <div
-        className="flex cursor-pointer items-start gap-3 p-3 transition-colors hover:bg-secondary/30"
+        className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-accent/50"
         onClick={onToggle}
       >
         <span className="flex shrink-0 items-center pt-0.5">
@@ -432,7 +443,7 @@ function SessionRow({
             aria-label={t.sessions.selectSession}
           />
         </span>
-        <div className={`shrink-0 pt-0.5 ${sourceInfo.color}`}>
+        <div className="shrink-0 pt-0.5 text-text-tertiary">
           <SourceIcon className="h-4 w-4" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -484,15 +495,22 @@ function SessionRow({
                     </Button>
                   </div>
                 ) : (
-                  <span
-                    className={`min-w-0 flex-1 truncate text-sm ${hasTitle ? "font-medium" : "text-muted-foreground italic"}`}
+                  // A real button, so the row opens from the keyboard too.
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggle();
+                    }}
+                    className={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring ${hasTitle ? "font-medium text-foreground" : "italic text-text-secondary"}`}
                   >
                     {hasTitle
                       ? session.title
                       : session.preview
                         ? session.preview.slice(0, 60)
                         : t.sessions.untitledSession}
-                  </span>
+                  </button>
                 )}
                 {session.is_active && (
                   <Badge tone="success" className="shrink-0 text-xs">
@@ -501,48 +519,57 @@ function SessionRow({
                   </Badge>
                 )}
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                <span className="max-w-[min(100%,12rem)] truncate sm:max-w-[180px]">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-text-tertiary">
+                <span className="max-w-[min(100%,12rem)] truncate font-mono-ui sm:max-w-[180px]">
                   {(session.model ?? t.common.unknown).split("/").pop()}
                 </span>
-                <span className="text-border">&#183;</span>
-                <span className="shrink-0">
+                <span className="shrink-0 tabular-nums">
                   {session.message_count} {t.common.msgs}
                 </span>
                 {session.tool_call_count > 0 && (
-                  <>
-                    <span className="text-border">&#183;</span>
-                    <span className="shrink-0">
-                      {session.tool_call_count} {t.common.tools}
-                    </span>
-                  </>
+                  <span className="shrink-0 tabular-nums">
+                    {session.tool_call_count} {t.common.tools}
+                  </span>
                 )}
-                <span className="text-border">&#183;</span>
                 <span className="shrink-0">{timeAgo(session.last_active)}</span>
               </div>
               {snippet && <SnippetHighlight snippet={snippet} />}
             </div>
 
             <div className="hidden shrink-0 items-center gap-2 sm:flex">
-              {actionButtons}
+              {sourceBadge}
+              {/* With a mouse the buttons stay out of the way until the
+                  row is hovered, focused or open. Touch screens have no
+                  hover, so there they are always shown. */}
+              <div
+                className={`flex items-center gap-0.5 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 ${isExpanded ? "" : "[@media(hover:hover)]:opacity-0"}`}
+              >
+                {actionButtons}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:hidden">
+          <div className="flex flex-wrap items-center gap-1 sm:hidden">
+            {sourceBadge}
             {actionButtons}
           </div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="min-w-0 border-t border-border bg-background/50 p-4">
+        <div className="min-w-0 border-t border-border bg-background/40 p-4">
           {loading && (
-            <div className="flex items-center justify-center py-8">
-              <Spinner className="text-xl text-primary" />
+            <div className="flex flex-col gap-3" aria-busy="true">
+              <Skeleton className="h-10 w-2/3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-1/2" />
             </div>
           )}
           {error && (
-            <p className="text-sm text-destructive py-4 text-center">{error}</p>
+            <p role="alert" className="py-4 text-center text-sm text-destructive">
+              {error}
+            </p>
           )}
           {messages && messages.length === 0 && (
             <p className="text-sm text-muted-foreground py-4 text-center">
@@ -587,18 +614,20 @@ function SessionsPagination({
         <Button
           outlined
           size="icon"
+          className="size-8"
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
           aria-label={t.sessions.previousPage}
         >
           <ChevronLeft />
         </Button>
-        <span className="px-2 text-xs text-muted-foreground">
+        <span className="px-2 text-xs tabular-nums text-text-secondary">
           {t.common.page} {page + 1} {t.common.of} {pageCount}
         </span>
         <Button
           outlined
           size="icon"
+          className="size-8"
           disabled={(page + 1) * PAGE_SIZE >= total}
           onClick={() => onPageChange(page + 1)}
           aria-label={t.sessions.nextPage}
@@ -1108,8 +1137,24 @@ export default function SessionsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div className="flex min-w-0 flex-col gap-4" aria-busy="true">
+        <Skeleton className="h-14 w-full rounded-lg" />
+        <Skeleton className="h-9 w-56" />
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 border-b border-border px-3 py-3 last:border-b-0"
+            >
+              <Skeleton className="size-4" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-3.5 w-1/3" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+              <Skeleton className="h-5 w-14" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -1173,10 +1218,10 @@ export default function SessionsPage() {
               than the given number of days. Active sessions are never pruned.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-1.5">
+          <div className="mt-4 flex flex-col gap-1.5">
             <label
               htmlFor="prune-days"
-              className="text-xs font-medium text-muted-foreground"
+              className="text-sm font-medium text-foreground"
             >
               Older than (days)
             </label>
@@ -1412,14 +1457,14 @@ export default function SessionsPage() {
 
       {showList && selectedIds.size > 0 && (
         <div
-          className="flex flex-wrap items-center gap-2 border border-primary/30 bg-primary/[0.06] px-3 py-2 rounded-lg"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border-strong bg-muted px-3 py-1.5"
           role="region"
           aria-label={t.sessions.selectedCount.replace(
             "{count}",
             String(selectedIds.size),
           )}
         >
-          <span className="text-xs text-primary tabular-nums">
+          <span className="text-xs font-medium tabular-nums text-foreground">
             {t.sessions.selectedCount.replace(
               "{count}",
               String(selectedIds.size),
@@ -1477,20 +1522,26 @@ export default function SessionsPage() {
 
       {showList ? (
         filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <Clock className="h-8 w-8 mb-3 opacity-40" />
-            <p className="text-sm font-medium">
-              {search ? t.sessions.noMatch : t.sessions.noSessions}
-            </p>
-            {!search && (
-              <p className="text-xs mt-1 text-text-tertiary">
-                {t.sessions.startConversation}
-              </p>
-            )}
-          </div>
+          search ? (
+            <EmptyState
+              icon={Search}
+              title={t.sessions.noMatch}
+              action={
+                <Button outlined size="sm" onClick={() => updateSearch("")}>
+                  {t.common.clear}
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Clock}
+              title={t.sessions.noSessions}
+              description={t.sessions.startConversation}
+            />
+          )
         ) : (
           <>
-            <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
               {filtered.map((s, index) => (
                 <SessionRow
                   key={s.id}
@@ -1530,50 +1581,64 @@ export default function SessionsPage() {
 
           {recentSessions.length > 0 && (
             <Card className="min-w-0 max-w-full overflow-hidden">
-              <CardHeader className="min-w-0">
+              <CardHeader className="min-w-0 flex-row items-center justify-between gap-2 py-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Clock className="h-5 w-5 shrink-0 text-muted-foreground" />
-                  <CardTitle className="min-w-0 truncate text-base">
+                  <Clock className="size-4 shrink-0 text-text-tertiary" />
+                  <CardTitle className="min-w-0 truncate">
                     {t.status.recentSessions}
                   </CardTitle>
                 </div>
+                <Button ghost size="sm" onClick={() => switchView("list")}>
+                  {t.sessions.history}
+                </Button>
               </CardHeader>
 
-              <CardContent className="grid min-w-0 gap-3">
-                {recentSessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex min-w-0 max-w-full flex-col gap-2 border border-border p-3 sm:flex-row sm:items-center sm:justify-between rounded-lg"
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="min-w-0 truncate text-sm font-medium">
-                        {s.title ?? t.common.untitled}
-                      </span>
+              <CardContent className="min-w-0 border-t border-border p-0">
+                <ul className="divide-y divide-border">
+                  {recentSessions.map((s) => (
+                    <li key={s.id}>
+                      {/* Opens the session in History, where it can be
+                          read, renamed, exported or deleted. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          switchView("list");
+                          setExpandedId(s.id);
+                        }}
+                        className="flex w-full min-w-0 cursor-pointer flex-col gap-2 px-4 py-3 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <span className="flex min-w-0 flex-1 flex-col gap-1">
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                            {s.title ?? t.common.untitled}
+                          </span>
 
-                      <span className="min-w-0 break-words text-xs text-muted-foreground">
-                        <span className="font-mono-ui">
-                          {(s.model ?? t.common.unknown).split("/").pop()}
-                        </span>{" "}
-                        · {s.message_count} {t.common.msgs} ·{" "}
-                        {timeAgo(s.last_active)}
-                      </span>
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-text-tertiary">
+                            <span className="font-mono-ui">
+                              {(s.model ?? t.common.unknown).split("/").pop()}
+                            </span>
+                            <span className="tabular-nums">
+                              {s.message_count} {t.common.msgs}
+                            </span>
+                            <span>{timeAgo(s.last_active)}</span>
+                          </span>
 
-                      {s.preview && (
-                        <p className="min-w-0 max-w-full text-xs leading-snug text-text-tertiary [overflow-wrap:anywhere]">
-                          {s.preview}
-                        </p>
-                      )}
-                    </div>
+                          {s.preview && (
+                            <span className="line-clamp-2 min-w-0 max-w-full text-xs leading-snug text-text-secondary [overflow-wrap:anywhere]">
+                              {s.preview}
+                            </span>
+                          )}
+                        </span>
 
-                    <Badge
-                      tone="outline"
-                      className="shrink-0 self-start text-xs sm:self-center"
-                    >
-                      <Database className="mr-1 h-3 w-3" />
-                      {s.source ?? "local"}
-                    </Badge>
-                  </div>
-                ))}
+                        <Badge
+                          tone="outline"
+                          className="shrink-0 self-start text-xs sm:self-center"
+                        >
+                          {s.source ?? "local"}
+                        </Badge>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           )}
