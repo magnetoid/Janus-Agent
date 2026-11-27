@@ -654,6 +654,12 @@ export default function SessionsPage() {
   const logScrollRef = useRef<HTMLPreElement | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [overviewSessions, setOverviewSessions] = useState<SessionInfo[]>([]);
+  // The session last opened from the overview. History shows one page at
+  // a time and that page may not hold it (the list can have moved since
+  // the page loaded), so its row is kept in view regardless — see
+  // `visible` below. Cleared as soon as the user pages, searches, switches
+  // view or deletes it.
+  const [jumpId, setJumpId] = useState<string | null>(null);
   const [view, setView] = useState<SessionsView>("overview");
   // Count of empty (no-message, ended, non-archived) sessions across the
   // entire DB, populated by /api/sessions/empty/count. Used to:
@@ -793,6 +799,7 @@ export default function SessionsPage() {
   const goToPage = useCallback(
     (p: number) => {
       setPage(p);
+      setJumpId(null);
       clearSelection();
     },
     [clearSelection],
@@ -800,6 +807,7 @@ export default function SessionsPage() {
   const updateSearch = useCallback(
     (value: string) => {
       setSearch(value);
+      setJumpId(null);
       clearSelection();
     },
     [clearSelection],
@@ -807,9 +815,25 @@ export default function SessionsPage() {
   const switchView = useCallback(
     (next: SessionsView) => {
       setView(next);
+      setJumpId(null);
       clearSelection();
     },
     [clearSelection],
+  );
+
+  // Open a session from the overview in History. The overview polls the
+  // first sessions in History's own order, so a session's position there
+  // says which page holds it.
+  const openInHistory = useCallback(
+    (id: string) => {
+      const index = overviewSessions.findIndex((s) => s.id === id);
+      setView("list");
+      clearSelection();
+      if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
+      setJumpId(id);
+      setExpandedId(id);
+    },
+    [clearSelection, overviewSessions],
   );
 
   // Debounced FTS search
@@ -844,6 +868,7 @@ export default function SessionsPage() {
           setSessions((prev) => prev.filter((s) => s.id !== id));
           setTotal((prev) => prev - 1);
           if (expandedId === id) setExpandedId(null);
+          setJumpId((prev) => (prev === id ? null : prev));
           // Drop the deleted ID from any active bulk-select set — it
           // can't bulk-delete a row that's already gone.
           setSelectedIds((prev) => {
@@ -936,6 +961,8 @@ export default function SessionsPage() {
     setDeletingSelected(true);
     try {
       const resp = await api.bulkDeleteSessions(ids);
+      // Whatever was opened from the overview may be among the removed.
+      setJumpId(null);
       showToast(
         t.sessions.selectedSessionsDeleted.replace(
           "{count}",
@@ -976,6 +1003,8 @@ export default function SessionsPage() {
     setDeletingEmpty(true);
     try {
       const resp = await api.deleteEmptySessions();
+      // Whatever was opened from the overview may be among the removed.
+      setJumpId(null);
       // Show count in the toast so users get confirmation of the actual
       // number removed (which may differ slightly from `emptyCount` if a
       // session entered/left the "empty" set between the count fetch and
@@ -1062,6 +1091,8 @@ export default function SessionsPage() {
     setPruning(true);
     try {
       const resp = await api.pruneSessions(days);
+      // Whatever was opened from the overview may be among the removed.
+      setJumpId(null);
       showToast(
         `Pruned ${resp.removed} session${resp.removed === 1 ? "" : "s"}`,
         "success",
@@ -1094,6 +1125,18 @@ export default function SessionsPage() {
   const filtered = searchResults
     ? sessions.filter((s) => snippetMap.has(s.id))
     : sessions;
+
+  // The rows History shows: the current page, with the session opened
+  // from the overview put first when the page does not already hold it.
+  // A search shows its matches only.
+  const jumpSession =
+    jumpId && !searchResults
+      ? overviewSessions.find((s) => s.id === jumpId)
+      : undefined;
+  const visible =
+    jumpSession && !filtered.some((s) => s.id === jumpSession.id)
+      ? [jumpSession, ...filtered]
+      : filtered;
 
   const platformEntries = status
     ? Object.entries(status.gateway_platforms ?? {})
@@ -1470,11 +1513,11 @@ export default function SessionsPage() {
               String(selectedIds.size),
             )}
           </span>
-          {filtered.some((s) => !selectedIds.has(s.id)) && (
+          {visible.some((s) => !selectedIds.has(s.id)) && (
             <Button
               ghost
               size="sm"
-              onClick={() => selectAllOnPage(filtered)}
+              onClick={() => selectAllOnPage(visible)}
               aria-label={t.sessions.selectAllOnPage}
               title={t.sessions.selectAllOnPage}
             >
@@ -1521,7 +1564,7 @@ export default function SessionsPage() {
       )}
 
       {showList ? (
-        filtered.length === 0 ? (
+        visible.length === 0 ? (
           search ? (
             <EmptyState
               icon={Search}
@@ -1542,7 +1585,7 @@ export default function SessionsPage() {
         ) : (
           <>
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-              {filtered.map((s, index) => (
+              {visible.map((s, index) => (
                 <SessionRow
                   key={s.id}
                   session={s}
@@ -1554,7 +1597,7 @@ export default function SessionsPage() {
                     setExpandedId((prev) => (prev === s.id ? null : s.id))
                   }
                   onSelectClick={(event) =>
-                    handleSelectClick(event, index, filtered)
+                    handleSelectClick(event, index, visible)
                   }
                   onDelete={() => sessionDelete.requestDelete(s.id)}
                   onRename={handleRename}
@@ -1601,10 +1644,7 @@ export default function SessionsPage() {
                           read, renamed, exported or deleted. */}
                       <button
                         type="button"
-                        onClick={() => {
-                          switchView("list");
-                          setExpandedId(s.id);
-                        }}
+                        onClick={() => openInHistory(s.id)}
                         className="flex w-full min-w-0 cursor-pointer flex-col gap-2 px-4 py-3 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
                       >
                         <span className="flex min-w-0 flex-1 flex-col gap-1">
