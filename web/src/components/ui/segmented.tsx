@@ -26,7 +26,7 @@ function Segmented<T extends string>({
     <div
       role="tablist"
       className={cn(
-        "inline-flex items-center rounded-md border border-border bg-muted p-0.5",
+        "inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted p-0.5",
         className,
       )}
     >
@@ -40,11 +40,11 @@ function Segmented<T extends string>({
             aria-selected={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              size === "sm" ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm",
+              "cursor-pointer rounded-md font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-[0.8125rem]",
               active
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-accent text-foreground"
+                : "text-text-secondary hover:text-foreground",
             )}
           >
             {option.label}
@@ -64,7 +64,7 @@ interface FilterGroupProps {
 function FilterGroup({ children, className, label }: FilterGroupProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <span className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+      <span className="text-xs text-text-tertiary">
         {label}
       </span>
       {children}

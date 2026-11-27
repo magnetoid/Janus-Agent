@@ -99,7 +99,7 @@ function SnippetHighlight({ snippet }: { snippet: string }) {
     parts.push(snippet.slice(last));
   }
   return (
-    <p className="font-mondwest normal-case mt-0.5 min-w-0 max-w-full truncate text-xs text-text-secondary">
+    <p className="mt-0.5 min-w-0 max-w-full truncate text-xs text-text-secondary">
       {parts}
     </p>
   );
@@ -121,7 +121,7 @@ function ToolCallBlock({
   }
 
   return (
-    <div className="mt-2 border border-warning/20 bg-warning/5">
+    <div className="mt-2 border border-warning/20 bg-warning/5 rounded-lg">
       <ListItem
         onClick={() => setOpen(!open)}
         aria-label={`${open ? t.common.collapse : t.common.expand} tool call ${toolCall.function.name}`}
@@ -485,7 +485,7 @@ function SessionRow({
                   </div>
                 ) : (
                   <span
-                    className={`font-mondwest normal-case min-w-0 flex-1 truncate text-sm ${hasTitle ? "font-medium" : "text-muted-foreground italic"}`}
+                    className={`min-w-0 flex-1 truncate text-sm ${hasTitle ? "font-medium" : "text-muted-foreground italic"}`}
                   >
                     {hasTitle
                       ? session.title
@@ -1214,7 +1214,7 @@ export default function SessionsPage() {
       </Dialog>
 
       {stats && (
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border border-border bg-background-base/40 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex flex-col">
             <span className="text-lg font-semibold tabular-nums leading-none">
               {stats.total}
@@ -1240,7 +1240,7 @@ export default function SessionsPage() {
             <span className="text-xs text-muted-foreground">Messages</span>
           </div>
           {Object.keys(stats.by_source).length > 0 && (
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <div className="flex min-w-0 basis-full flex-wrap items-center gap-1.5 sm:basis-auto sm:flex-1">
               {Object.entries(stats.by_source).map(([src, count]) => (
                 <Badge key={src} tone="outline" className="text-xs">
                   {src}: {count}
@@ -1252,7 +1252,7 @@ export default function SessionsPage() {
       )}
 
       {alerts.length > 0 && (
-        <div className="border border-destructive/30 bg-destructive/[0.06] p-4">
+        <div className="border border-destructive/30 bg-destructive/[0.06] p-4 rounded-lg">
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
             <div className="flex flex-col gap-2 min-w-0">
@@ -1274,20 +1274,20 @@ export default function SessionsPage() {
       )}
 
       {activeAction && (
-        <div className="border border-border bg-background-base/50">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
             <div className="flex items-center gap-2 min-w-0">
               {actionStatus?.running ? (
-                <Spinner className="shrink-0 text-[0.875rem] text-warning" />
+                <Spinner className="shrink-0 text-xs text-warning" />
               ) : actionStatus?.exit_code === 0 ? (
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
               ) : actionStatus !== null ? (
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
               ) : (
-                <Spinner className="shrink-0 text-[0.875rem] text-muted-foreground" />
+                <Spinner className="shrink-0 text-xs text-muted-foreground" />
               )}
 
-              <span className="text-xs font-mondwest tracking-[0.12em] truncate">
+              <span className="text-xs truncate">
                 {activeAction === "restart"
                   ? t.status.restartGateway
                   : t.status.updateJanus}
@@ -1356,7 +1356,7 @@ export default function SessionsPage() {
             {showList && (
               <div className="relative min-w-0 w-full sm:w-auto sm:min-w-[12rem] sm:max-w-md sm:flex-1">
                 {searching ? (
-                  <Spinner className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[0.875rem] text-primary" />
+                  <Spinner className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-primary" />
                 ) : (
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 )}
@@ -1391,7 +1391,7 @@ export default function SessionsPage() {
                 title={t.sessions.deleteEmpty}
               >
                 <Eraser className="h-3.5 w-3.5" />
-                <span className="font-mondwest normal-case text-xs">
+                <span className="text-xs">
                   {t.sessions.deleteEmpty} ({emptyCount})
                 </span>
               </Button>
@@ -1412,14 +1412,14 @@ export default function SessionsPage() {
 
       {showList && selectedIds.size > 0 && (
         <div
-          className="flex flex-wrap items-center gap-2 border border-primary/30 bg-primary/[0.06] px-3 py-2"
+          className="flex flex-wrap items-center gap-2 border border-primary/30 bg-primary/[0.06] px-3 py-2 rounded-lg"
           role="region"
           aria-label={t.sessions.selectedCount.replace(
             "{count}",
             String(selectedIds.size),
           )}
         >
-          <span className="font-mondwest normal-case text-xs text-primary tabular-nums">
+          <span className="text-xs text-primary tabular-nums">
             {t.sessions.selectedCount.replace(
               "{count}",
               String(selectedIds.size),
@@ -1433,7 +1433,7 @@ export default function SessionsPage() {
               aria-label={t.sessions.selectAllOnPage}
               title={t.sessions.selectAllOnPage}
             >
-              <span className="font-mondwest normal-case text-xs">
+              <span className="text-xs">
                 {t.sessions.selectAllOnPage}
               </span>
             </Button>
@@ -1445,7 +1445,7 @@ export default function SessionsPage() {
             aria-label={t.sessions.clearSelection}
             title={t.sessions.clearSelection}
           >
-            <span className="font-mondwest normal-case text-xs">
+            <span className="text-xs">
               {t.sessions.clearSelection}
             </span>
           </Button>
@@ -1465,7 +1465,7 @@ export default function SessionsPage() {
             )}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span className="font-mondwest normal-case text-xs">
+            <span className="text-xs">
               {t.sessions.deleteSelected.replace(
                 "{count}",
                 String(selectedIds.size),
@@ -1543,10 +1543,10 @@ export default function SessionsPage() {
                 {recentSessions.map((s) => (
                   <div
                     key={s.id}
-                    className="flex min-w-0 max-w-full flex-col gap-2 border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex min-w-0 max-w-full flex-col gap-2 border border-border p-3 sm:flex-row sm:items-center sm:justify-between rounded-lg"
                   >
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="font-mondwest normal-case min-w-0 truncate text-sm font-medium">
+                      <span className="min-w-0 truncate text-sm font-medium">
                         {s.title ?? t.common.untitled}
                       </span>
 
@@ -1559,7 +1559,7 @@ export default function SessionsPage() {
                       </span>
 
                       {s.preview && (
-                        <p className="font-mondwest normal-case min-w-0 max-w-full text-xs leading-snug text-text-tertiary [overflow-wrap:anywhere]">
+                        <p className="min-w-0 max-w-full text-xs leading-snug text-text-tertiary [overflow-wrap:anywhere]">
                           {s.preview}
                         </p>
                       )}

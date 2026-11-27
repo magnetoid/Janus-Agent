@@ -334,8 +334,8 @@ Dashboard 内置六个主题，并可通过用户自定义主题、插件标签�
 
 | 主题 | 特点 |
 |-------|-----------|
-| **Janus Teal** (`default`) | 深青色 + 奶油色，系统字体，舒适间距 |
-| **Janus Teal (Large)** (`default-large`) | 与 default 相同，但使用 18px 文字和更宽松的间距 |
+| **Bronze** (`default`) | 玄武岩底色、骨白文字、黄铜强调色；系统无衬线字体，Palatino 风格标题，技术值使用 JetBrains Mono |
+| **Bronze (Large)** (`default-large`) | 与 default 相同，但使用 18px 文字和更宽松的间距 |
 | **Midnight** (`midnight`) | 深蓝紫色，Inter + JetBrains Mono |
 | **Ember** (`ember`) | 暖深红 + 古铜色，Spectral 衬线体 + IBM Plex Mono |
 | **Mono** (`mono`) | 灰度，IBM Plex，紧凑 |

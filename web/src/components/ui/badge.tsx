@@ -5,16 +5,18 @@ import { cn } from "@/lib/utils";
 
 // eslint-disable-next-line react-refresh/only-export-components -- shadcn cva export
 export const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+  "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-xs font-medium leading-4",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive: "border-transparent bg-destructive text-destructive-foreground",
+        // Tinted, not filled: a badge labels state, it is not a call to
+        // action, so it must not compete with primary buttons.
+        default: "border-transparent bg-primary/15 text-primary",
+        secondary: "border-transparent bg-secondary text-text-secondary",
+        destructive: "border-transparent bg-destructive/15 text-destructive",
         success: "border-transparent bg-success/15 text-success",
         warning: "border-transparent bg-warning/15 text-warning",
-        outline: "border-border text-foreground",
+        outline: "border-border text-text-secondary",
       },
     },
     defaultVariants: { variant: "default" },
@@ -24,7 +26,7 @@ export const badgeVariants = cva(
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {
-  /** Legacy-DS-compat alias for `variant`. */
+  /** Alias for `variant`, kept for plugins and older pages. */
   tone?: "default" | "destructive" | "outline" | "secondary" | "success" | "warning";
 }
 

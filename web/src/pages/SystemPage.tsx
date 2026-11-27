@@ -39,7 +39,6 @@ import { useConfirmDelete } from "@/hooks/use-confirm-delete";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
-import { cn, themedBody } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type {
   StatusResponse,
@@ -127,7 +126,7 @@ function ActionLogViewer({
             <X />
           </Button>
         </div>
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words bg-background/50 border border-border p-3 text-xs font-mono text-muted-foreground">
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words bg-background/50 border border-border p-3 text-xs font-mono text-muted-foreground rounded-lg">
           {lines.length ? lines.join("\n") : "Starting…"}
         </pre>
       </CardContent>
@@ -556,7 +555,7 @@ export default function SystemPage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className={cn(themedBody, "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col")}>
+          <div className={"relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col"}>
             <Button
               ghost
               size="icon"
@@ -567,7 +566,7 @@ export default function SystemPage() {
               <X />
             </Button>
             <header className="p-5 pb-3 border-b border-border">
-              <h2 className="font-mondwest text-display text-base tracking-wider">
+              <h2 className="text-base">
                 New shell hook
               </h2>
             </header>
@@ -631,7 +630,6 @@ export default function SystemPage() {
               </p>
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={createHook}
                   disabled={creatingHook}
@@ -662,23 +660,23 @@ export default function SystemPage() {
           <CardContent className="py-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3 gap-x-6 text-sm">
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">OS</div>
+                <div className="text-xs text-muted-foreground">OS</div>
                 <div>{stats?.os} {stats?.os_release}</div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Arch</div>
+                <div className="text-xs text-muted-foreground">Arch</div>
                 <div>{stats?.arch}</div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Host</div>
+                <div className="text-xs text-muted-foreground">Host</div>
                 <div className="truncate">{stats?.hostname}</div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Python</div>
+                <div className="text-xs text-muted-foreground">Python</div>
                 <div>{stats?.python_impl} {stats?.python_version}</div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Janus</div>
+                <div className="text-xs text-muted-foreground">Janus</div>
                 <div className="flex items-center gap-2">
                   <span>v{stats?.janus_version}</span>
                   {updateInfo &&
@@ -694,7 +692,7 @@ export default function SystemPage() {
                 </div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
                   <Cpu className="h-3 w-3" /> CPU
                 </div>
                 <div>
@@ -706,7 +704,7 @@ export default function SystemPage() {
               </div>
               {stats?.memory && (
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Memory</div>
+                  <div className="text-xs text-muted-foreground">Memory</div>
                   <div>
                     {formatBytes(stats.memory.used)} / {formatBytes(stats.memory.total)} ({stats.memory.percent}%)
                   </div>
@@ -714,7 +712,7 @@ export default function SystemPage() {
               )}
               {stats?.disk && (
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
                     <HardDrive className="h-3 w-3" /> Disk
                   </div>
                   <div>
@@ -724,13 +722,13 @@ export default function SystemPage() {
               )}
               {typeof stats?.uptime_seconds === "number" && (
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Uptime</div>
+                  <div className="text-xs text-muted-foreground">Uptime</div>
                   <div>{formatDuration(stats.uptime_seconds)}</div>
                 </div>
               )}
               {stats?.load_avg && stats.load_avg.length >= 3 && (
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Load avg</div>
+                  <div className="text-xs text-muted-foreground">Load avg</div>
                   <div>{stats.load_avg.map((n) => n.toFixed(2)).join(" / ")}</div>
                 </div>
               )}
@@ -836,7 +834,7 @@ export default function SystemPage() {
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                className="uppercase"
+                outlined
                 onClick={() => runGateway("start")}
                 disabled={gatewayRunning}
                 prefix={<Play className="h-3.5 w-3.5" />}
@@ -845,7 +843,7 @@ export default function SystemPage() {
               </Button>
               <Button
                 size="sm"
-                className="uppercase"
+                outlined
                 onClick={() => runGateway("restart")}
                 prefix={<RotateCw className="h-3.5 w-3.5" />}
               >
@@ -853,7 +851,7 @@ export default function SystemPage() {
               </Button>
               <Button
                 size="sm"
-                className="uppercase text-warning"
+                className="text-warning"
                 ghost
                 onClick={() => runGateway("stop")}
                 disabled={!gatewayRunning}
@@ -933,7 +931,7 @@ export default function SystemPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button size="sm" className="uppercase" onClick={addCredential} disabled={addingCred} prefix={addingCred ? <Spinner /> : undefined}>
+              <Button size="sm" onClick={addCredential} disabled={addingCred} prefix={addingCred ? <Spinner /> : undefined}>
                 Add key
               </Button>
             </div>
@@ -944,11 +942,11 @@ export default function SystemPage() {
             )}
             {pool.map((prov) => (
               <div key={prov.provider} className="flex flex-col gap-2">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {prov.provider}
                 </span>
                 {prov.entries.map((entry) => (
-                  <div key={`${prov.provider}-${entry.index}`} className="flex items-center gap-3 border border-border bg-background/40 px-3 py-2">
+                  <div key={`${prov.provider}-${entry.index}`} className="flex items-center gap-3 border border-border bg-background/40 px-3 py-2 rounded-lg">
                     <span className="text-sm font-medium">{entry.label}</span>
                     <span className="font-mono text-xs text-muted-foreground">{entry.token_preview}</span>
                     <Badge tone="outline">{entry.auth_type}</Badge>
@@ -1014,6 +1012,7 @@ export default function SystemPage() {
               </div>
               <Button
                 size="sm"
+                outlined
                 disabled={sharing}
                 prefix={
                   sharing ? (
@@ -1083,7 +1082,7 @@ export default function SystemPage() {
                 {Object.entries(shareResult.urls).map(([label, url]) => (
                   <div
                     key={label}
-                    className="flex items-center gap-2 bg-background/50 border border-border px-3 py-2"
+                    className="flex items-center gap-2 bg-background/50 border border-border px-3 py-2 rounded-lg"
                   >
                     <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="font-mono text-xs shrink-0 w-24 truncate text-muted-foreground">
@@ -1162,7 +1161,7 @@ export default function SystemPage() {
           <H2 variant="sm" className="flex items-center gap-2 text-muted-foreground">
             <Terminal className="h-4 w-4" /> Shell hooks
           </H2>
-          <Button size="sm" className="uppercase" prefix={<Plus className="h-3.5 w-3.5" />} onClick={() => setHookModalOpen(true)}>
+          <Button size="sm" prefix={<Plus className="h-3.5 w-3.5" />} onClick={() => setHookModalOpen(true)}>
             New hook
           </Button>
         </div>

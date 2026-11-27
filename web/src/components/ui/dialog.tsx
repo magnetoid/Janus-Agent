@@ -1,22 +1,8 @@
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-
-interface DialogContextValue {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-const DialogContext = React.createContext<DialogContextValue>({
-  open: false,
-  onOpenChange: () => {},
-});
-
-function useDialog(): DialogContextValue {
-  return React.useContext(DialogContext);
-}
 
 export interface DialogProps {
   open?: boolean;
@@ -24,20 +10,17 @@ export interface DialogProps {
   children: React.ReactNode;
 }
 
+/**
+ * Modal dialog on Radix: focus is trapped inside and returns to the
+ * trigger on close, the page behind is inert and does not scroll, and
+ * Escape or a click on the scrim closes it.
+ */
 function Dialog({ open = false, onOpenChange, children }: DialogProps) {
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      onOpenChange?.(next);
-    },
-    [onOpenChange],
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      {children}
+    </DialogPrimitive.Root>
   );
-
-  const value = React.useMemo<DialogContextValue>(
-    () => ({ open, onOpenChange: handleOpenChange }),
-    [open, handleOpenChange],
-  );
-
-  return <DialogContext.Provider value={value}>{children}</DialogContext.Provider>;
 }
 Dialog.displayName = "Dialog";
 
@@ -46,72 +29,60 @@ export interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement>
 }
 
 const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
-  ({ className, children, showCloseButton = true, ...props }, ref) => {
-    const { open, onOpenChange } = useDialog();
-
-    React.useEffect(() => {
-      if (!open) return;
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === "Escape") onOpenChange(false);
-      };
-      document.addEventListener("keydown", onKey);
-      return () => document.removeEventListener("keydown", onKey);
-    }, [open, onOpenChange]);
-
-    if (!open || typeof document === "undefined") return null;
-
-    return createPortal(
-      <div
-        className="fixed inset-0 z-50 bg-black/50"
-        onClick={() => onOpenChange(false)}
+  ({ className, children, showCloseButton = true, ...props }, ref) => (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-[110] animate-fade-in bg-black/60" />
+      <DialogPrimitive.Content
+        ref={ref}
+        // Not every dialog has a description; callers that render
+        // <DialogDescription> get it wired up by Radix regardless.
+        aria-describedby={undefined}
+        className={cn(
+          "fixed left-1/2 top-1/2 z-[110] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 animate-pop-in overflow-y-auto rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-raised outline-none",
+          className,
+        )}
+        {...props}
       >
-        <div
-          ref={ref}
-          role="dialog"
-          aria-modal="true"
-          className={cn(
-            "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg",
-            className,
-          )}
-          onClick={(e) => e.stopPropagation()}
-          {...props}
-        >
-          {children}
-          {showCloseButton ? (
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => onOpenChange(false)}
-              className="absolute right-4 top-4 rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="size-4" />
-            </button>
-          ) : null}
-        </div>
-      </div>,
-      document.body,
-    );
-  },
+        {children}
+        {showCloseButton ? (
+          <DialogPrimitive.Close
+            aria-label="Close"
+            className="absolute right-3 top-3 inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-text-tertiary outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-4" />
+          </DialogPrimitive.Close>
+        ) : null}
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  ),
 );
 DialogContent.displayName = "DialogContent";
 
 const DialogHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("flex flex-col gap-1.5", className)} {...props} />
+    <div ref={ref} className={cn("flex flex-col gap-1.5 pr-8", className)} {...props} />
   ),
 );
 DialogHeader.displayName = "DialogHeader";
 
 const DialogFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("mt-4 flex justify-end gap-2", className)} {...props} />
+    <div
+      ref={ref}
+      className={cn("mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
+      {...props}
+    />
   ),
 );
 DialogFooter.displayName = "DialogFooter";
 
 const DialogTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h2 ref={ref} className={cn("text-lg font-semibold", className)} {...props} />
+    <DialogPrimitive.Title
+      ref={ref}
+      className={cn("text-base font-semibold leading-snug text-foreground", className)}
+      {...props}
+    />
   ),
 );
 DialogTitle.displayName = "DialogTitle";
@@ -120,55 +91,37 @@ const DialogDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
-  <p ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
 ));
 DialogDescription.displayName = "DialogDescription";
 
 const DialogClose = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
->(({ className, onClick, type = "button", ...props }, ref) => {
-  const { onOpenChange } = useDialog();
-  return (
-    <button
-      ref={ref}
-      type={type}
-      className={className}
-      onClick={(e) => {
-        onClick?.(e);
-        onOpenChange(false);
-      }}
-      {...props}
-    />
-  );
-});
+>(({ type = "button", ...props }, ref) => (
+  <DialogPrimitive.Close ref={ref} type={type} {...props} />
+));
 DialogClose.displayName = "DialogClose";
 
 const DialogTrigger = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
->(({ className, onClick, type = "button", ...props }, ref) => {
-  const { onOpenChange } = useDialog();
-  return (
-    <button
-      ref={ref}
-      type={type}
-      className={className}
-      onClick={(e) => {
-        onClick?.(e);
-        onOpenChange(true);
-      }}
-      {...props}
-    />
-  );
-});
+>(({ type = "button", ...props }, ref) => (
+  <DialogPrimitive.Trigger ref={ref} type={type} {...props} />
+));
 DialogTrigger.displayName = "DialogTrigger";
 
+/** Kept for import compatibility; `DialogContent` renders its own scrim. */
 function DialogOverlay({ children }: { children?: React.ReactNode }) {
   return <>{children}</>;
 }
 DialogOverlay.displayName = "DialogOverlay";
 
+/** Kept for import compatibility; `DialogContent` portals itself. */
 function DialogPortal({ children }: { children?: React.ReactNode }) {
   return <>{children}</>;
 }

@@ -384,7 +384,7 @@ export default function ConfigPage() {
                 category={cat}
                 className="h-4 w-4 text-muted-foreground"
               />
-              <span className="font-mondwest text-display text-xs font-semibold tracking-wider text-muted-foreground">
+              <span className="text-xs font-semibold text-muted-foreground">
                 {prettyCategoryName(cat)}
               </span>
               <div className="flex-1 border-t border-border" />
@@ -392,7 +392,7 @@ export default function ConfigPage() {
           )}
           {showSection && (
             <div className="flex items-center gap-2 pt-4 pb-2 first:pt-0">
-              <span className="font-mondwest text-display text-xs font-semibold tracking-wider text-muted-foreground">
+              <span className="text-xs font-semibold text-muted-foreground">
                 {section.replace(/_/g, " ")}
               </span>
               <div className="flex-1 border-t border-border" />
@@ -485,7 +485,6 @@ export default function ConfigPage() {
           {yamlMode ? (
             <Button
               size="sm"
-              className="uppercase"
               onClick={handleYamlSave}
               disabled={yamlSaving}
             >
@@ -494,7 +493,6 @@ export default function ConfigPage() {
           ) : (
             <Button
               size="sm"
-              className="uppercase"
               onClick={handleSave}
               disabled={saving}
             >
@@ -531,15 +529,15 @@ export default function ConfigPage() {
         <div className="flex flex-col sm:flex-row gap-4">
           <aside aria-label={t.config.filters} className="sm:w-56 sm:shrink-0">
             <div className="sm:sticky sm:top-4">
-              <div className="flex flex-col border border-border bg-muted/20">
+              <div className="flex flex-col border border-border bg-muted/20 rounded-lg">
                 <div className="hidden sm:flex items-center gap-2 px-3 py-2 border-b border-border">
                   <Filter className="h-3 w-3 text-text-tertiary" />
-                  <span className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+                  <span className="text-xs text-text-secondary">
                     {t.config.filters}
                   </span>
                 </div>
 
-                <div className="hidden sm:block px-3 pt-2 pb-1 font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary">
+                <div className="hidden sm:block px-3 pt-2 pb-1 text-xs text-text-tertiary">
                   {t.config.sections}
                 </div>
 

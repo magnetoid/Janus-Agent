@@ -27,7 +27,7 @@ function BottomSheet({ backdropDismissLabel, children, onClose, open, title }: B
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-50 bg-black/50"
+        className="fixed inset-0 z-[110] animate-fade-in bg-black/60"
         onClick={onClose}
         aria-hidden="true"
         title={backdropDismissLabel}
@@ -37,7 +37,7 @@ function BottomSheet({ backdropDismissLabel, children, onClose, open, title }: B
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 rounded-t-xl border-t border-border bg-background p-4 shadow-lg",
+          "fixed inset-x-0 bottom-0 z-[110] max-h-[85dvh] animate-slide-in-up overflow-y-auto rounded-t-2xl border-t border-border bg-popover p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-raised",
         )}
       >
         <div className="flex items-center justify-between gap-2">

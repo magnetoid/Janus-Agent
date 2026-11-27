@@ -108,8 +108,8 @@ export default function PairingPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
+        outlined
         onClick={handleClearPending}
         disabled={clearing}
         prefix={clearing ? <Spinner /> : <Trash2 className="h-4 w-4" />}
@@ -197,7 +197,6 @@ export default function PairingPage() {
                 <div className="flex items-center gap-1 shrink-0">
                   <Button
                     size="sm"
-                    className="uppercase"
                     onClick={() => handleApprove(user)}
                     disabled={approving === key || !user.code}
                     prefix={

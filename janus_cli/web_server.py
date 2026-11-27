@@ -4142,8 +4142,8 @@ def mount_spa(application: FastAPI):
 # Built-in dashboard themes — label + description only.  The actual color
 # definitions live in the frontend (web/src/themes/presets.ts).
 _BUILTIN_DASHBOARD_THEMES = [
-    {"name": "default",       "label": "Janus Teal",         "description": "Classic dark teal — the canonical Janus look"},
-    {"name": "default-large", "label": "Janus Teal (Large)", "description": "Janus Teal with bigger fonts and roomier spacing"},
+    {"name": "default",       "label": "Bronze",              "description": "Basalt canvas, bone text and a brass accent"},
+    {"name": "default-large", "label": "Bronze (Large)",      "description": "Bronze with bigger type and roomier spacing"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},

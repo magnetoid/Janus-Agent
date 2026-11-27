@@ -110,27 +110,29 @@ function layoutVars(layout: ThemeLayout): Record<string, string> {
   };
 }
 
-/** Map a color-overrides key (camelCase) to its `--color-*` CSS var. */
+/** Map a color-overrides key (camelCase) to the semantic custom property
+ *  it pins (see section 2 of `src/index.css`). The Tailwind `--color-*`
+ *  tokens read these, so utilities and plugin CSS both follow. */
 const OVERRIDE_KEY_TO_VAR: Record<keyof ThemeColorOverrides, string> = {
-  card: "--color-card",
-  cardForeground: "--color-card-foreground",
-  popover: "--color-popover",
-  popoverForeground: "--color-popover-foreground",
-  primary: "--color-primary",
-  primaryForeground: "--color-primary-foreground",
-  secondary: "--color-secondary",
-  secondaryForeground: "--color-secondary-foreground",
-  muted: "--color-muted",
-  mutedForeground: "--color-muted-foreground",
-  accent: "--color-accent",
-  accentForeground: "--color-accent-foreground",
-  destructive: "--color-destructive",
-  destructiveForeground: "--color-destructive-foreground",
-  success: "--color-success",
-  warning: "--color-warning",
-  border: "--color-border",
-  input: "--color-input",
-  ring: "--color-ring",
+  card: "--card",
+  cardForeground: "--card-foreground",
+  popover: "--popover",
+  popoverForeground: "--popover-foreground",
+  primary: "--primary",
+  primaryForeground: "--primary-foreground",
+  secondary: "--secondary",
+  secondaryForeground: "--secondary-foreground",
+  muted: "--muted",
+  mutedForeground: "--muted-foreground",
+  accent: "--accent",
+  accentForeground: "--accent-foreground",
+  destructive: "--destructive",
+  destructiveForeground: "--destructive-foreground",
+  success: "--success",
+  warning: "--warning",
+  border: "--border",
+  input: "--input",
+  ring: "--ring",
 };
 
 /** Keys we might have written on a previous theme — needed to know which
@@ -141,14 +143,36 @@ const ALL_OVERRIDE_VARS = Object.values(OVERRIDE_KEY_TO_VAR);
 function overrideVars(
   overrides: ThemeColorOverrides | undefined,
 ): Record<string, string> {
-  if (!overrides) return {};
   const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(overrides)) {
+  for (const [key, value] of Object.entries(overrides ?? {})) {
     if (!value) continue;
     const cssVar = OVERRIDE_KEY_TO_VAR[key as keyof ThemeColorOverrides];
     if (cssVar) out[cssVar] = value;
   }
+  // A theme that names no primary uses its own text color for primary
+  // actions, with the canvas as the label color. That is always legible
+  // and always on-palette; the stylesheet's brass default belongs to the
+  // built-in Bronze theme only.
+  if (!out["--primary"]) {
+    out["--primary"] = "var(--midground-base)";
+    if (!out["--primary-foreground"]) {
+      out["--primary-foreground"] = "var(--background-base)";
+    }
+  }
   return out;
+}
+
+/** Relative luminance (0–1) of a `#rgb` / `#rrggbb` color; 0 when the
+ *  value is not a hex color. */
+function hexLuminance(hex: string): number {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0;
+  const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+  const channel = (i: number) => {
+    const v = parseInt(h.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
 }
 
 /** Map data-series accents to their CSS vars. Themes omit either field to
@@ -385,6 +409,11 @@ function applyTheme(theme: DashboardTheme) {
     root.style.setProperty(k, v);
   }
 
+  // Native controls (select menus, scrollbars) follow the canvas: a light
+  // palette gets light controls.
+  root.style.colorScheme =
+    hexLuminance(theme.palette.background.hex) > 0.4 ? "light" : "dark";
+
   injectFontStylesheet(theme.typography.fontUrl);
   applyCustomCSS(theme.customCSS);
   applyLayoutVariant(theme.layoutVariant);
@@ -475,12 +504,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (resp.themes?.length) {
           setAvailableThemes(
-            resp.themes.map((t) => ({
-              name: t.name,
-              label: t.label,
-              description: t.description,
-              definition: t.definition,
-            })),
+            resp.themes.map((t) => {
+              // Built-in themes are defined here, so their name and
+              // description come from here too; the server's copy is
+              // only authoritative for user themes.
+              const builtin = BUILTIN_THEMES[t.name];
+              return {
+                name: t.name,
+                label: builtin?.label ?? t.label,
+                description: builtin?.description ?? t.description,
+                definition: t.definition,
+              };
+            }),
           );
           // Index any definitions the server shipped (user themes).
           const defs: Record<string, DashboardTheme> = {};
