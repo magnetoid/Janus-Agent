@@ -492,6 +492,13 @@ export const tr: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Temayı değiştir",
+    mode: {
+      title: "Görünüm",
+      light: "Açık",
+      dark: "Koyu",
+      system: "Sistem",
+      oneLook: "Bu temanın tek bir görünümü var",
+    },
   },
 
   achievements: {

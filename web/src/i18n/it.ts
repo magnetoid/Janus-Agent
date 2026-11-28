@@ -492,6 +492,13 @@ export const it: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Cambia tema",
+    mode: {
+      title: "Aspetto",
+      light: "Chiaro",
+      dark: "Scuro",
+      system: "Sistema",
+      oneLook: "Questo tema ha un solo aspetto",
+    },
   },
   achievements: {
     hero: {

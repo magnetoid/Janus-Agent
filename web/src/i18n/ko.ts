@@ -491,6 +491,13 @@ export const ko: Translations = {
   theme: {
     title: "테마",
     switchTheme: "테마 전환",
+    mode: {
+      title: "화면 모드",
+      light: "라이트",
+      dark: "다크",
+      system: "시스템",
+      oneLook: "이 테마는 한 가지 모드만 지원합니다",
+    },
   },
 
   achievements: {

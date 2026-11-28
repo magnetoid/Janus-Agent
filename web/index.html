@@ -8,6 +8,18 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Janus Agent - Dashboard</title>
+    <script>
+      // Paint the first frame in the look this browser used last, so a
+      // light dashboard does not open on a dark flash. ThemeProvider
+      // (src/themes/context.tsx) writes the hint and takes over from here.
+      try {
+        if (localStorage.getItem("janus-dashboard-scheme") === "light") {
+          document.documentElement.classList.remove("dark");
+        }
+      } catch (e) {
+        // Storage is blocked: open dark, as the page is authored.
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -60,7 +60,7 @@ export function ModelInfoCard({
             {formatTokenCount(info.effective_context_length)}
           </span>
           {info.config_context_length > 0 ? (
-            <span className="text-amber-500 text-xs">
+            <span className="text-warning text-xs">
               (override — auto: {formatTokenCount(info.auto_context_length)})
             </span>
           ) : (

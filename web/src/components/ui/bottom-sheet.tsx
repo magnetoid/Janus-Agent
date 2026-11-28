@@ -27,7 +27,7 @@ function BottomSheet({ backdropDismissLabel, children, onClose, open, title }: B
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-[110] animate-fade-in bg-black/60"
+        className="fixed inset-0 z-[110] animate-fade-in bg-scrim"
         onClick={onClose}
         aria-hidden="true"
         title={backdropDismissLabel}

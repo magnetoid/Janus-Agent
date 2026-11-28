@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Download, Palette, RotateCw } from "lucide-react";
+import { Check, Download, Monitor, Moon, Palette, RotateCw, Sun } from "lucide-react";
 
 import {
   CommandDialog,
@@ -14,9 +14,16 @@ import type { SystemAction } from "@/contexts/system-actions-context";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import { useI18n } from "@/i18n";
 import { useTheme } from "@/themes";
+import type { ThemeMode } from "@/themes";
 
 import { navLabel, type NavGroup } from "./nav";
 import { isApplePlatform } from "./shortcut";
+
+const MODE_ITEMS = [
+  { mode: "light", icon: Sun },
+  { mode: "dark", icon: Moon },
+  { mode: "system", icon: Monitor },
+] as const satisfies ReadonlyArray<{ icon: typeof Sun; mode: ThemeMode }>;
 
 interface CommandMenuProps {
   groups: NavGroup[];
@@ -25,14 +32,15 @@ interface CommandMenuProps {
 }
 
 /**
- * Search-and-jump palette: every page, the system actions and the theme
- * list, filtered as you type. Opens with Cmd+K (Ctrl+K elsewhere).
+ * Search-and-jump palette: every page, the system actions, light or dark
+ * and the theme list, filtered as you type. Opens with Cmd+K (Ctrl+K
+ * elsewhere).
  */
 export function CommandMenu({ groups, onOpenChange, open }: CommandMenuProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { isBusy, runAction } = useSystemActions();
-  const { availableThemes, setTheme, themeName } = useTheme();
+  const { availableThemes, mode, schemes, setMode, setTheme, themeName } = useTheme();
 
   useEffect(() => {
     const apple = isApplePlatform();
@@ -103,6 +111,24 @@ export function CommandMenu({ groups, onOpenChange, open }: CommandMenuProps) {
             <Download className="text-text-tertiary" />
             <span className="text-foreground">{t.status.updateJanus}</span>
           </CommandItem>
+        </CommandGroup>
+
+        <CommandGroup heading={t.theme.mode.title}>
+          {MODE_ITEMS.map(({ icon: Icon, mode: m }) => (
+            <CommandItem
+              key={m}
+              // The English word stays searchable in every language.
+              value={`${t.theme.mode.title} ${t.theme.mode[m]} ${m}`}
+              // A theme with one look has nothing to switch.
+              disabled={schemes.length < 2}
+              // Stays open, like the themes below: looks are compared.
+              onSelect={() => setMode(m)}
+            >
+              <Icon className="text-text-tertiary" />
+              <span className="truncate text-foreground">{t.theme.mode[m]}</span>
+              {m === mode && <Check className="ml-auto text-primary" />}
+            </CommandItem>
+          ))}
         </CommandGroup>
 
         <CommandGroup heading={t.theme?.title ?? "Theme"}>

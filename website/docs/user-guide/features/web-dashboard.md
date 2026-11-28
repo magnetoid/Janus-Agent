@@ -941,6 +941,8 @@ The dashboard ships with six built-in themes and can be extended with user-defin
 
 **Switch themes live** from the bottom of the sidebar — click the palette button next to the language switcher, or press <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> and type a theme's name. Selection persists to `config.yaml` under `dashboard.theme` and is restored on page load.
 
+**Light or dark** is a separate choice from the theme. The three-way control in the bottom-left corner of the sidebar switches between the light look, the dark look, and **System**, which follows your operating system and changes with it. Every built-in theme has both looks. The choice is remembered per browser rather than in `config.yaml`, so a laptop and a phone can differ; a fresh browser starts dark. The embedded terminal on the Chat page stays dark in both. The same three entries are in the command menu (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd>, type "appearance").
+
 **Change the font independently** from the same picker — the **Font** submenu below the theme list overrides the UI font of whatever theme is active. The choice persists across theme switches (`config.yaml` → `dashboard.font`); pick **Theme default** to clear it and return to the active theme's own font.
 
 Built-in themes:

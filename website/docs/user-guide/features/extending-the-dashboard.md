@@ -292,6 +292,8 @@ Each built-in ships its own palette, typography, and layout — switching produc
 
 Themes that reference Google Fonts (all except Bronze) load the stylesheet on demand — the first time you switch to them a `<link>` tag is injected into `<head>`.
 
+Each built-in also has a light look, chosen with the light / dark / system control in the bottom-left corner of the sidebar. A theme you write in YAML has one look: the one its `palette` describes. While such a theme is active the control is shown switched off, and the dashboard follows the theme's canvas — a pale `background` gets the light set of surfaces, shadows and status colors, a dark one gets the dark set.
+
 ### Full theme YAML reference
 
 Every knob in one file — copy and trim what you don't need:

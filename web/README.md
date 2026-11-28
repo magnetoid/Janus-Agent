@@ -35,6 +35,14 @@ npm run build
 
 This outputs to `../janus_cli/web_dist/`, which the FastAPI server serves as a static SPA. The built assets are included in the Python package via `pyproject.toml` package-data.
 
+## Tests
+
+```bash
+npm test
+```
+
+Runs the files in `tests/` with Node's built-in test runner (Node 24 or newer, which runs TypeScript directly) — no test dependency to install. They cover logic that has no DOM, such as picking a theme's light or dark look and holding every built-in theme to a contrast floor in both. The modules under test must therefore import nothing but types from other files.
+
 ## Structure
 
 ```
@@ -49,15 +57,16 @@ src/
 │   └── utils.ts     # cn() helper for Tailwind class merging
 ├── pages/           # One file per page
 ├── plugins/         # Plugin SDK, registry and shell slots
-├── themes/          # Theme model, built-in presets, ThemeProvider
+├── themes/          # Theme model, built-in presets, light/dark looks, ThemeProvider
 ├── App.tsx          # Routes and layout
 ├── main.tsx         # React entry point
 └── index.css        # Design tokens, base styles, utilities
+tests/               # `npm test` — DOM-free logic
 ```
 
 ## Design system
 
-Read this before adding or editing UI. The default theme is **Bronze**: a basalt canvas, bone-colored text, brass for the one thing to act on and verdigris for whatever is live. Every other theme (built-in or a user's YAML) flows through the same tokens, so write against the tokens and every theme follows.
+Read this before adding or editing UI. The default theme is **Bronze**: a basalt canvas, bone-colored text, brass for the one thing to act on and verdigris for whatever is live. By daylight it turns over: a pale green-grey canvas, basalt text, and the brass deepened to cast bronze. Every other theme (built-in or a user's YAML) flows through the same tokens, so write against the tokens and every theme, in both of its looks, follows.
 
 ### Tokens
 
@@ -72,6 +81,17 @@ A theme supplies two opaque colors — `background` (the canvas) and `midground`
 | Shape | `rounded-md` for controls and chips, `rounded-lg` for boxes, `rounded-xl` for cards and dialogs; `shadow-raised` only on things that float |
 
 The steps are opaque on purpose. Do not stack alpha on text (`text-muted-foreground/60`) or use `opacity-*` below 0.7 on anything meant to be read — reach for the next text step instead.
+
+### Light and dark
+
+Every built-in theme has a light and a dark look. The control in the bottom-left corner of the sidebar (`ModeSwitcher`) picks light, dark, or "follow the system"; the command menu has the same three entries. The choice is kept per browser (`localStorage`, `janus-dashboard-mode`) and starts as dark.
+
+- A theme is authored for one canvas and carries the other look under `light` (or `dark`) in `themes/presets.ts`: a canvas, a text color, and whatever `colorOverrides` that canvas needs. Colors are **not** inherited between looks — an accent tuned for a dark canvas is unreadable on a light one. Type, spacing and assets are shared.
+- `src/index.css` holds the token set twice: `:root` for a dark canvas and `:root:not(.dark)` for a light one, where raised surfaces move toward white instead of toward the text color and the status colors deepen. `ThemeProvider` puts `.dark` on `<html>` from the brightness of the canvas being painted, so the light block also serves a hand-written light theme.
+- Write against the tokens and both looks follow. Never `text-white`, `bg-black/…`, a hex, or a Tailwind palette shade for meaning (`text-emerald-400`, `text-amber-500`) — those are right on one canvas only. Use `text-success` / `text-warning` / `text-destructive`, and `bg-scrim` behind an overlay. Where a palette shade is the point (the cache and reasoning tags on Models), give both: `text-blue-600 dark:text-blue-400`.
+- The embedded terminal on `/chat` stays dark in both looks: the TUI paints with colors chosen for a dark terminal.
+- A user's YAML theme has the one look it was written with; the control is shown switched off for it, with the reason.
+- `npm test` fails if a built-in theme loses a look, or if text, the primary color, a primary button label or a status color drops below its contrast floor in either look. Check a new palette there before looking at it.
 
 ### Accent discipline
 

@@ -30,7 +30,7 @@ function CommandDialog({ children, onOpenChange, open, title }: CommandDialogPro
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[110] animate-fade-in bg-black/60" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[110] animate-fade-in bg-scrim" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
           className="fixed left-1/2 top-[12vh] z-[110] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-xl border border-border-strong bg-popover shadow-raised outline-none"

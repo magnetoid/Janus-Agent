@@ -486,6 +486,13 @@ export const zh: Translations = {
   theme: {
     title: "主题",
     switchTheme: "切换主题",
+    mode: {
+      title: "外观",
+      light: "浅色",
+      dark: "深色",
+      system: "跟随系统",
+      oneLook: "此主题只有一种外观",
+    },
   },
 
   achievements: {

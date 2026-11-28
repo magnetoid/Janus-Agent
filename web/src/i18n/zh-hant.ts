@@ -491,6 +491,13 @@ export const zhHant: Translations = {
   theme: {
     title: "主題",
     switchTheme: "切換主題",
+    mode: {
+      title: "外觀",
+      light: "淺色",
+      dark: "深色",
+      system: "系統",
+      oneLook: "此主題只有一種外觀",
+    },
   },
 
   achievements: {
