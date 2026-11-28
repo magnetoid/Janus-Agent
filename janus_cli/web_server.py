@@ -4798,6 +4798,8 @@ app.include_router(_dashboard_auth_router)
 # --- ROUTERS ---
 from janus_cli.routers.media import router as media_router
 app.include_router(media_router)
+from janus_cli.routers.docs import router as docs_router
+app.include_router(docs_router)
 from janus_cli.routers.status import router as status_router
 app.include_router(status_router)
 from janus_cli.routers.system import router as system_router

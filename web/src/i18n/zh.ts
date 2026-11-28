@@ -483,6 +483,20 @@ export const zh: Translations = {
     switchTo: "切换语言",
   },
 
+  docs: {
+    filter: "筛选页面",
+    browse: "浏览文档",
+    onThisPage: "本页内容",
+    noMatches: "没有与“{query}”匹配的页面",
+    unavailableTitle: "此安装不包含文档",
+    unavailableBody: "文档随 Janus 源代码一起提供。此安装由软件包创建，不含文档。",
+    missingTitle: "此页面不存在",
+    missingBody: "它可能已被移动或重命名。",
+    openFirst: "打开第一页",
+    failedTitle: "无法加载页面",
+    retry: "重试",
+  },
+
   theme: {
     title: "主题",
     switchTheme: "切换主题",

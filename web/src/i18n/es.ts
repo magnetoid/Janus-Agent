@@ -489,6 +489,20 @@ export const es: Translations = {
     switchTo: "Cambiar idioma",
   },
 
+  docs: {
+    filter: "Filtrar páginas",
+    browse: "Explorar la documentación",
+    onThisPage: "En esta página",
+    noMatches: "Ninguna página coincide con «{query}»",
+    unavailableTitle: "La documentación no forma parte de esta instalación",
+    unavailableBody: "Viene con una copia del código fuente de Janus. Esta instalación se hizo desde un paquete, que no la incluye.",
+    missingTitle: "Esta página no existe",
+    missingBody: "Puede que se haya movido o cambiado de nombre.",
+    openFirst: "Abrir la primera página",
+    failedTitle: "No se pudo cargar la página",
+    retry: "Reintentar",
+  },
+
   theme: {
     title: "Tema",
     switchTheme: "Cambiar tema",

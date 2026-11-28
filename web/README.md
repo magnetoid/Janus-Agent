@@ -130,6 +130,14 @@ Brass means "this is the thing to act on". Keep it that way:
 - Motion only answers an action (a menu opening, a sheet sliding in) and is switched off under `prefers-reduced-motion`.
 - Every interactive element must be reachable by keyboard and show the focus ring.
 
+### Documentation page
+
+`/docs` shows the Markdown under `website/docs`, rendered by the backend (`janus_cli/dashboard_docs.py`, routes in `janus_cli/routers/docs.py`) — not a framed website. The HTML arrives with raw HTML already escaped and is styled by the `.docs-prose` rules at the end of `index.css`, which use the same tokens as everything else. Three things to keep when changing the page:
+
+- Pass `dangerouslySetInnerHTML` one memoized object per page. React 19 writes `innerHTML` again whenever the object is new, even with the same text, which wipes the images and the scroll position.
+- Images are `<img data-doc-asset>` without a `src`: `/api/` needs the session, so the page fetches each one and shows it from a blob URL.
+- The page and section live in the address (`?page=…#section`).
+
 ### Plugins and themes
 
 `Button`, `Badge`, `Card*`, `Checkbox`, `Input`, `Label`, `Select`, `Separator` and `Tabs` are handed to dashboard plugins through `window.__JANUS_PLUGIN_SDK__`, so their props are a public contract (`plugins/sdk.d.ts`) — restyle them freely, but do not rename or remove a prop. Plugin stylesheets also read the `--color-*`, `--radius-*` and `--font-*` custom properties; `@theme inline static` in `index.css` is what keeps all of them emitted.

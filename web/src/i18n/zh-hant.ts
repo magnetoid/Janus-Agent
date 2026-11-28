@@ -488,6 +488,20 @@ export const zhHant: Translations = {
     switchTo: "切換語言",
   },
 
+  docs: {
+    filter: "篩選頁面",
+    browse: "瀏覽文件",
+    onThisPage: "本頁內容",
+    noMatches: "沒有符合「{query}」的頁面",
+    unavailableTitle: "此安裝不包含文件",
+    unavailableBody: "文件隨 Janus 原始碼一併提供。此安裝是由套件建立的，不含文件。",
+    missingTitle: "此頁面不存在",
+    missingBody: "它可能已被移動或重新命名。",
+    openFirst: "開啟第一頁",
+    failedTitle: "無法載入頁面",
+    retry: "重試",
+  },
+
   theme: {
     title: "主題",
     switchTheme: "切換主題",

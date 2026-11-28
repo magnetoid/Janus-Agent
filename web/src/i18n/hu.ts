@@ -489,6 +489,20 @@ export const hu: Translations = {
     switchTo: "Nyelv váltása",
   },
 
+  docs: {
+    filter: "Oldalak szűrése",
+    browse: "Dokumentáció böngészése",
+    onThisPage: "Ezen az oldalon",
+    noMatches: "Nincs a(z) „{query}” keresésnek megfelelő oldal",
+    unavailableTitle: "A dokumentáció nem része ennek a telepítésnek",
+    unavailableBody: "A Janus forráskódjával együtt érkezik. Ez a telepítés csomagból készült, amely nem tartalmazza.",
+    missingTitle: "Ez az oldal nem létezik",
+    missingBody: "Lehet, hogy áthelyezték vagy átnevezték.",
+    openFirst: "Az első oldal megnyitása",
+    failedTitle: "Az oldalt nem sikerült betölteni",
+    retry: "Újra",
+  },
+
   theme: {
     title: "Téma",
     switchTheme: "Téma váltása",

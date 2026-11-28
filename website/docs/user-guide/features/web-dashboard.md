@@ -329,6 +329,16 @@ Creating a shell hook (note the consent checkbox and the run-arbitrary-commands 
 The web dashboard reads and writes your `.env` file, which contains API keys and secrets. It binds to `127.0.0.1` by default — only accessible from your local machine. If you bind to `0.0.0.0`, anyone on your network can view and modify your credentials. The dashboard has no authentication of its own.
 :::
 
+### Documentation
+
+The docs you are reading, shown inside the dashboard. The pages are read from the `website/docs` folder of your Janus checkout, so they open without a network connection and always describe the version that is running.
+
+- **Browse** — the list on the left follows the same sections as the docs site; **Filter pages** narrows it by page name.
+- **Links** between pages open in place; links to other sites open in a new tab.
+- **On this page** (wide screens) jumps to a section. The page and section are part of the address, so a reload or a bookmark comes back to the same place.
+
+An install made from a package rather than a checkout has no `website/` folder. The page says so there, and links to the docs online instead.
+
 ## `/reload` Slash Command
 
 The dashboard PR also adds a `/reload` slash command to the interactive CLI. After changing API keys via the web dashboard (or by editing `.env` directly), use `/reload` in an active CLI session to pick up the changes without restarting:

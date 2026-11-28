@@ -488,6 +488,20 @@ export const ja: Translations = {
     switchTo: "言語を切り替え",
   },
 
+  docs: {
+    filter: "ページを絞り込む",
+    browse: "ドキュメントを見る",
+    onThisPage: "このページの内容",
+    noMatches: "「{query}」に一致するページはありません",
+    unavailableTitle: "このインストールにはドキュメントが含まれていません",
+    unavailableBody: "ドキュメントは Janus のソースコードに付属しています。このインストールはパッケージから作成されたため、含まれていません。",
+    missingTitle: "このページは存在しません",
+    missingBody: "移動または名前変更された可能性があります。",
+    openFirst: "最初のページを開く",
+    failedTitle: "ページを読み込めませんでした",
+    retry: "再試行",
+  },
+
   theme: {
     title: "テーマ",
     switchTheme: "テーマを切り替え",

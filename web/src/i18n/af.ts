@@ -489,6 +489,20 @@ export const af: Translations = {
     switchTo: "Verander taal",
   },
 
+  docs: {
+    filter: "Filtreer bladsye",
+    browse: "Blaai deur die dokumentasie",
+    onThisPage: "Op hierdie bladsy",
+    noMatches: "Geen bladsy pas by “{query}” nie",
+    unavailableTitle: "Die dokumentasie is nie deel van hierdie installasie nie",
+    unavailableBody: "Dit kom saam met ’n bronkode-kopie van Janus. Hierdie installasie is van ’n pakket gemaak, wat dit uitlaat.",
+    missingTitle: "Hierdie bladsy bestaan nie",
+    missingBody: "Dit is dalk geskuif of hernoem.",
+    openFirst: "Maak die eerste bladsy oop",
+    failedTitle: "Die bladsy kon nie gelaai word nie",
+    retry: "Probeer weer",
+  },
+
   theme: {
     title: "Tema",
     switchTheme: "Wissel tema",

@@ -71,6 +71,14 @@ dependencies = [
   # matrix extra's `mautrix`/`python-olm` it's safe to ship everywhere — keeps
   # it out of the lazy-install path that exists only for the heavy matrix deps.
   "Markdown==3.10.2",
+  # CommonMark renderer for the dashboard's Documentation page
+  # (janus_cli/dashboard_docs.py), which shows website/docs from disk. It is
+  # already installed everywhere as a dependency of `rich`; it is named here
+  # because that module imports it directly. Python-Markdown above is not
+  # CommonMark: it misreads the nested lists and the code blocks inside list
+  # items that the docs are written with. Pure-Python, one small dependency
+  # (mdurl), pinned to the version the lock already resolves.
+  "markdown-it-py==4.0.0",
   # Skills Hub (GitHub App JWT auth — optional, only needed for bot identity)
   "PyJWT[crypto]==2.12.1",  # CVE-2026-32597
   # Windows has no IANA tzdata shipped with the OS, so Python's ``zoneinfo``
