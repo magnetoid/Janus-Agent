@@ -2,7 +2,7 @@ import { Box, Text, useStdout } from '@janus/ink'
 import { useEffect, useState } from 'react'
 import unicodeSpinners from 'unicode-animations'
 
-import { artWidth, caduceus, CADUCEUS_WIDTH, logo, LOGO_WIDTH } from '../banner.js'
+import { artWidth, emblem, EMBLEM_WIDTH, logo, LOGO_WIDTH, taglineFor } from '../banner.js'
 import { flat } from '../lib/text.js'
 import type { Theme } from '../theme.js'
 import type { PanelSection, SessionInfo } from '../types.js'
@@ -44,9 +44,11 @@ export function ArtLines({ lines }: { lines: [string, string][] }) {
 // Terminals can't scale glyphs, so "responsive" means picking a layout that
 // fits the available columns. Thresholds are picked so each tier reads
 // comfortably without forcing wrap or truncation drift on box-drawing edges.
-const TAG_FULL = 'Cloud Industry · Messenger of the Digital Gods'
-const TAG_MID = 'Messenger of the Digital Gods'
-const TAG_TINY = 'Cloud Industry'
+//
+// The tagline follows the same idea: `taglineFor` picks the longest one that
+// fits. ICON_COLS is the brand icon and the space after it, which sit in
+// front of the tagline everywhere but in the compact banner.
+const ICON_COLS = 2
 const HIDE_BELOW = 34
 const COMPACT_FROM = 58
 
@@ -76,7 +78,7 @@ function CompactBanner({ cols, t }: { cols: number; t: Theme }) {
   return (
     <Box flexDirection="column" height={3} marginBottom={1} opaque width={w}>
       <Text bold color={t.color.primary}>{ruleIn(t.brand.name, w)}</Text>
-      <Text color={t.color.muted}>{centerIn(TAG_FULL, w)}</Text>
+      <Text color={t.color.muted}>{centerIn(taglineFor(w), w)}</Text>
       <Text color={t.color.primary}>{'─'.repeat(w)}</Text>
     </Box>
   )
@@ -98,7 +100,7 @@ export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
       <Box flexDirection="column" marginBottom={1}>
         <ArtLines lines={logoLines} />
         <Text color={t.color.muted} wrap="truncate-end">
-          {t.brand.icon} {TAG_FULL}
+          {t.brand.icon} {taglineFor(cols - ICON_COLS)}
         </Text>
       </Box>
     )
@@ -109,7 +111,7 @@ export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
   }
 
   const name = cols >= 52 ? t.brand.name : (t.brand.name.split(' ')[0] ?? t.brand.name)
-  const tag = cols >= 64 ? TAG_FULL : cols >= 46 ? TAG_MID : TAG_TINY
+  const tag = taglineFor(cols - ICON_COLS)
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -160,8 +162,8 @@ const TOOLSETS_MAX = 8
 export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
   const term = useStdout().stdout?.columns ?? 100
   const cols = Math.max(20, Math.min(term, maxWidth ?? term))
-  const heroLines = caduceus(t.color, t.bannerHero || undefined)
-  const leftW = Math.min((artWidth(heroLines) || CADUCEUS_WIDTH) + 4, Math.floor(cols * 0.4))
+  const heroLines = emblem(t.color, t.bannerHero || undefined)
+  const leftW = Math.min((artWidth(heroLines) || EMBLEM_WIDTH) + 4, Math.floor(cols * 0.4))
   const wide = cols >= 90 && leftW + 40 < cols
   const w = Math.max(20, wide ? cols - leftW - 14 : cols - 12)
   const lineBudget = Math.max(12, w - 2)

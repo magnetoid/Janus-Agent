@@ -32,7 +32,7 @@ display:
 
 | 皮肤 | 描述 | Agent 品牌 | 视觉特征 |
 |------|------|-----------|---------|
-| `default` | 经典 Janus — 金色与 kawaii 风格 | `Janus Agent` | 暖金色边框，cornsilk 文字，spinner 中的 kawaii 面孔。熟悉的双蛇杖横幅。简洁亲切。 |
+| `default` | 经典 Janus — 金色与 kawaii 风格 | `Janus Agent` | 暖金色边框，cornsilk 文字，spinner 中的 kawaii 面孔。横幅中的拱门徽标。简洁亲切。 |
 | `ares` | 战神主题 — 深红与青铜 | `Ares Agent` | 深红色边框配青铜点缀。激进的 spinner 动词（"forging"、"marching"、"tempering steel"）。自定义剑盾 ASCII 艺术横幅。 |
 | `mono` | 单色 — 简洁灰度 | `Janus Agent` | 全灰色，无彩色。边框为 `#555555`，文字为 `#c9d1d9`。适合极简终端或录屏场景。 |
 | `slate` | 冷蓝色 — 面向开发者 | `Janus Agent` | 皇家蓝边框（`#4169e1`），柔和蓝色文字。沉稳专业。无自定义 spinner，使用默认面孔。 |
@@ -106,7 +106,7 @@ CLI 界面中使用的文字字符串。
 | `tool_prefix` | 字符串 | CLI 中工具输出行的前缀字符 | `┊` |
 | `tool_emojis` | 字典 | 各工具的 emoji 覆盖，用于 spinner 和进度显示（`{tool_name: emoji}`） | `{}` |
 | `banner_logo` | 字符串 | Rich 标记 ASCII 艺术 logo（替换默认的 JANUS_AGENT 横幅） | `""` |
-| `banner_hero` | 字符串 | Rich 标记英雄艺术图（替换默认的双蛇杖图案） | `""` |
+| `banner_hero` | 字符串 | Rich 标记英雄艺术图（替换默认的拱门徽标） | `""` |
 
 ## 自定义皮肤
 
