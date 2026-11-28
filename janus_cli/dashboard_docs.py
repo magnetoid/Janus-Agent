@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import posixpath
 import re
 from pathlib import Path
@@ -63,33 +64,50 @@ def find_site(project_root: Path) -> Optional[Path]:
     return site if (site / "docs").is_dir() else None
 
 
-def _inside(path: Path, parent: Path) -> Optional[Path]:
-    """``path`` fully resolved, if it is a file that really lives in ``parent``."""
-    try:
-        real = path.resolve()
-        if real.is_file() and real.is_relative_to(parent.resolve()):
-            return real
-    except OSError:
-        pass
-    return None
+def _contained(base: Path, rel: str) -> Optional[Path]:
+    """The real file at ``rel`` under ``base``, or ``None``.
+
+    ``rel`` can come straight from a request. It is checked twice, each
+    time by normalising the path and then comparing its prefix with the
+    base, which is the form both a reader and a static analyser can follow:
+
+    1. On the joined path as text, before the file system is touched, so a
+       ``..`` or an absolute path never reaches it.
+    2. On the path with links resolved, so a link that sits inside ``base``
+       cannot lead out of it.
+    """
+    root = os.path.realpath(base)
+    prefix = root + os.sep
+    joined = os.path.normpath(os.path.join(root, rel))
+    if not joined.startswith(prefix):
+        return None
+    real = os.path.realpath(joined)
+    if not real.startswith(prefix):
+        return None
+    if not os.path.isfile(real):
+        return None
+    return Path(real)
 
 
 def resolve_doc(site: Path, doc_id: Any) -> Optional[Path]:
     """The file behind a doc id (``user-guide/cli``), or ``None``."""
     if not isinstance(doc_id, str) or not _PATH_RE.match(doc_id):
         return None
-    docs = site / "docs"
     for candidate in (f"{doc_id}.md", f"{doc_id}.mdx", f"{doc_id}/index.md", f"{doc_id}/index.mdx"):
-        found = _inside(docs / candidate, docs)
+        found = _contained(site / "docs", candidate)
         if found is not None:
             return found
     return None
 
 
 def _doc_id_of(site: Path, path: Path) -> str:
-    """The canonical id of a page file: its path under ``docs``, no suffix."""
-    rel = path.resolve().relative_to((site / "docs").resolve())
-    return rel.with_suffix("").as_posix()
+    """The canonical id of a page file: its path under ``docs``, no suffix.
+
+    ``path`` is one :func:`_contained` returned, so it is already real and
+    inside ``docs``; this only rewrites it, without reading anything.
+    """
+    rel = os.path.relpath(path, os.path.realpath(site / "docs"))
+    return os.path.splitext(rel)[0].replace(os.sep, "/")
 
 
 def resolve_asset(site: Path, rel: Any) -> Optional[Path]:
@@ -98,7 +116,7 @@ def resolve_asset(site: Path, rel: Any) -> Optional[Path]:
         return None
     if posixpath.splitext(rel)[1].lower() not in IMAGE_TYPES:
         return None
-    return _inside(site / "static" / rel, site / "static")
+    return _contained(site / "static", rel)
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +391,10 @@ def _nodes_from_folder(site: Path, folder: Path) -> List[Dict[str, Any]]:
                 pass
             label = str(meta.get("label") or entry.name.replace("-", " ").capitalize())
             folders.append((_position(meta, "position"), label.lower(), {"type": "category", "label": label, "items": children}))
-        elif entry.suffix in _DOC_SUFFIXES and _inside(entry, site / "docs"):
-            node = _doc_node(site, _doc_id_of(site, entry))
+        elif entry.suffix in _DOC_SUFFIXES:
+            # Looked up by id like any request, so a file that is really a
+            # link out of the docs is left out here too.
+            node = _doc_node(site, entry.relative_to(site / "docs").with_suffix("").as_posix())
             if node is None:
                 continue
             try:

@@ -158,6 +158,21 @@ def test_page_lookup_does_not_follow_a_link_out_of_the_docs(site, tmp_path):
     assert dd.resolve_doc(site, "start/leak") is None
 
 
+def test_page_lookup_does_not_follow_a_link_into_a_folder_that_only_starts_the_same(site):
+    # "docs-private" begins with "docs": comparing bare prefixes would let it through.
+    secret = _write(site / "docs-private/secret.md", "# Secret\n")
+    (site / "docs/start/leak.md").symlink_to(secret)
+
+    assert dd.resolve_doc(site, "start/leak") is None
+
+
+def test_folder_navigation_leaves_out_a_link_out_of_the_docs(site, tmp_path):
+    (site / "sidebars.ts").unlink()
+    (site / "docs/start/leak.md").symlink_to(_write(tmp_path / "secret.md", "# Secret\n"))
+
+    assert "start/leak" not in [node["id"] for node in dd.iter_docs(dd.build_tree(site))]
+
+
 def test_page_lookup_skips_hidden_files(site):
     _write(site / "docs/start/.draft.md", "# Draft\n")
 
@@ -465,6 +480,14 @@ def test_asset_lookup_skips_hidden_files(site):
     (site / "static/img/.hidden.png").write_bytes(_PNG)
 
     assert dd.resolve_asset(site, "img/.hidden.png") is None
+
+
+def test_asset_lookup_does_not_follow_a_link_into_a_folder_that_only_starts_the_same(site):
+    (site / "static-private").mkdir()
+    (site / "static-private/secret.png").write_bytes(_PNG)
+    (site / "static/img/leak.png").symlink_to(site / "static-private/secret.png")
+
+    assert dd.resolve_asset(site, "img/leak.png") is None
 
 
 def test_asset_lookup_does_not_follow_a_link_out_of_the_site(site, tmp_path):
