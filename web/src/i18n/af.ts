@@ -80,8 +80,20 @@ export const af: Translations = {
       sessions: "Sessies",
       skills: "Vaardighede",
     },
+    commandMenu: {
+      actions: "Aksies",
+      goTo: "Gaan na",
+      noResults: "Geen passings nie",
+      open: "Soek",
+      placeholder: "Soek bladsye en aksies",
+    },
     modelToolsSheetSubtitle: "& gereedskap",
     modelToolsSheetTitle: "Model",
+    navGroups: {
+      automation: "Outomatisering",
+      connections: "Verbindings",
+      setup: "Opstelling",
+    },
     navigation: "Navigasie",
     openDocumentation: "Maak dokumentasie in 'n nuwe oortjie oop",
     openNavigation: "Maak navigasie oop",
@@ -480,6 +492,13 @@ export const af: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Wissel tema",
+    mode: {
+      title: "Voorkoms",
+      light: "Lig",
+      dark: "Donker",
+      system: "Stelsel",
+      oneLook: "Hierdie tema het net een voorkoms",
+    },
   },
 
   achievements: {

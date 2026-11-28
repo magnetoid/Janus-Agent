@@ -250,7 +250,9 @@ colorOverrides:
 
 Supported keys: `card`, `cardForeground`, `popover`, `popoverForeground`, `primary`, `primaryForeground`, `secondary`, `secondaryForeground`, `muted`, `mutedForeground`, `accent`, `accentForeground`, `destructive`, `destructiveForeground`, `success`, `warning`, `border`, `input`, `ring`.
 
-Each key maps 1:1 to the `--color-<kebab>` CSS var (e.g. `primaryForeground` → `--color-primary-foreground`). Any key set here wins over the palette cascade for the active theme only — switching to another theme clears the overrides.
+Each key pins one semantic token (e.g. `primaryForeground` sets `--primary-foreground`, which `--color-primary-foreground` and the `text-primary-foreground` utility both read). Any key set here wins over the palette cascade for the active theme only — switching to another theme clears the overrides.
+
+A theme that sets no `primary` uses its own `midground` for primary buttons and the focus ring, with `background` as the label color, so every palette gets legible primary actions without naming one.
 
 ### Raw `customCSS`
 
@@ -280,15 +282,17 @@ Each built-in ships its own palette, typography, and layout — switching produc
 
 | Theme | Palette | Typography | Layout |
 |-------|---------|------------|--------|
-| **Janus Teal** (`default`) | Dark teal + cream | System stack, 15px | 0.5rem radius, comfortable |
-| **Janus Teal (Large)** (`default-large`) | Same as default | System stack, 18px, line-height 1.65 | 0.5rem radius, spacious |
+| **Bronze** (`default`) | Basalt + bone, brass accent | System sans, Palatino-style titles, JetBrains Mono, 15px | 0.5rem radius, comfortable |
+| **Bronze (Large)** (`default-large`) | Same as default | Same as default, 18px, line-height 1.6 | 0.5rem radius, spacious |
 | **Midnight** (`midnight`) | Deep blue-violet | Inter + JetBrains Mono, 14px | 0.75rem radius, comfortable |
 | **Ember** (`ember`) | Warm crimson + bronze | Spectral (serif) + IBM Plex Mono, 15px | 0.25rem radius, comfortable |
 | **Mono** (`mono`) | Grayscale | IBM Plex Sans + IBM Plex Mono, 13px | 0 radius, compact |
 | **Cyberpunk** (`cyberpunk`) | Neon green on black | Share Tech Mono everywhere, 14px | 0 radius, compact |
 | **Rosé** (`rose`) | Pink + ivory | Fraunces (serif) + DM Mono, 16px | 1rem radius, spacious |
 
-Themes that reference Google Fonts (all except Janus Teal) load the stylesheet on demand — the first time you switch to them a `<link>` tag is injected into `<head>`.
+Themes that reference Google Fonts (all except Bronze) load the stylesheet on demand — the first time you switch to them a `<link>` tag is injected into `<head>`.
+
+Each built-in also has a light look, chosen with the light / dark / system control in the bottom-left corner of the sidebar. A theme you write in YAML has one look: the one its `palette` describes. While such a theme is active the control is shown switched off, and the dashboard follows the theme's canvas — a pale `background` gets the light set of surfaces, shadows and status colors, a dark one gets the dark set.
 
 ### Full theme YAML reference
 
@@ -858,7 +862,7 @@ cp janus-example-plugins/strike-freedom-cockpit/theme/strike-freedom.yaml \
 cp -r janus-example-plugins/strike-freedom-cockpit ~/.janus/plugins/
 ```
 
-Open the dashboard, pick **Strike Freedom** from the theme switcher. The cockpit sidebar appears, the crest shows in the header, the tagline replaces the footer. Switch back to **Janus Teal** and the plugin remains installed but invisible (the `sidebar` slot only renders under the `cockpit` layout variant).
+Open the dashboard, pick **Strike Freedom** from the theme switcher. The cockpit sidebar appears, the crest shows in the header, the tagline replaces the footer. Switch back to **Bronze** and the plugin remains installed but invisible (the `sidebar` slot only renders under the `cockpit` layout variant).
 
 Read the plugin source (`strike-freedom-cockpit/dashboard/dist/index.js` in the companion repo) to see how it reads CSS vars, guards against older dashboards without slot support, and registers three slots from one bundle.
 

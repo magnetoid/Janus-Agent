@@ -39,7 +39,7 @@ function NestedValueEditor({
 }) {
   if (isRecord(value)) {
     return (
-      <div className="grid gap-2 border border-border p-2">
+      <div className="grid gap-2 border border-border p-2 rounded-lg">
         {Object.entries(value).map(([subKey, subVal]) => (
           <div key={subKey} className="grid gap-1">
             <Label className="text-xs text-muted-foreground">{subKey}</Label>
@@ -93,7 +93,7 @@ export function AutoField({
 
   if (isRecord(value) || (Array.isArray(value) && value.some((item) => isRecord(item)))) {
     return (
-      <div className="grid gap-3 border border-border p-3">
+      <div className="grid gap-3 border border-border p-3 rounded-lg">
         <Label className="text-xs font-medium">{label}</Label>
         <FieldHint schema={schema} schemaKey={schemaKey} />
         <NestedValueEditor fieldKey={schemaKey} value={value} onChange={onChange} />
@@ -160,7 +160,7 @@ export function AutoField({
         <Label className="text-sm">{label}</Label>
         <FieldHint schema={schema} schemaKey={schemaKey} />
         <textarea
-          className="flex min-h-[80px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex min-h-[80px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md"
           value={String(value ?? "")}
           onChange={(e) => onChange(e.target.value)}
         />

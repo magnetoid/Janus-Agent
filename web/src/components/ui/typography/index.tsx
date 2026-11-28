@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 
 export interface TypographyProps extends React.HTMLAttributes<HTMLElement> {
   as?: React.ElementType;
-  /** Legacy-DS-compat font flags (mapped to font classes where available). */
+  /** Font flags from the previous design system. Only the mono ones still
+   *  do anything; the rest are accepted so older call sites compile. */
   mondwest?: boolean;
   expanded?: boolean;
   compressed?: boolean;
@@ -20,7 +21,7 @@ export interface TypographyProps extends React.HTMLAttributes<HTMLElement> {
 export function Typography({
   as,
   className,
-  mondwest,
+  mondwest: _mondwest,
   expanded: _expanded,
   compressed: _compressed,
   courier,
@@ -30,9 +31,7 @@ export function Typography({
   ...rest
 }: TypographyProps) {
   const Tag = (as ?? "span") as React.ElementType;
-  const font = mondwest
-    ? "font-mondwest"
-    : mono || courier
+  const font = mono || courier
       ? "font-mono"
       : sans
         ? "font-sans"

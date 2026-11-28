@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePageHeader } from "@/contexts/usePageHeader";
-import { cn, themedBody } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface CreatedWebhook {
   url: string;
@@ -169,7 +169,6 @@ export default function WebhooksPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
         disabled={!enabled}
         prefix={<Plus />}
@@ -223,7 +222,7 @@ export default function WebhooksPage() {
           aria-modal="true"
           aria-labelledby="create-webhook-title"
         >
-          <div className={cn(themedBody, "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto")}>
+          <div className={"relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col max-h-[90vh] overflow-y-auto"}>
             <Button
               ghost
               size="icon"
@@ -237,7 +236,7 @@ export default function WebhooksPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="create-webhook-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 New subscription
               </h2>
@@ -252,7 +251,7 @@ export default function WebhooksPage() {
 
                 <div className="grid gap-2">
                   <Label>Webhook URL</Label>
-                  <div className="flex items-center gap-2 border border-border bg-background/40 px-3 py-2">
+                  <div className="flex items-center gap-2 border border-border bg-background/40 px-3 py-2 rounded-lg">
                     <span className="flex-1 min-w-0 truncate font-mono text-xs">
                       {created.url}
                     </span>
@@ -262,7 +261,7 @@ export default function WebhooksPage() {
 
                 <div className="grid gap-2">
                   <Label>Secret (shown once)</Label>
-                  <div className="flex items-center gap-2 border border-warning/40 bg-warning/10 px-3 py-2">
+                  <div className="flex items-center gap-2 border border-warning/40 bg-warning/10 px-3 py-2 rounded-lg">
                     <span className="flex-1 min-w-0 truncate font-mono text-xs">
                       {created.secret}
                     </span>
@@ -272,7 +271,6 @@ export default function WebhooksPage() {
 
                 <div className="flex justify-end">
                   <Button
-                    className="uppercase"
                     size="sm"
                     onClick={closeCreateModal}
                   >
@@ -350,7 +348,7 @@ export default function WebhooksPage() {
                   <Label htmlFor="webhook-prompt">Prompt</Label>
                   <textarea
                     id="webhook-prompt"
-                    className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+                    className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
                     placeholder="Instructions for the agent when this webhook fires (optional)"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -359,7 +357,6 @@ export default function WebhooksPage() {
 
                 <div className="flex justify-end">
                   <Button
-                    className="uppercase"
                     size="sm"
                     onClick={handleCreate}
                     disabled={creating}
@@ -457,7 +454,6 @@ export default function WebhooksPage() {
                 <Button
                   ghost
                   size="sm"
-                  className="uppercase"
                   disabled={togglingName === sub.name}
                   onClick={() => handleToggleEnabled(sub.name, !sub.enabled)}
                 >

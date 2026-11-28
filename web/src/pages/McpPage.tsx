@@ -22,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePageHeader } from "@/contexts/usePageHeader";
-import { cn, themedBody } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 type Transport = "http" | "stdio";
 
@@ -284,7 +284,6 @@ export default function McpPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
         onClick={() => setCreateModalOpen(true)}
       >
@@ -340,8 +339,7 @@ export default function McpPage() {
         >
           <div
             className={cn(
-              themedBody,
-              "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col",
+              "relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col",
             )}
           >
             <Button
@@ -357,7 +355,7 @@ export default function McpPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="create-mcp-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 Add MCP server
               </h2>
@@ -424,7 +422,7 @@ export default function McpPage() {
                 <Label htmlFor="mcp-env">Environment (KEY=VALUE per line)</Label>
                 <textarea
                   id="mcp-env"
-                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
                   placeholder={"API_KEY=secret\nDEBUG=1"}
                   value={env}
                   onChange={(e) => setEnv(e.target.value)}
@@ -433,7 +431,6 @@ export default function McpPage() {
 
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleCreate}
                   disabled={creating}
@@ -461,8 +458,7 @@ export default function McpPage() {
         >
           <div
             className={cn(
-              themedBody,
-              "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col",
+              "relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col",
             )}
           >
             <Button
@@ -478,7 +474,7 @@ export default function McpPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="install-mcp-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 Install {installEntry.name}
               </h2>
@@ -511,7 +507,6 @@ export default function McpPage() {
 
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleInstallSubmit}
                   disabled={installingName === installEntry.name}
@@ -737,8 +732,8 @@ export default function McpPage() {
                     <Badge tone="success">Installed</Badge>
                   ) : (
                     <Button
-                      className="uppercase"
                       size="sm"
+                      outlined
                       onClick={() => handleInstallClick(entry)}
                       disabled={isInstalling}
                       prefix={isInstalling ? <Spinner /> : undefined}

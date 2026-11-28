@@ -80,8 +80,20 @@ export const tr: Translations = {
       sessions: "Oturumlar",
       skills: "Yetenekler",
     },
+    commandMenu: {
+      actions: "Eylemler",
+      goTo: "Git",
+      noResults: "Eşleşme yok",
+      open: "Ara",
+      placeholder: "Sayfa ve eylem ara",
+    },
     modelToolsSheetSubtitle: "& araçlar",
     modelToolsSheetTitle: "Model",
+    navGroups: {
+      automation: "Otomasyon",
+      connections: "Bağlantılar",
+      setup: "Kurulum",
+    },
     navigation: "Gezinti",
     openDocumentation: "Dokümantasyonu yeni sekmede aç",
     openNavigation: "Gezintiyi aç",
@@ -480,6 +492,13 @@ export const tr: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Temayı değiştir",
+    mode: {
+      title: "Görünüm",
+      light: "Açık",
+      dark: "Koyu",
+      system: "Sistem",
+      oneLook: "Bu temanın tek bir görünümü var",
+    },
   },
 
   achievements: {

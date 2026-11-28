@@ -19,9 +19,10 @@ import type {
   ModelsAnalyticsModelEntry,
   ModelsAnalyticsResponse,
 } from "@/lib/api";
-import { timeAgo, cn, themedBody } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import { formatTokenCount } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
 import { Stats } from "@/components/ui/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,8 +103,8 @@ function TokenBar({
   // color-mix on the same value so themes don't need to ship two
   // separate hex literals.
   const segments: Array<{ color: string; label: string; value: number }> = [
-    { value: cacheRead, color: "#60a5fa", label: "Cache Read" }, // tailwind blue-400
-    { value: reasoning, color: "#c084fc", label: "Reasoning" }, // tailwind purple-400
+    { value: cacheRead, color: "var(--series-cache-token)", label: "Cache Read" },
+    { value: reasoning, color: "var(--series-reasoning-token)", label: "Reasoning" },
     { value: input, color: "var(--series-input-token)", label: "Input" },
     { value: output, color: "var(--series-output-token)", label: "Output" },
   ].filter((s) => s.value > 0);
@@ -249,31 +250,31 @@ function UseAsMenu({
         outlined
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
-        className="h-6 px-2 text-xs uppercase"
+        className="h-6 px-2 text-xs"
         prefix={busy ? <Spinner /> : null}
       >
         Use as <ChevronDown className="h-3 w-3" />
       </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] border border-border bg-card shadow-lg">
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] border border-border bg-card shadow-lg rounded-lg">
           <button
             type="button"
             onClick={() => assign("main", "")}
             disabled={busy}
-            className="flex w-full items-center justify-between px-3 py-2 text-xs uppercase hover:bg-muted/50 disabled:opacity-40"
+            className="flex w-full items-center justify-between px-3 py-2 text-xs hover:bg-muted/50 disabled:opacity-40"
           >
             <span className="flex items-center gap-2">
               <Star className="h-3 w-3" />
               Main model
             </span>
             {isMain && (
-              <span className="text-display text-xs tracking-wider text-primary">
+              <span className="text-xs text-primary">
                 current
               </span>
             )}
           </button>
 
-          <div className="border-t border-border/50 px-3 py-1.5 text-display text-xs tracking-wider text-text-tertiary">
+          <div className="border-t border-border/50 px-3 py-1.5 text-xs text-text-tertiary">
             Auxiliary task
           </div>
 
@@ -281,7 +282,7 @@ function UseAsMenu({
             type="button"
             onClick={() => assign("auxiliary", "")}
             disabled={busy}
-            className="flex w-full items-center justify-between px-3 py-1.5 text-xs uppercase hover:bg-muted/50 disabled:opacity-40"
+            className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-40"
           >
             <span>All auxiliary tasks</span>
           </button>
@@ -292,11 +293,11 @@ function UseAsMenu({
               type="button"
               onClick={() => assign("auxiliary", t.key)}
               disabled={busy}
-              className="flex w-full items-center justify-between px-3 py-1.5 text-xs uppercase hover:bg-muted/50 disabled:opacity-40"
+              className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-40"
             >
               <span>{t.label}</span>
               {mainAuxTask === t.key && (
-                <span className="text-display text-xs tracking-wider text-primary">
+                <span className="text-xs text-primary">
                   current
                 </span>
               )}
@@ -364,12 +365,12 @@ function ModelCard({
                 {shortModelName(entry.model)}
               </CardTitle>
               {isMain && (
-                <span className="inline-flex items-center gap-0.5 bg-primary/15 px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-primary">
+                <span className="inline-flex items-center gap-0.5 bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
                   <Star className="h-2.5 w-2.5" /> main
                 </span>
               )}
               {mainAuxTask && (
-                <span className="inline-flex items-center bg-purple-500/10 px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-purple-600 dark:text-purple-400">
+                <span className="inline-flex items-center bg-purple-500/10 px-1.5 py-0.5 text-xs font-medium text-purple-600 dark:text-purple-400">
                   aux · {mainAuxTask}
                 </span>
               )}
@@ -536,7 +537,7 @@ function AuxiliaryTasksModal({
       aria-modal="true"
       aria-labelledby="aux-modal-title"
     >
-      <div className={cn(themedBody, "relative w-full max-w-2xl max-h-[80vh] border border-border bg-card shadow-2xl flex flex-col")}>
+      <div className={"relative w-full max-w-2xl max-h-[80vh] rounded-xl border border-border bg-popover shadow-raised flex flex-col"}>
         <Button
           ghost
           size="icon"
@@ -551,7 +552,7 @@ function AuxiliaryTasksModal({
           <div className="flex items-center justify-between gap-3 pr-8">
             <h2
               id="aux-modal-title"
-              className="font-mondwest text-display text-base tracking-wider"
+              className="text-base"
             >
               Auxiliary Tasks
             </h2>
@@ -560,7 +561,7 @@ function AuxiliaryTasksModal({
               outlined
               onClick={() => setConfirmReset(true)}
               disabled={resetBusy}
-              className="h-6 text-xs uppercase"
+              className="h-6 text-xs"
               prefix={resetBusy ? <Spinner /> : null}
             >
               Reset all to auto
@@ -582,7 +583,7 @@ function AuxiliaryTasksModal({
             return (
               <div
                 key={t.key}
-                className="flex items-center justify-between gap-3 px-3 py-2 border border-border/30 bg-card/50 hover:bg-muted/20 transition-colors"
+                className="flex items-center justify-between gap-3 px-3 py-2 border border-border/30 bg-card/50 hover:bg-muted/20 transition-colors rounded-lg"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
@@ -601,7 +602,7 @@ function AuxiliaryTasksModal({
                   size="sm"
                   outlined
                   onClick={() => setPicker({ kind: "aux", task: t.key })}
-                  className="h-6 text-xs uppercase"
+                  className="h-6 text-xs"
                 >
                   Change
                 </Button>
@@ -695,11 +696,11 @@ function ModelSettingsPanel({
 
       <CardContent className="min-w-0 space-y-3 pt-3">
         {/* Main row */}
-        <div className="flex min-w-0 flex-col gap-2 bg-muted/20 border border-border/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 flex-col gap-2 bg-muted/20 border border-border/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 rounded-lg">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-0.5">
               <Star className="h-3 w-3 text-primary" />
-              <span className="text-display text-xs font-medium tracking-wider">
+              <span className="text-xs font-medium">
                 Main model
               </span>
             </div>
@@ -711,19 +712,20 @@ function ModelSettingsPanel({
           </div>
           <Button
             size="sm"
+            outlined
             onClick={() => setPicker({ kind: "main" })}
-            className="shrink-0 self-start text-xs uppercase sm:self-center"
+            className="shrink-0 self-start text-xs sm:self-center"
           >
             Change
           </Button>
         </div>
 
         {/* Auxiliary tasks summary + open modal */}
-        <div className="flex min-w-0 flex-col gap-2 bg-muted/20 border border-border/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 flex-col gap-2 bg-muted/20 border border-border/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 rounded-lg">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-0.5">
               <Cpu className="h-3 w-3 text-text-tertiary" />
-              <span className="text-display text-xs font-medium tracking-wider">
+              <span className="text-xs font-medium">
                 Auxiliary tasks
               </span>
             </div>
@@ -737,7 +739,7 @@ function ModelSettingsPanel({
             size="sm"
             outlined
             onClick={() => setAuxModalOpen(true)}
-            className="shrink-0 self-start text-xs uppercase sm:self-center"
+            className="shrink-0 self-start text-xs sm:self-center"
           >
             Configure
           </Button>
@@ -833,21 +835,18 @@ export default function ModelsPage() {
     // Period selector + refresh both live in afterTitle so the controls
     // sit immediately next to the page title instead of being pinned to
     // the far-right `end` slot. The active period is conveyed by the
-    // filled (non-outlined) button — no redundant period badge.
+    // selected segment — no redundant period badge.
     setAfterTitle(
       <div className="flex flex-wrap items-center gap-1.5">
-        {PERIODS.map((p) => (
-          <Button
-            key={p.label}
-            type="button"
-            size="sm"
-            outlined={days !== p.days}
-            onClick={() => setDays(p.days)}
-            className="uppercase"
-          >
-            {p.label}
-          </Button>
-        ))}
+        <Segmented
+          size="sm"
+          value={String(days)}
+          onChange={(v) => setDays(Number(v))}
+          options={PERIODS.map((p) => ({
+            value: String(p.days),
+            label: p.label,
+          }))}
+        />
         <Button
           type="button"
           ghost

@@ -939,16 +939,18 @@ When you run `janus update`, the web frontend is automatically rebuilt if `npm` 
 
 The dashboard ships with six built-in themes and can be extended with user-defined themes, plugin tabs, and backend API routes — all drop-in, no repo clone needed.
 
-**Switch themes live** from the header bar — click the palette icon next to the language switcher. Selection persists to `config.yaml` under `dashboard.theme` and is restored on page load.
+**Switch themes live** from the bottom of the sidebar — click the palette button next to the language switcher, or press <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> and type a theme's name. Selection persists to `config.yaml` under `dashboard.theme` and is restored on page load.
 
-**Change the font independently** from the same picker — the **Font** section below the theme list overrides the UI font of whatever theme is active. The choice persists across theme switches (`config.yaml` → `dashboard.font`); pick **Theme default** to clear it and return to the active theme's own font.
+**Light or dark** is a separate choice from the theme. The three-way control in the bottom-left corner of the sidebar switches between the light look, the dark look, and **System**, which follows your operating system and changes with it. Every built-in theme has both looks. The choice is remembered per browser rather than in `config.yaml`, so a laptop and a phone can differ; a fresh browser starts dark. The embedded terminal on the Chat page stays dark in both. The same three entries are in the command menu (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd>, type "appearance").
+
+**Change the font independently** from the same picker — the **Font** submenu below the theme list overrides the UI font of whatever theme is active. The choice persists across theme switches (`config.yaml` → `dashboard.font`); pick **Theme default** to clear it and return to the active theme's own font.
 
 Built-in themes:
 
 | Theme | Character |
 |-------|-----------|
-| **Janus Teal** (`default`) | Dark teal + cream, system fonts, comfortable spacing |
-| **Janus Teal (Large)** (`default-large`) | Same as default with 18px text and roomier spacing |
+| **Bronze** (`default`) | Basalt canvas, bone text, brass accent; system sans, Palatino-style titles, JetBrains Mono for technical values |
+| **Bronze (Large)** (`default-large`) | Same as default with 18px text and roomier spacing |
 | **Midnight** (`midnight`) | Deep blue-violet, Inter + JetBrains Mono |
 | **Ember** (`ember`) | Warm crimson + bronze, Spectral serif + IBM Plex Mono |
 | **Mono** (`mono`) | Grayscale, IBM Plex, compact |

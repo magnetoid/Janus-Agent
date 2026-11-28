@@ -80,8 +80,20 @@ export const ko: Translations = {
       sessions: "세션",
       skills: "스킬",
     },
+    commandMenu: {
+      actions: "작업",
+      goTo: "이동",
+      noResults: "일치하는 항목 없음",
+      open: "검색",
+      placeholder: "페이지 및 작업 검색",
+    },
     modelToolsSheetSubtitle: "및 도구",
     modelToolsSheetTitle: "모델",
+    navGroups: {
+      automation: "자동화",
+      connections: "연결",
+      setup: "설정",
+    },
     navigation: "내비게이션",
     openDocumentation: "새 탭에서 문서 열기",
     openNavigation: "내비게이션 열기",
@@ -479,6 +491,13 @@ export const ko: Translations = {
   theme: {
     title: "테마",
     switchTheme: "테마 전환",
+    mode: {
+      title: "화면 모드",
+      light: "라이트",
+      dark: "다크",
+      system: "시스템",
+      oneLook: "이 테마는 한 가지 모드만 지원합니다",
+    },
   },
 
   achievements: {

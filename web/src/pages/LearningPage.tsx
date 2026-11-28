@@ -74,11 +74,11 @@ const signed = (x: number | null | undefined): string =>
   typeof x === "number" ? `${x >= 0 ? "+" : "−"}${Math.round(Math.abs(x) * 100)}%` : "—";
 
 const deltaColor = (x: number | null | undefined): string =>
-  typeof x !== "number" ? "text-muted-foreground" : x > 0.02 ? "text-emerald-500" : x < -0.02 ? "text-rose-500" : "text-muted-foreground";
+  typeof x !== "number" ? "text-muted-foreground" : x > 0.02 ? "text-success" : x < -0.02 ? "text-destructive" : "text-muted-foreground";
 
 const VERDICT_COLOR: Record<string, string> = {
-  promotable: "text-emerald-500",
-  refine: "text-amber-500",
+  promotable: "text-success",
+  refine: "text-warning",
   stable: "text-muted-foreground",
 };
 
@@ -238,7 +238,7 @@ export default function LearningPage() {
             </div>
             <div className="text-xs text-muted-foreground">{stats.metrics.summary}</div>
             {stats.metrics.warnings.map((w) => (
-              <div key={w} className="flex items-center gap-1.5 text-xs text-amber-500">
+              <div key={w} className="flex items-center gap-1.5 text-xs text-warning">
                 <AlertTriangle className="h-3.5 w-3.5" /> {w}
               </div>
             ))}
@@ -267,10 +267,10 @@ export default function LearningPage() {
               </span>
             </div>
             {stats.curve.learned.length > 0 && (
-              <div className="text-xs text-emerald-500">learned: {stats.curve.learned.join(", ")}</div>
+              <div className="text-xs text-success">learned: {stats.curve.learned.join(", ")}</div>
             )}
             {stats.curve.regressed.length > 0 && (
-              <div className="text-xs text-rose-500">regressed: {stats.curve.regressed.join(", ")}</div>
+              <div className="text-xs text-destructive">regressed: {stats.curve.regressed.join(", ")}</div>
             )}
             {stats.curve.draft_pins > 0 && (
               <div className="text-xs text-muted-foreground">

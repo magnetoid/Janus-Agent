@@ -80,8 +80,20 @@ export const hu: Translations = {
       sessions: "Munkamenetek",
       skills: "Készségek",
     },
+    commandMenu: {
+      actions: "Műveletek",
+      goTo: "Ugrás",
+      noResults: "Nincs találat",
+      open: "Keresés",
+      placeholder: "Oldalak és műveletek keresése",
+    },
     modelToolsSheetSubtitle: "és eszközök",
     modelToolsSheetTitle: "Modell",
+    navGroups: {
+      automation: "Automatizálás",
+      connections: "Kapcsolatok",
+      setup: "Beállítás",
+    },
     navigation: "Navigáció",
     openDocumentation: "Dokumentáció megnyitása új lapon",
     openNavigation: "Navigáció megnyitása",
@@ -480,6 +492,13 @@ export const hu: Translations = {
   theme: {
     title: "Téma",
     switchTheme: "Téma váltása",
+    mode: {
+      title: "Megjelenés",
+      light: "Világos",
+      dark: "Sötét",
+      system: "Rendszer",
+      oneLook: "Ennek a témának csak egy megjelenése van",
+    },
   },
 
   achievements: {

@@ -7,7 +7,6 @@ import { H2 } from "@/components/ui/typography/h2";
 import { api, type OAuthProvider, type OAuthStartResponse } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n";
-import { cn, themedBody } from "@/lib/utils";
 
 interface Props {
   provider: OAuthProvider;
@@ -170,7 +169,7 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
       aria-modal="true"
       aria-labelledby="oauth-modal-title"
     >
-      <div className={cn(themedBody, "relative w-full max-w-md border border-border bg-card shadow-2xl")}>
+      <div className={"relative w-full max-w-md rounded-xl border border-border bg-popover shadow-raised"}>
         <Button
           ghost
           size="icon"
@@ -186,7 +185,6 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
               id="oauth-modal-title"
               variant="sm"
               mondwest
-              className="tracking-wider uppercase"
             >
               {t.oauth.connect} {provider.name}
             </H2>
@@ -260,8 +258,8 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
               <p className="text-sm text-muted-foreground">
                 {t.oauth.enterCodePrompt}
               </p>
-              <div className="flex items-center justify-between gap-2 border border-border bg-secondary/30 p-4">
-                <code className="font-mono-ui text-2xl tracking-widest text-foreground">
+              <div className="flex items-center justify-between gap-2 border border-border bg-secondary/30 p-4 rounded-lg">
+                <code className="font-mono-ui text-2xl text-foreground">
                   {
                     (
                       start as Extract<
@@ -314,7 +312,7 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
 
           {phase === "error" && (
             <>
-              <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive rounded-lg">
                 {errorMsg || t.oauth.loginFailed}
               </div>
               <div className="flex justify-end gap-2">

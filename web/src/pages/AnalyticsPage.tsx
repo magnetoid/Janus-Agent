@@ -18,6 +18,7 @@ import type {
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Spinner } from "@/components/ui/spinner";
 import { Stats } from "@/components/ui/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -145,7 +146,7 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
             {t.analytics.dailyTokenUsage}
           </CardTitle>
         </div>
-        <div className="flex items-center gap-4 font-mondwest normal-case text-xs text-muted-foreground">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <div
               className="h-2.5 w-2.5"
@@ -182,7 +183,7 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
                 style={{ height: CHART_HEIGHT_PX }}
               >
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 pointer-events-none">
-                  <div className="font-mondwest normal-case bg-card border border-border px-2.5 py-1.5 text-xs text-foreground shadow-lg whitespace-nowrap">
+                  <div className="bg-card border border-border px-2.5 py-1.5 text-xs text-foreground shadow-lg whitespace-nowrap rounded-lg">
                     <div className="font-medium">{formatDate(d.day)}</div>
                     <div>
                       {t.analytics.input}: {formatTokens(d.input_tokens)}
@@ -218,7 +219,7 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
           })}
         </div>
 
-        <div className="flex justify-between mt-2 font-mondwest normal-case text-xs text-text-tertiary">
+        <div className="flex justify-between mt-2 text-xs text-text-tertiary">
           <span>{daily.length > 0 ? formatDate(daily[0].day) : ""}</span>
           {daily.length > 2 && (
             <span>{formatDate(daily[Math.floor(daily.length / 2)].day)}</span>
@@ -250,7 +251,7 @@ function DailyTable({ daily }: { daily: AnalyticsDailyEntry[] }) {
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-muted-foreground text-xs">
                 <SortHeader label={t.analytics.date} col="day" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
@@ -309,7 +310,7 @@ function ModelTable({ models }: { models: AnalyticsModelEntry[] }) {
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-muted-foreground text-xs">
                 <SortHeader label={t.analytics.model} col="model" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
@@ -364,7 +365,7 @@ function SkillTable({ skills }: { skills: AnalyticsSkillEntry[] }) {
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-muted-foreground text-xs">
                 <SortHeader label={t.analytics.skill} col="skill" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
@@ -441,21 +442,19 @@ export default function AnalyticsPage() {
     // Period selector + refresh both live in afterTitle so the controls
     // sit immediately next to the page title instead of being pinned to
     // the far-right `end` slot. The active period is conveyed by the
-    // filled (non-outlined) button — no redundant period badge.
+    // selected segment — no redundant period badge.
     setAfterTitle(
       showTokens === false ? null : (
         <div className="flex flex-wrap items-center gap-1.5">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.label}
-              type="button"
-              size="sm"
-              outlined={days !== p.days}
-              onClick={() => setDays(p.days)}
-            >
-              {p.label}
-            </Button>
-          ))}
+          <Segmented
+            size="sm"
+            value={String(days)}
+            onChange={(v) => setDays(Number(v))}
+            options={PERIODS.map((p) => ({
+              value: String(p.days),
+              label: p.label,
+            }))}
+          />
           <Button
             type="button"
             ghost
@@ -489,7 +488,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardContent className="py-12">
             <div className="mx-auto flex max-w-2xl flex-col gap-3 text-sm text-muted-foreground">
-              <h2 className="font-mondwest text-display text-base tracking-wider text-foreground">
+              <h2 className="text-base text-foreground">
                 Token analytics hidden
               </h2>
               <p>

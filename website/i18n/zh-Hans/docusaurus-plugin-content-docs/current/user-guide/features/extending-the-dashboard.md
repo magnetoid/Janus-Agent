@@ -264,15 +264,17 @@ CSS 在主题应用时以单个带作用域的 `<style data-janus-theme-css>` �
 
 | 主题 | 调色板 | 字体排版 | 布局 |
 |-------|---------|------------|--------|
-| **Janus Teal**（`default`） | 深青色 + 奶油色 | 系统字体栈，15px | 0.5rem 圆角，comfortable |
-| **Janus Teal (Large)**（`default-large`） | 同 default | 系统字体栈，18px，行高 1.65 | 0.5rem 圆角，spacious |
+| **Bronze**（`default`） | 玄武岩 + 骨白，黄铜强调色 | 系统无衬线字体，Palatino 风格标题，JetBrains Mono，15px | 0.5rem 圆角，comfortable |
+| **Bronze (Large)**（`default-large`） | 同 default | 同 default，18px，行高 1.6 | 0.5rem 圆角，spacious |
 | **Midnight**（`midnight`） | 深蓝紫色 | Inter + JetBrains Mono，14px | 0.75rem 圆角，comfortable |
 | **Ember**（`ember`） | 暖深红 + 古铜色 | Spectral（衬线）+ IBM Plex Mono，15px | 0.25rem 圆角，comfortable |
 | **Mono**（`mono`） | 灰度 | IBM Plex Sans + IBM Plex Mono，13px | 0 圆角，compact |
 | **Cyberpunk**（`cyberpunk`） | 黑底霓虹绿 | Share Tech Mono 全局，14px | 0 圆角，compact |
 | **Rosé**（`rose`） | 粉色 + 象牙色 | Fraunces（衬线）+ DM Mono，16px | 1rem 圆角，spacious |
 
-引用 Google Fonts 的主题（除 Janus Teal 外均如此）会按需加载样式表——首次切换时会向 `<head>` 注入一个 `<link>` 标签。
+引用 Google Fonts 的主题（除 Bronze 外均如此）会按需加载样式表——首次切换时会向 `<head>` 注入一个 `<link>` 标签。
+
+每个内置主题还有一个浅色外观，可通过侧边栏左下角的浅色 / 深色 / 跟随系统控件选择。用 YAML 编写的主题只有一种外观，即其 `palette` 所描述的那一种。启用这类主题时，该控件显示为不可用，Dashboard 会跟随主题的画布：浅色的 `background` 使用浅色的表面、阴影和状态色，深色的则使用深色的那一套。
 
 ### 完整主题 YAML 参考
 
@@ -842,7 +844,7 @@ cp janus-example-plugins/strike-freedom-cockpit/theme/strike-freedom.yaml \
 cp -r janus-example-plugins/strike-freedom-cockpit ~/.janus/plugins/
 ```
 
-打开 dashboard，从主题切换器中选择 **Strike Freedom**。驾驶舱侧边栏出现，徽标显示在顶栏，标语替换底栏。切换回 **Janus Teal**，插件仍然安装但不可见（`sidebar` 插槽仅在 `cockpit` 布局变体下渲染）。
+打开 dashboard，从主题切换器中选择 **Strike Freedom**。驾驶舱侧边栏出现，徽标显示在顶栏，标语替换底栏。切换回 **Bronze**，插件仍然安装但不可见（`sidebar` 插槽仅在 `cockpit` 布局变体下渲染）。
 
 阅读插件源码（伴随仓库中的 `strike-freedom-cockpit/dashboard/dist/index.js`），了解它如何读取 CSS 变量、防范不支持插槽的旧版 dashboard，以及如何从单个 bundle 注册三个插槽。
 

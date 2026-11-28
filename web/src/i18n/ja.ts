@@ -80,8 +80,20 @@ export const ja: Translations = {
       sessions: "セッション",
       skills: "スキル",
     },
+    commandMenu: {
+      actions: "操作",
+      goTo: "移動",
+      noResults: "一致する項目がありません",
+      open: "検索",
+      placeholder: "ページや操作を検索",
+    },
     modelToolsSheetSubtitle: "とツール",
     modelToolsSheetTitle: "モデル",
+    navGroups: {
+      automation: "自動化",
+      connections: "接続",
+      setup: "セットアップ",
+    },
     navigation: "ナビゲーション",
     openDocumentation: "ドキュメントを新しいタブで開く",
     openNavigation: "ナビゲーションを開く",
@@ -479,6 +491,13 @@ export const ja: Translations = {
   theme: {
     title: "テーマ",
     switchTheme: "テーマを切り替え",
+    mode: {
+      title: "外観",
+      light: "ライト",
+      dark: "ダーク",
+      system: "システム",
+      oneLook: "このテーマの外観は1種類のみです",
+    },
   },
 
   achievements: {

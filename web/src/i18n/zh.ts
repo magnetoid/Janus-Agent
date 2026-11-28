@@ -79,8 +79,20 @@ export const zh: Translations = {
       sessions: "会话",
       skills: "技能",
     },
+    commandMenu: {
+      actions: "操作",
+      goTo: "前往",
+      noResults: "没有匹配项",
+      open: "搜索",
+      placeholder: "搜索页面和操作",
+    },
     modelToolsSheetSubtitle: "与工具",
     modelToolsSheetTitle: "模型",
+    navGroups: {
+      automation: "自动化",
+      connections: "连接",
+      setup: "设置",
+    },
     navigation: "导航",
     openDocumentation: "在新标签页中打开文档",
     openNavigation: "打开导航",
@@ -474,6 +486,13 @@ export const zh: Translations = {
   theme: {
     title: "主题",
     switchTheme: "切换主题",
+    mode: {
+      title: "外观",
+      light: "浅色",
+      dark: "深色",
+      system: "跟随系统",
+      oneLook: "此主题只有一种外观",
+    },
   },
 
   achievements: {

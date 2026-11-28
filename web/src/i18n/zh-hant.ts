@@ -80,8 +80,20 @@ export const zhHant: Translations = {
       sessions: "工作階段",
       skills: "技能",
     },
+    commandMenu: {
+      actions: "動作",
+      goTo: "前往",
+      noResults: "沒有相符項目",
+      open: "搜尋",
+      placeholder: "搜尋頁面和動作",
+    },
     modelToolsSheetSubtitle: "與工具",
     modelToolsSheetTitle: "模型",
+    navGroups: {
+      automation: "自動化",
+      connections: "連線",
+      setup: "設定",
+    },
     navigation: "導覽",
     openDocumentation: "在新分頁開啟文件",
     openNavigation: "開啟導覽",
@@ -479,6 +491,13 @@ export const zhHant: Translations = {
   theme: {
     title: "主題",
     switchTheme: "切換主題",
+    mode: {
+      title: "外觀",
+      light: "淺色",
+      dark: "深色",
+      system: "系統",
+      oneLook: "此主題只有一種外觀",
+    },
   },
 
   achievements: {

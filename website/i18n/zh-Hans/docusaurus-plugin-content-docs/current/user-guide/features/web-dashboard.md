@@ -330,12 +330,14 @@ Dashboard 内置六个主题，并可通过用户自定义主题、插件标签�
 
 **实时切换主题**：点击顶部栏语言切换器旁的调色板图标。选择会持久化到 `config.yaml` 的 `dashboard.theme` 下，并在页面加载时恢复。
 
+**浅色或深色**是独立于主题的选择。侧边栏左下角的三段式控件可在浅色外观、深色外观和**跟随系统**之间切换；“跟随系统”会随操作系统的设置实时变化。每个内置主题都有两种外观。该选择按浏览器保存，而不是写入 `config.yaml`，因此笔记本电脑和手机可以各不相同；新浏览器默认为深色。聊天页面的内嵌终端在两种外观下都保持深色。命令菜单（<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd>，输入“外观”）中也有同样的三个选项。
+
 内置主题：
 
 | 主题 | 特点 |
 |-------|-----------|
-| **Janus Teal** (`default`) | 深青色 + 奶油色，系统字体，舒适间距 |
-| **Janus Teal (Large)** (`default-large`) | 与 default 相同，但使用 18px 文字和更宽松的间距 |
+| **Bronze** (`default`) | 玄武岩底色、骨白文字、黄铜强调色；系统无衬线字体，Palatino 风格标题，技术值使用 JetBrains Mono |
+| **Bronze (Large)** (`default-large`) | 与 default 相同，但使用 18px 文字和更宽松的间距 |
 | **Midnight** (`midnight`) | 深蓝紫色，Inter + JetBrains Mono |
 | **Ember** (`ember`) | 暖深红 + 古铜色，Spectral 衬线体 + IBM Plex Mono |
 | **Mono** (`mono`) | 灰度，IBM Plex，紧凑 |

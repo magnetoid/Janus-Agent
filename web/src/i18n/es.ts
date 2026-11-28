@@ -80,8 +80,20 @@ export const es: Translations = {
       sessions: "Sesiones",
       skills: "Habilidades",
     },
+    commandMenu: {
+      actions: "Acciones",
+      goTo: "Ir a",
+      noResults: "Sin coincidencias",
+      open: "Buscar",
+      placeholder: "Buscar páginas y acciones",
+    },
     modelToolsSheetSubtitle: "y herramientas",
     modelToolsSheetTitle: "Modelo",
+    navGroups: {
+      automation: "Automatización",
+      connections: "Conexiones",
+      setup: "Configuración",
+    },
     navigation: "Navegación",
     openDocumentation: "Abrir documentación en una nueva pestaña",
     openNavigation: "Abrir navegación",
@@ -480,6 +492,13 @@ export const es: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Cambiar tema",
+    mode: {
+      title: "Apariencia",
+      light: "Claro",
+      dark: "Oscuro",
+      system: "Sistema",
+      oneLook: "Este tema tiene un solo aspecto",
+    },
   },
   achievements: {
     hero: {

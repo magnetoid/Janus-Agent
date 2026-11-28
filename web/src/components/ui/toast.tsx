@@ -14,13 +14,17 @@ export function Toast({ toast }: ToastProps) {
       role="status"
       aria-live="polite"
       className={cn(
-        "fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-lg",
-        toast.type === "success"
-          ? "border-success/30 bg-success/10 text-success"
-          : "border-destructive/30 bg-destructive/10 text-destructive",
+        "fixed bottom-4 right-4 z-[120] flex max-w-sm animate-pop-in items-start gap-2.5 rounded-lg border border-border bg-popover px-3.5 py-2.5 text-sm text-foreground shadow-raised",
       )}
     >
-      {toast.message}
+      <span
+        aria-hidden
+        className={cn(
+          "mt-1.5 size-2 shrink-0 rounded-full",
+          toast.type === "success" ? "bg-success" : "bg-destructive",
+        )}
+      />
+      <span className="min-w-0 break-words">{toast.message}</span>
     </div>,
     document.body,
   );

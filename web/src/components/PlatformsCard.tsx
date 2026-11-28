@@ -18,16 +18,16 @@ export function PlatformsCard({ platforms }: PlatformsCardProps) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="py-3">
         <div className="flex items-center gap-2">
-          <Radio className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">
+          <Radio className="size-4 shrink-0 text-text-tertiary" />
+          <CardTitle>
             {t.status.connectedPlatforms}
           </CardTitle>
         </div>
       </CardHeader>
 
-      <CardContent className="grid gap-3">
+      <CardContent className="divide-y divide-border border-t border-border p-0">
         {platforms.map(([name, info]) => {
           const display = platformStateBadge[info.state] ?? {
             tone: "outline" as const,
@@ -43,7 +43,7 @@ export function PlatformsCard({ platforms }: PlatformsCardProps) {
           return (
             <div
               key={name}
-              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border border-border p-3 w-full"
+              className="flex w-full flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-center gap-3 min-w-0 w-full">
                 <IconComponent
@@ -57,18 +57,18 @@ export function PlatformsCard({ platforms }: PlatformsCardProps) {
                 />
 
                 <div className="flex flex-col gap-0.5 min-w-0">
-                  <span className="font-mondwest normal-case text-sm font-medium capitalize truncate">
+                  <span className="text-sm font-medium capitalize truncate">
                     {name}
                   </span>
 
                   {info.error_message && (
-                    <span className="font-mondwest normal-case text-xs text-destructive">
+                    <span className="text-xs text-destructive">
                       {info.error_message}
                     </span>
                   )}
 
                   {info.updated_at && (
-                    <span className="font-mondwest normal-case text-xs text-muted-foreground">
+                    <span className="text-xs text-text-tertiary">
                       {t.status.lastUpdate}: {isoTimeAgo(info.updated_at)}
                     </span>
                   )}

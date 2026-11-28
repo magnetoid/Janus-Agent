@@ -231,16 +231,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   }, []);
 
   useEffect(() => {
-    // When hidden (non-chat tab) we must not register the header button —
-    // another page owns the header's end slot at that point.
-    if (!isActive) {
-      setEnd(null);
-      return;
-    }
-    if (!narrow) {
-      setEnd(null);
-      return;
-    }
+    // This page stays mounted while another tab is showing, and that tab
+    // owns the header then: only touch the end slot while active, and
+    // clear only what was put there.
+    if (!isActive || !narrow) return;
     setEnd(
       <Button
         variant="ghost"
@@ -248,8 +242,8 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         aria-expanded={mobilePanelOpen}
         aria-controls="chat-side-panel"
         className={cn(
-          "shrink-0 rounded border border-current/20",
-          "px-2 py-1 text-xs font-medium tracking-wide",
+          "shrink-0 rounded border border-border",
+          "px-2 py-1 text-xs font-medium",
           "text-text-secondary hover:text-midground hover:bg-midground/5",
         )}
       >
@@ -796,7 +790,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             onClick={closeMobilePanel}
             className={cn(
               "fixed inset-0 z-[55] p-0 block",
-              "bg-black/60 backdrop-blur-sm",
+              "bg-scrim backdrop-blur-sm",
             )}
           />
         )}
@@ -806,9 +800,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           role="complementary"
           aria-label={modelToolsLabel}
           className={cn(
-            "font-mondwest fixed top-0 right-0 z-[60] flex h-dvh max-h-dvh w-64 min-w-0 flex-col antialiased",
-            "border-l border-current/20 text-midground",
-            "bg-background-base/95 backdrop-blur-sm",
+            "fixed top-0 right-0 z-[60] flex h-dvh max-h-dvh w-64 min-w-0 flex-col antialiased",
+            "border-l border-border text-midground",
+            "bg-popover",
             "transition-transform duration-200 ease-out",
             "[background:var(--component-sidebar-background)]",
             "[clip-path:var(--component-sidebar-clip-path)]",
@@ -820,11 +814,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         >
           <div
             className={cn(
-              "flex h-14 shrink-0 items-center justify-between gap-2 border-b border-current/20 px-5",
+              "flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-5",
             )}
           >
-            <div className="font-mondwest text-display font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground"
-              style={{ mixBlendMode: "plus-lighter" }}
+            <div className="font-bold text-[1.125rem] leading-[0.95] text-midground"
             >
               {t.app.modelToolsSheetTitle}
               <br />
@@ -845,7 +838,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           <div
             className={cn(
               "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
-              "border-t border-current/10",
+              "border-t border-border",
             )}
           >
             <ChatSidebar channel={channel} />
@@ -861,7 +854,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       {mobileModelToolsPortal}
 
       {banner && (
-        <div className="border border-warning/50 bg-warning/10 text-warning px-3 py-2 text-xs tracking-wide">
+        <div className="border border-warning/50 bg-warning/10 text-warning px-3 py-2 text-xs rounded-lg">
           {banner}
         </div>
       )}
@@ -889,8 +882,8 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             aria-label="Copy last assistant response"
             className={cn(
               "absolute z-10",
-              "normal-case tracking-normal font-normal",
-              "rounded border border-current/30",
+              "tracking-normal font-normal",
+              "rounded border border-border",
               "bg-black/20 backdrop-blur-sm",
               "opacity-70 hover:opacity-100 hover:border-current/60",
               "transition-opacity duration-150",
@@ -901,7 +894,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           >
             <span className="inline-flex items-center gap-1.5">
               <Copy className="h-3 w-3 shrink-0" />
-              <span className="hidden min-[400px]:inline tracking-wide">
+              <span className="hidden min-[400px]:inline">
                 {copyState === "copied" ? "copied" : "copy last response"}
               </span>
             </span>

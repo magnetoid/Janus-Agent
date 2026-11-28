@@ -145,7 +145,7 @@ export function ScheduleBuilder({ onChange, value }: ScheduleBuilderProps) {
                     outlined={!isOn}
                     aria-pressed={isOn}
                     onClick={() => toggleWeekday(d)}
-                    className="min-w-[2.5rem] font-mono-ui text-xs uppercase"
+                    className="min-w-[2.5rem] font-mono-ui text-xs"
                   >
                     {modeStrings.weekdaysShort[d]}
                   </Button>
@@ -198,7 +198,7 @@ export function ScheduleBuilder({ onChange, value }: ScheduleBuilderProps) {
           <input
             id="cron-once-at"
             type="datetime-local"
-            className="flex h-9 w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+            className="flex h-9 w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
             value={value.onceAt}
             onChange={(e) => update({ onceAt: e.target.value })}
           />
@@ -250,7 +250,7 @@ function TimeOfDayField({
       <input
         id={id}
         type="time"
-        className="flex h-9 w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+        className="flex h-9 w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />

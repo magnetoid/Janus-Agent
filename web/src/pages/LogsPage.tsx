@@ -39,11 +39,14 @@ function classifyLine(line: string): "error" | "warning" | "info" | "debug" {
 const LINE_COLORS: Record<string, string> = {
   error: "text-destructive",
   warning: "text-warning",
-  info: "text-foreground",
+  info: "text-text-secondary",
   debug: "text-text-tertiary",
 };
 
-const formatFilterLabel = (value: string) => value.toUpperCase();
+/** Log levels are written the way the log writes them (INFO, ERROR);
+ *  file and component names stay as the lowercase words they are. */
+const formatFilterLabel = (value: string) =>
+  value === "ALL" ? "all" : value;
 
 const toSegmentOptions = <T extends string>(values: readonly T[]) =>
   values.map((v) => ({ value: v, label: formatFilterLabel(v) }));
@@ -88,10 +91,6 @@ export default function LogsPage() {
   useLayoutEffect(() => {
     setAfterTitle(
       <span className="flex items-center gap-1.5">
-        <Badge tone="secondary" className="text-xs">
-          {formatFilterLabel(file)} · {formatFilterLabel(level)} ·{" "}
-          {formatFilterLabel(component)}
-        </Badge>
         <Button
           type="button"
           ghost
@@ -219,7 +218,7 @@ export default function LogsPage() {
 
           <div
             ref={scrollRef}
-            className="max-w-full min-h-[400px] max-h-[calc(100vh-220px)] overflow-auto p-4 font-mono-ui text-xs leading-5 break-words"
+            className="max-w-full min-h-[400px] max-h-[calc(100vh-240px)] overflow-auto bg-background/50 p-4 font-mono-ui text-xs leading-[1.65] break-words"
           >
             {lines.length === 0 && !loading && (
               <p className="text-muted-foreground text-center py-8">
@@ -231,7 +230,7 @@ export default function LogsPage() {
               return (
                 <div
                   key={i}
-                  className={`${LINE_COLORS[cls]} hover:bg-secondary/20 px-1 -mx-1`}
+                  className={`${LINE_COLORS[cls]} -mx-1 rounded-sm px-1 hover:bg-accent/60`}
                 >
                   {line}
                 </div>

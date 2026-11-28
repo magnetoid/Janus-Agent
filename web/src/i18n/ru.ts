@@ -80,8 +80,20 @@ export const ru: Translations = {
       sessions: "Сессии",
       skills: "Навыки",
     },
+    commandMenu: {
+      actions: "Действия",
+      goTo: "Перейти",
+      noResults: "Совпадений нет",
+      open: "Поиск",
+      placeholder: "Поиск страниц и действий",
+    },
     modelToolsSheetSubtitle: "и инструменты",
     modelToolsSheetTitle: "Модель",
+    navGroups: {
+      automation: "Автоматизация",
+      connections: "Подключения",
+      setup: "Настройка",
+    },
     navigation: "Навигация",
     openDocumentation: "Открыть документацию в новой вкладке",
     openNavigation: "Открыть навигацию",
@@ -480,6 +492,13 @@ export const ru: Translations = {
   theme: {
     title: "Тема",
     switchTheme: "Сменить тему",
+    mode: {
+      title: "Оформление",
+      light: "Светлое",
+      dark: "Тёмное",
+      system: "Системное",
+      oneLook: "У этой темы только одно оформление",
+    },
   },
 
   achievements: {

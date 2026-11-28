@@ -1,368 +1,182 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Palette, Check, Type } from "lucide-react";
+import { Palette, Type } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { ListItem } from "@/components/ui/list-item";
-import { BottomSheet } from "@/components/ui/bottom-sheet";
-import { Typography } from "@/components/ui/typography/index";
-import { useBelowBreakpoint } from "@/hooks/use-below-breakpoint";
-import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, useTheme } from "@/themes";
-import type { DashboardTheme, FontChoice, ThemeListEntry } from "@/themes";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n";
+import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, themeForScheme, useTheme } from "@/themes";
+import type { DashboardTheme, FontChoice } from "@/themes";
 import { cn } from "@/lib/utils";
 
-/**
- * Compact theme picker mounted next to the language switcher in the header.
- * Each dropdown row shows a 3-stop swatch (background / midground / warm
- * glow) so users can preview the palette before committing. User-defined
- * themes from `~/.janus/dashboard-themes/*.yaml` use their API-provided
- * definitions so they show real palette swatches just like built-ins.
- *
- * When placed at the bottom of a container (e.g. the sidebar rail), pass
- * `dropUp` so the menu opens above the trigger instead of clipping below
- * the viewport. On viewports below the `sm` breakpoint, `dropUp` uses a
- * bottom sheet portaled to `document.body` so the picker is not clipped by
- * the sidebar (same idea as a responsive Drawer).
- */
-export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitcherProps) {
-  const { themeName, availableThemes, setTheme, fontId, fontChoices, setFont } = useTheme();
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const narrowViewport = useBelowBreakpoint(640);
-  const useMobileSheet = Boolean(dropUp && narrowViewport);
+const FONT_CATEGORIES: FontChoice["category"][] = ["sans", "serif", "mono"];
 
-  const close = useCallback(() => setOpen(false), []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, close]);
-
-  useEffect(() => {
-    if (!open || useMobileSheet) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (wrapperRef.current?.contains(target)) return;
-      if (dropdownRef.current?.contains(target)) return;
-      close();
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [open, close, useMobileSheet]);
-
-  const current = availableThemes.find((th) => th.name === themeName);
-  const label = current?.label ?? themeName;
-  const sheetTitle = t.theme?.title ?? "Theme";
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      <Button
-        ghost
-        size={collapsed ? "icon" : undefined}
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          collapsed
-            ? "text-text-secondary hover:text-foreground hover:bg-transparent"
-            : "px-2 py-1 normal-case tracking-normal font-normal text-xs text-text-secondary hover:text-foreground",
-        )}
-        title={`${t.theme?.switchTheme ?? "Switch theme"}: ${label}`}
-        aria-label={t.theme?.switchTheme ?? "Switch theme"}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <span className="inline-flex items-center gap-1.5">
-          <Palette className="h-3.5 w-3.5" />
-
-          {!collapsed && (
-            <Typography
-              mondwest
-              className="hidden sm:inline text-display tracking-wide text-xs"
-            >
-              {label}
-            </Typography>
-          )}
-        </span>
-      </Button>
-
-      {useMobileSheet && (
-        <BottomSheet
-          backdropDismissLabel={t.common.close}
-          onClose={close}
-          open={open}
-          title={sheetTitle}
-        >
-          <div aria-label={sheetTitle} role="listbox">
-            <ThemeSwitcherOptions
-              availableThemes={availableThemes}
-              close={close}
-              setTheme={setTheme}
-              themeName={themeName}
-            />
-            <FontSection
-              fontChoices={fontChoices}
-              fontId={fontId}
-              setFont={setFont}
-            />
-          </div>
-        </BottomSheet>
-      )}
-
-      {open && !useMobileSheet && (() => {
-        const rect = wrapperRef.current?.getBoundingClientRect();
-        const dropdown = (
-          <div
-            ref={dropdownRef}
-            aria-label={sheetTitle}
-            className={cn(
-              "min-w-[240px] max-h-[70dvh] overflow-y-auto",
-              "border border-current/20 bg-background-base/95 backdrop-blur-sm",
-              "shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)]",
-              dropUp ? "fixed z-[100]" : "absolute z-50 right-0 top-full mt-1",
-            )}
-            role="listbox"
-            style={
-              dropUp && rect
-                ? { bottom: window.innerHeight - rect.top + 4, left: rect.left }
-                : undefined
-            }
-          >
-            <div className="border-b border-current/20 px-3 py-2">
-              <Typography
-                mondwest
-                className="text-display text-xs tracking-[0.12em] text-text-tertiary"
-              >
-                {sheetTitle}
-              </Typography>
-            </div>
-
-            <ThemeSwitcherOptions
-              availableThemes={availableThemes}
-              close={close}
-              setTheme={setTheme}
-              themeName={themeName}
-            />
-            <FontSection
-              fontChoices={fontChoices}
-              fontId={fontId}
-              setFont={setFont}
-            />
-          </div>
-        );
-        return dropUp ? createPortal(dropdown, document.body) : dropdown;
-      })()}
-    </div>
-  );
-}
-
-function ThemeSwitcherOptions({
-  availableThemes,
-  close,
-  setTheme,
-  themeName,
-}: ThemeSwitcherOptionsProps) {
-  return (
-    <>
-      {availableThemes.map((th) => {
-        const isActive = th.name === themeName;
-        const paletteTheme = BUILTIN_THEMES[th.name] ?? th.definition;
-
-        return (
-          <ListItem
-            active={isActive}
-            aria-selected={isActive}
-            className="gap-3"
-            key={th.name}
-            onClick={() => {
-              setTheme(th.name);
-              close();
-            }}
-            role="option"
-          >
-            {paletteTheme ? (
-              <ThemeSwatch theme={paletteTheme} />
-            ) : (
-              <PlaceholderSwatch />
-            )}
-
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <Typography
-                mondwest
-                className="truncate text-display text-xs tracking-wide"
-              >
-                {th.label}
-              </Typography>
-              {th.description && (
-                <Typography className="truncate text-xs tracking-normal text-text-tertiary">
-                  {th.description}
-                </Typography>
-              )}
-            </div>
-
-            <Check
-              className={cn(
-                "h-3 w-3 shrink-0 text-midground",
-                isActive ? "opacity-100" : "opacity-0",
-              )}
-            />
-          </ListItem>
-        );
-      })}
-    </>
-  );
-}
-
-const FONT_CATEGORY_LABEL_KEY: Record<FontChoice["category"], "fontSans" | "fontSerif" | "fontMono"> = {
+const FONT_CATEGORY_LABEL_KEY: Record<
+  FontChoice["category"],
+  "fontSans" | "fontSerif" | "fontMono"
+> = {
   sans: "fontSans",
   serif: "fontSerif",
   mono: "fontMono",
 };
 
-/** Font-override section rendered below the theme list. Lets the user pick
- *  any catalog font independently of the active theme, or "Theme default"
- *  to clear the override. Each row previews itself in its own font. */
-function FontSection({ fontChoices, fontId, setFont }: FontSectionProps) {
+/**
+ * Theme and font picker. Each theme row shows a three-stop swatch of its
+ * palette in the look that is on screen (light or dark), so the swatch is
+ * what picking the theme will give; user themes from
+ * `<janus home>/dashboard-themes/*.yaml` carry their own definition, so
+ * they preview the same way as built-ins.
+ *
+ * The font is a separate choice that survives theme switches; it lives in
+ * a submenu because the catalog is long and rarely visited.
+ */
+export function ThemeSwitcher({ collapsed = false }: ThemeSwitcherProps) {
+  const { themeName, availableThemes, setTheme, scheme, fontId, fontChoices, setFont } =
+    useTheme();
   const { t } = useI18n();
-  const order: FontChoice["category"][] = ["sans", "serif", "mono"];
+
+  const current = availableThemes.find((th) => th.name === themeName);
+  const label = current?.label ?? themeName;
+  const switchLabel = t.theme?.switchTheme ?? "Switch theme";
+  const activeFont = fontChoices.find((f) => f.id === fontId);
+
   return (
-    <>
-      <div className="mt-1 border-t border-current/20 px-3 pb-1 pt-2">
-        <span className="inline-flex items-center gap-1.5">
-          <Type className="h-3 w-3 text-text-tertiary" />
-          <Typography
-            mondwest
-            className="text-display text-xs tracking-[0.12em] text-text-tertiary"
-          >
-            {t.theme?.fontTitle ?? "Font"}
-          </Typography>
-        </span>
-      </div>
-
-      {/* Theme-default (clears the override). */}
-      <ListItem
-        active={fontId === THEME_DEFAULT_FONT_ID}
-        aria-selected={fontId === THEME_DEFAULT_FONT_ID}
-        className="gap-3"
-        onClick={() => setFont(THEME_DEFAULT_FONT_ID)}
-        role="option"
-      >
-        <span aria-hidden className="h-4 w-9 shrink-0" />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <Typography className="truncate text-xs tracking-normal">
-            {t.theme?.fontDefault ?? "Theme default"}
-          </Typography>
-          <Typography className="truncate text-xs tracking-normal text-text-tertiary">
-            {t.theme?.fontDefaultHint ?? "Use the active theme's font"}
-          </Typography>
-        </div>
-        <Check
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          ghost
+          size={collapsed ? "icon" : "sm"}
+          aria-label={`${switchLabel}: ${label}`}
+          title={collapsed ? undefined : switchLabel}
           className={cn(
-            "h-3 w-3 shrink-0 text-midground",
-            fontId === THEME_DEFAULT_FONT_ID ? "opacity-100" : "opacity-0",
+            "text-text-secondary hover:text-foreground",
+            !collapsed && "min-w-0 justify-start px-2 font-normal",
           )}
-        />
-      </ListItem>
+        >
+          <Palette />
+          {!collapsed && <span className="truncate">{label}</span>}
+        </Button>
+      </DropdownMenuTrigger>
 
-      {order.map((cat) => {
-        const fonts = fontChoices.filter((f) => f.category === cat);
-        if (fonts.length === 0) return null;
-        const catLabel = t.theme?.[FONT_CATEGORY_LABEL_KEY[cat]] ?? cat;
-        return (
-          <div key={cat}>
-            <div className="px-3 pb-0.5 pt-1.5">
-              <Typography className="text-[0.65rem] uppercase tracking-[0.1em] text-text-tertiary">
-                {catLabel}
-              </Typography>
-            </div>
-            {fonts.map((f) => {
-              const isActive = f.id === fontId;
-              return (
-                <ListItem
-                  active={isActive}
-                  aria-selected={isActive}
-                  className="gap-3"
-                  key={f.id}
-                  onClick={() => setFont(f.id)}
-                  role="option"
-                >
-                  <span aria-hidden className="h-4 w-9 shrink-0" />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Preview the font in its own stack. */}
-                    <span
-                      className="truncate text-sm"
-                      style={{ fontFamily: f.stack }}
-                    >
-                      {f.label}
+      <DropdownMenuContent side="top" align="start" className="w-72">
+        <DropdownMenuLabel>{t.theme?.title ?? "Theme"}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={themeName} onValueChange={setTheme}>
+          {availableThemes.map((th) => {
+            const definition = BUILTIN_THEMES[th.name] ?? th.definition;
+            const palette = definition && themeForScheme(definition, scheme);
+            return (
+              <DropdownMenuRadioItem key={th.name} value={th.name} className="items-start gap-2.5">
+                <ThemeSwatch theme={palette} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-foreground">{th.label}</span>
+                  {th.description && (
+                    <span className="truncate text-xs text-text-tertiary">
+                      {th.description}
                     </span>
+                  )}
+                </span>
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Type className="text-text-tertiary" />
+            <span>{t.theme?.fontTitle ?? "Font"}</span>
+            <span className="ml-auto truncate pl-3 text-xs text-text-tertiary">
+              {activeFont?.label ?? t.theme?.fontDefault ?? "Theme default"}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-60">
+            <DropdownMenuRadioGroup value={fontId} onValueChange={setFont}>
+              {/* Picking a font keeps the menu open so several can be tried. */}
+              <DropdownMenuRadioItem
+                value={THEME_DEFAULT_FONT_ID}
+                onSelect={(e) => e.preventDefault()}
+                className="items-start"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-foreground">
+                    {t.theme?.fontDefault ?? "Theme default"}
+                  </span>
+                  <span className="text-xs text-text-tertiary">
+                    {t.theme?.fontDefaultHint ?? "Use the active theme's font"}
+                  </span>
+                </span>
+              </DropdownMenuRadioItem>
+
+              {FONT_CATEGORIES.map((category) => {
+                const fonts = fontChoices.filter((f) => f.category === category);
+                if (fonts.length === 0) return null;
+                return (
+                  <div key={category}>
+                    <DropdownMenuLabel className="pt-2.5">
+                      {t.theme?.[FONT_CATEGORY_LABEL_KEY[category]] ?? category}
+                    </DropdownMenuLabel>
+                    {fonts.map((f) => (
+                      <DropdownMenuRadioItem
+                        key={f.id}
+                        value={f.id}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {/* Each font previews itself. */}
+                        <span className="truncate" style={{ fontFamily: f.stack }}>
+                          {f.label}
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ))}
                   </div>
-                  <Check
-                    className={cn(
-                      "h-3 w-3 shrink-0 text-midground",
-                      isActive ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                </ListItem>
-              );
-            })}
-          </div>
-        );
-      })}
-    </>
+                );
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-function ThemeSwatch({ theme }: { theme: DashboardTheme }) {
-  // Inverted (lens) themes author their palette
-  // pre-inversion — `#FFAC02` reads as `#0053FD` blue once the foreground-
-  // difference layer flips the page. The picker can't replay that math
-  // cheaply, so themes opt-in to an explicit `swatchColors` triplet that
-  // mirrors the on-screen result. Falls back to the raw palette hexes for
-  // every other theme so existing dark-theme swatches are untouched.
-  const [c1, c2, c3] = theme.swatchColors ?? [
+function ThemeSwatch({ theme }: { theme: DashboardTheme | undefined }) {
+  if (!theme) {
+    return (
+      <span
+        aria-hidden
+        className="mt-0.5 h-4 w-9 shrink-0 rounded-[4px] border border-dashed border-border-strong"
+      />
+    );
+  }
+  // Inverted ("lens") themes author their palette pre-inversion, so the raw
+  // hexes are not what is on screen. Those themes supply `swatchColors`.
+  const [canvas, ink, accent] = theme.swatchColors ?? [
     theme.palette.background.hex,
     theme.palette.midground.hex,
-    theme.palette.warmGlow,
+    theme.colorOverrides?.primary ?? theme.palette.midground.hex,
   ];
   return (
-    <div
+    <span
       aria-hidden
-      className="flex h-4 w-9 shrink-0 overflow-hidden border border-current/20"
+      className="mt-0.5 flex h-4 w-9 shrink-0 overflow-hidden rounded-[4px] border border-border-strong"
     >
-      <span className="flex-1" style={{ background: c1 }} />
-      <span className="flex-1" style={{ background: c2 }} />
-      <span className="flex-1" style={{ background: c3 }} />
-    </div>
+      <span className="flex-[2]" style={{ background: canvas }} />
+      <span className="flex-1" style={{ background: ink }} />
+      <span className="flex-1" style={{ background: accent }} />
+    </span>
   );
-}
-
-function PlaceholderSwatch() {
-  return (
-    <div
-      aria-hidden
-      className="h-4 w-9 shrink-0 border border-dashed border-current/20"
-    />
-  );
-}
-
-interface ThemeSwitcherOptionsProps {
-  availableThemes: ThemeListEntry[];
-  close: () => void;
-  setTheme: (name: string) => void;
-  themeName: string;
-}
-
-interface FontSectionProps {
-  fontChoices: FontChoice[];
-  fontId: string;
-  setFont: (id: string) => void;
 }
 
 interface ThemeSwitcherProps {
+  /** Icon-only trigger, for the collapsed sidebar rail. */
   collapsed?: boolean;
-  dropUp?: boolean;
 }

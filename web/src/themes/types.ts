@@ -17,7 +17,18 @@
  * Plus an optional `colorOverrides` escape hatch for themes that want to
  * pin specific shadcn tokens to exact values (e.g. a pastel theme that
  * needs a softer `destructive` red than the derived default).
+ *
+ * A theme is authored for one canvas, light or dark, and may carry its
+ * other look under `light` / `dark`. The sidebar's appearance control
+ * picks between the two; a theme with one look always shows that one.
  */
+
+/** One of a theme's two looks. */
+export type ThemeScheme = "light" | "dark";
+
+/** What the person picked in the sidebar: a fixed look, or `system` to
+ *  follow the operating system. */
+export type ThemeMode = ThemeScheme | "system";
 
 /** A color layer: hex base + alpha (0–1). */
 export interface ThemeLayer {
@@ -26,7 +37,8 @@ export interface ThemeLayer {
 }
 
 export interface ThemePalette {
-  /** Deepest canvas color (typically near-black). */
+  /** The canvas color: near-black for a dark look, near-white for a
+   *  light one. Its brightness is what makes a look light or dark. */
   background: ThemeLayer;
   /** Primary text + accent. Most UI chrome reads this. */
   midground: ThemeLayer;
@@ -162,6 +174,27 @@ export interface ThemeColorOverrides {
   ring?: string;
 }
 
+/**
+ * A theme's other look: the colors to use on the opposite canvas.
+ *
+ * `palette` needs the new canvas and text color; any other palette field
+ * left out is inherited. Type, spacing, assets and component styles are
+ * always shared. `colorOverrides`, `seriesColors` and `swatchColors` are
+ * NOT inherited, because the theme's own were picked against the other
+ * canvas — a pastel accent tuned for a dark canvas is unreadable on a
+ * light one. Leave them out to get the stylesheet's defaults for the
+ * canvas, or set them here.
+ */
+export interface ThemeSchemeVariant {
+  palette: Pick<ThemePalette, "background" | "midground"> & Partial<ThemePalette>;
+  colorOverrides?: ThemeColorOverrides;
+  seriesColors?: ThemeSeriesColors;
+  swatchColors?: [string, string, string];
+  /** Defaults to the theme's own `terminalBackground`: the terminal is
+   *  drawn by the TUI, whose colors assume the canvas it was given. */
+  terminalBackground?: string;
+}
+
 export interface DashboardTheme {
   description: string;
   label: string;
@@ -193,6 +226,10 @@ export interface DashboardTheme {
   /** Background color for the embedded terminal pane (xterm.js).
    *  Hex string. Defaults to `"#000000"` when absent. */
   terminalBackground?: string;
+  /** The light look of a theme authored on a dark canvas. */
+  light?: ThemeSchemeVariant;
+  /** The dark look of a theme authored on a light canvas. */
+  dark?: ThemeSchemeVariant;
 }
 
 /**

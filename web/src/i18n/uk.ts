@@ -80,8 +80,20 @@ export const uk: Translations = {
       sessions: "Сесії",
       skills: "Навички",
     },
+    commandMenu: {
+      actions: "Дії",
+      goTo: "Перейти",
+      noResults: "Збігів немає",
+      open: "Пошук",
+      placeholder: "Пошук сторінок і дій",
+    },
     modelToolsSheetSubtitle: "та інструменти",
     modelToolsSheetTitle: "Модель",
+    navGroups: {
+      automation: "Автоматизація",
+      connections: "Підключення",
+      setup: "Налаштування",
+    },
     navigation: "Навігація",
     openDocumentation: "Відкрити документацію в новій вкладці",
     openNavigation: "Відкрити навігацію",
@@ -480,6 +492,13 @@ export const uk: Translations = {
   theme: {
     title: "Тема",
     switchTheme: "Змінити тему",
+    mode: {
+      title: "Вигляд",
+      light: "Світлий",
+      dark: "Темний",
+      system: "Системний",
+      oneLook: "Ця тема має лише один вигляд",
+    },
   },
 
   achievements: {

@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Toast } from "@/components/ui/toast";
-import { cn, themedBody } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface Props {
   /** The toolset whose backends are being configured. */
@@ -218,8 +218,7 @@ export function ToolsetConfigDrawer({ toolset, onClose, onChanged }: Props) {
     >
       <div
         className={cn(
-          themedBody,
-          "relative w-full max-w-2xl max-h-[85vh] border border-border bg-card shadow-2xl flex flex-col",
+          "relative w-full max-w-2xl max-h-[85vh] rounded-xl border border-border bg-popover shadow-raised flex flex-col",
         )}
       >
         <Button
@@ -235,7 +234,7 @@ export function ToolsetConfigDrawer({ toolset, onClose, onChanged }: Props) {
         {/* Header — toolset identity + enable toggle */}
         <header className="p-5 pb-3 border-b border-border">
           <div className="flex items-center gap-3 pr-8">
-            <span className="font-mondwest text-display text-base tracking-wider">
+            <span className="text-base">
               {labelText}
             </span>
             <Badge tone={enabled ? "success" : "outline"} className="text-xs">
@@ -280,8 +279,8 @@ export function ToolsetConfigDrawer({ toolset, onClose, onChanged }: Props) {
                 <div
                   key={provider.name}
                   className={cn(
-                    "border border-border p-3",
-                    isActive && "border-emerald-500/60 bg-emerald-500/5",
+                    "border border-border p-3 rounded-lg",
+                    isActive && "border-success/60 bg-success/5",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -419,7 +418,7 @@ export function ToolsetConfigDrawer({ toolset, onClose, onChanged }: Props) {
 
           {/* Post-setup live log */}
           {(postSetupRunning || postSetupLog.length > 0) && (
-            <div className="border border-border">
+            <div className="border border-border rounded-lg">
               <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30">
                 <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-mono text-muted-foreground">

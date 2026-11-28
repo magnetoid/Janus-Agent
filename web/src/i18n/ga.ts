@@ -80,8 +80,20 @@ export const ga: Translations = {
       sessions: "Seisiúin",
       skills: "Scileanna",
     },
+    commandMenu: {
+      actions: "Gníomhartha",
+      goTo: "Téigh go",
+      noResults: "Níl aon torthaí",
+      open: "Cuardaigh",
+      placeholder: "Cuardaigh leathanaigh agus gníomhartha",
+    },
     modelToolsSheetSubtitle: "agus uirlisí",
     modelToolsSheetTitle: "Samhail",
+    navGroups: {
+      automation: "Uathoibriú",
+      connections: "Naisc",
+      setup: "Socrú",
+    },
     navigation: "Nascleanúint",
     openDocumentation: "Oscail an doiciméadú i gcluaisín nua",
     openNavigation: "Oscail an nascleanúint",
@@ -488,6 +500,13 @@ export const ga: Translations = {
   theme: {
     title: "Téama",
     switchTheme: "Athraigh téama",
+    mode: {
+      title: "Cuma",
+      light: "Geal",
+      dark: "Dorcha",
+      system: "Córas",
+      oneLook: "Níl ach cuma amháin ar an téama seo",
+    },
   },
 
   achievements: {

@@ -7,4 +7,14 @@ export {
   isOverrideFont,
 } from "./fonts";
 export type { FontChoice, FontCategory } from "./fonts";
-export type { DashboardTheme, ThemeLayer, ThemeListEntry, ThemeListResponse, ThemePalette } from "./types";
+export { themeForScheme, themeScheme, themeSchemes } from "./scheme";
+export type {
+  DashboardTheme,
+  ThemeLayer,
+  ThemeListEntry,
+  ThemeListResponse,
+  ThemeMode,
+  ThemePalette,
+  ThemeScheme,
+  ThemeSchemeVariant,
+} from "./types";
