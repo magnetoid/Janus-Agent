@@ -24,12 +24,12 @@ function Stats({ items, flip, className, ...props }: StatsProps) {
     <div className={cn("grid grid-cols-2 gap-4 sm:grid-cols-4", className)} {...props}>
       {items.map((item, i) => {
         const value = (
-          <div className="text-2xl font-semibold text-foreground">
+          <div className="text-2xl font-semibold tabular-nums leading-tight text-foreground">
             {renderSlot(item.value)}
           </div>
         );
         const label = (
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="text-xs text-text-tertiary">
             {renderSlot(item.label)}
           </div>
         );

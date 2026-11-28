@@ -147,7 +147,7 @@ export function ToolCall({ tool }: { tool: ToolEntry }) {
 
           {tool.inline_diff && (
             <Section label="diff">
-              <pre className="whitespace-pre overflow-x-auto text-[0.7rem] leading-snug">
+              <pre className="whitespace-pre overflow-x-auto text-xs leading-snug">
                 {colorizeDiff(tool.inline_diff)}
               </pre>
             </Section>
@@ -186,7 +186,7 @@ function Section({
   return (
     <div className="flex gap-3">
       <span
-        className={`text-display font-mondwest tracking-wider text-xs shrink-0 w-20 pt-0.5 ${
+        className={`text-xs shrink-0 w-20 pt-0.5 ${
           tone === "error" ? "text-destructive" : "text-text-tertiary"
         }`}
       >

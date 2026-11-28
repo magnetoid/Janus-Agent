@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
-import { cn, themedBody } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 // Mirrors janus_cli/profiles.py::_PROFILE_ID_RE so we can reject obviously
 // invalid names (uppercase, spaces, …) before round-tripping a doomed POST.
@@ -122,7 +122,7 @@ function ProfileActionsMenu({
   };
 
   const itemClass =
-    "flex w-full items-center gap-2.5 px-3 py-2 text-xs uppercase tracking-wider hover:bg-muted/50 disabled:opacity-40";
+    "flex w-full items-center gap-2.5 px-3 py-2 text-xs hover:bg-muted/50 disabled:opacity-40";
 
   return (
     <div className="relative" data-profile-actions ref={containerRef}>
@@ -141,7 +141,7 @@ function ProfileActionsMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 min-w-[200px] border border-border bg-card shadow-lg"
+          className="absolute right-0 top-full z-50 mt-1 min-w-[200px] border border-border bg-card shadow-lg rounded-lg"
         >
           {!isActive && (
             <button
@@ -726,7 +726,6 @@ export default function ProfilesPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
         onClick={() => setCreateModalOpen(true)}
       >
@@ -781,8 +780,7 @@ export default function ProfilesPage() {
         >
           <div
             className={cn(
-              themedBody,
-              "relative w-full max-w-md border border-border bg-card shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto",
+              "relative w-full max-w-md rounded-xl border border-border bg-popover shadow-raised flex flex-col max-h-[90vh] overflow-y-auto",
             )}
           >
             <Button
@@ -798,7 +796,7 @@ export default function ProfilesPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="create-profile-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 {t.profiles.newProfile}
               </h2>
@@ -835,7 +833,7 @@ export default function ProfilesPage() {
 
                 <textarea
                   id="profile-description"
-                  className="flex min-h-[64px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex min-h-[64px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-lg"
                   placeholder={L.descriptionPlaceholder}
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
@@ -871,7 +869,7 @@ export default function ProfilesPage() {
               </div>
 
               <fieldset className="grid gap-3 border-t border-border pt-4">
-                <legend className="font-mondwest text-display text-xs tracking-wider text-muted-foreground">
+                <legend className="text-xs text-muted-foreground">
                   {L.advancedOptions}
                 </legend>
 
@@ -886,7 +884,7 @@ export default function ProfilesPage() {
                   />
 
                   <Label
-                    className="font-mondwest normal-case tracking-normal text-sm cursor-pointer"
+                    className="tracking-normal text-sm cursor-pointer"
                     htmlFor="clone-from-default"
                   >
                     {t.profiles.cloneFromDefault}
@@ -901,7 +899,7 @@ export default function ProfilesPage() {
                   />
 
                   <Label
-                    className="font-mondwest normal-case tracking-normal text-sm cursor-pointer"
+                    className="tracking-normal text-sm cursor-pointer"
                     htmlFor="clone-all"
                   >
                     {L.cloneAll}
@@ -918,7 +916,7 @@ export default function ProfilesPage() {
 
                   <Label
                     className={cn(
-                      "font-mondwest normal-case tracking-normal text-sm cursor-pointer",
+                      "tracking-normal text-sm cursor-pointer",
                       cloning && "opacity-50",
                     )}
                     htmlFor="no-skills"
@@ -930,7 +928,6 @@ export default function ProfilesPage() {
 
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleCreate}
                   disabled={creating}
@@ -1194,8 +1191,7 @@ export default function ProfilesPage() {
         >
           <div
             className={cn(
-              themedBody,
-              "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto",
+              "relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col max-h-[90vh] overflow-y-auto",
             )}
           >
             <Button
@@ -1211,7 +1207,7 @@ export default function ProfilesPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="profile-editor-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 {editorKind === "model"
                   ? L.editModel
@@ -1249,7 +1245,6 @@ export default function ProfilesPage() {
                     <div className="flex justify-end">
                       <Button
                         size="sm"
-                        className="uppercase"
                         onClick={() => handleSaveModel(editorName)}
                         disabled={
                           modelSaving ||
@@ -1271,7 +1266,7 @@ export default function ProfilesPage() {
                   <div className="flex items-center justify-between gap-2">
                     <Label
                       htmlFor="profile-desc-editor"
-                      className="font-mondwest text-display text-xs tracking-wider text-muted-foreground"
+                      className="text-xs text-muted-foreground"
                     >
                       {L.description}
                     </Label>
@@ -1290,7 +1285,7 @@ export default function ProfilesPage() {
 
                   <textarea
                     id="profile-desc-editor"
-                    className="flex min-h-[96px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="flex min-h-[96px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-lg"
                     placeholder={L.descriptionPlaceholder}
                     value={descText}
                     onChange={(e) => setDescText(e.target.value)}
@@ -1299,7 +1294,6 @@ export default function ProfilesPage() {
                   <div className="flex justify-end">
                     <Button
                       size="sm"
-                      className="uppercase"
                       onClick={() => handleSaveDesc(editorName)}
                       disabled={descSaving}
                     >
@@ -1313,14 +1307,14 @@ export default function ProfilesPage() {
                 <>
                   <Label
                     htmlFor="profile-soul-editor"
-                    className="font-mondwest text-display text-xs tracking-wider text-muted-foreground"
+                    className="text-xs text-muted-foreground"
                   >
                     {t.profiles.soulSection}
                   </Label>
 
                   <textarea
                     id="profile-soul-editor"
-                    className="flex min-h-[280px] w-full border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="flex min-h-[280px] w-full border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-lg"
                     placeholder={t.profiles.soulPlaceholder}
                     value={soulText}
                     onChange={(e) => setSoulText(e.target.value)}
@@ -1329,7 +1323,6 @@ export default function ProfilesPage() {
                   <div className="flex justify-end">
                     <Button
                       size="sm"
-                      className="uppercase"
                       onClick={() => handleSaveSoul(editorName)}
                       disabled={soulSaving}
                     >

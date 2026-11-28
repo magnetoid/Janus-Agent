@@ -153,7 +153,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                       <span className="font-medium text-sm">{p.name}</span>
                       <Badge
                         tone="outline"
-                        className="text-xs tracking-wide"
+                        className="text-xs"
                       >
                         {t.oauth.flowLabels[p.flow]}
                       </Badge>
@@ -230,7 +230,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                   {!p.status.logged_in && p.flow !== "external" && (
                     <Button
                       size="sm"
-                      className="uppercase"
+                      outlined
                       onClick={() => setLoginFor(p)}
                     >
                       {t.oauth.login}
@@ -240,7 +240,6 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                     <Button
                       size="sm"
                       outlined
-                      className="uppercase"
                       onClick={() => setDisconnectTarget(p)}
                       disabled={isBusy}
                       prefix={isBusy ? <Spinner /> : undefined}

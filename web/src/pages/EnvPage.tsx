@@ -167,7 +167,7 @@ function EnvVarRow({
   // Non-compact unset row
   if (!info.is_set && !isEditing) {
     return (
-      <div className="flex items-center justify-between gap-3 border border-border/50 px-4 py-2.5 min-w-0 overflow-hidden text-text-secondary hover:text-foreground transition-colors">
+      <div className="flex items-center justify-between gap-3 border border-border/50 px-4 py-2.5 min-w-0 overflow-hidden text-text-secondary hover:text-foreground transition-colors rounded-lg">
         <div className="flex items-center gap-3 min-w-0">
           <Label className="font-mono-ui text-xs">
             {varKey}
@@ -202,7 +202,7 @@ function EnvVarRow({
 
   // Full expanded row for set keys or keys being edited
   return (
-    <div className="grid gap-2 border border-border p-4 min-w-0 overflow-hidden">
+    <div className="grid gap-2 border border-border p-4 min-w-0 overflow-hidden rounded-lg">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Label className="font-mono-ui text-xs">{varKey}</Label>
@@ -377,7 +377,7 @@ function ProviderGroupCard({
   const keyUrl = apiKeys.find(([, info]) => info.url)?.[1]?.url ?? null;
 
   return (
-    <div className="border border-border">
+    <div className="border border-border rounded-lg">
       {/* Header — always visible */}
       <ListItem
         onClick={() => setExpanded(!expanded)}
@@ -390,7 +390,7 @@ function ProviderGroupCard({
           ) : (
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           )}
-          <span className="font-semibold text-sm tracking-wide">
+          <span className="font-semibold text-sm">
             {group.name === "Other" ? t.common.other : group.name}
           </span>
           {hasAnyConfigured && (
@@ -544,7 +544,7 @@ export default function EnvPage() {
             key={s.id}
             type="button"
             onClick={() => scrollTo(s.id)}
-            className="shrink-0 cursor-pointer px-2 py-0.5 font-mondwest text-display text-xs tracking-wider text-text-secondary hover:text-foreground border border-border/50 hover:border-foreground/30 transition-colors"
+            className="shrink-0 cursor-pointer px-2 py-0.5 text-xs text-text-secondary hover:text-foreground border border-border/50 hover:border-foreground/30 transition-colors rounded-md"
           >
             {s.label}
           </button>
@@ -899,7 +899,7 @@ function EnvCategoryCard({
               type="button"
               onClick={() => setShowAll((open) => !open)}
               aria-expanded={showAll}
-              className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-mondwest text-xs tracking-[0.08em] text-text-secondary transition-colors hover:text-foreground"
+              className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-text-secondary transition-colors hover:text-foreground"
             >
               {showAll ? t.env.showLess : t.env.showMore}
             </button>

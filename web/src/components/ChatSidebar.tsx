@@ -319,7 +319,7 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
     >
       <Card className="flex items-center justify-between gap-2 px-3 py-2">
         <div className="min-w-0">
-          <div className="text-display text-xs tracking-wider text-text-tertiary">
+          <div className="text-xs text-text-tertiary">
             model
           </div>
 
@@ -333,7 +333,7 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
                 <ChevronDown className="text-text-secondary" />
               ) : undefined
             }
-            className="self-start min-w-0 px-0 py-0 normal-case tracking-normal text-sm font-medium hover:underline disabled:no-underline"
+            className="self-start min-w-0 px-0 py-0 tracking-normal text-sm font-medium hover:underline disabled:no-underline"
             title={info.model ?? "switch model"}
           >
             <span className="truncate">{modelLabel}</span>
@@ -366,7 +366,7 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
       )}
 
       <Card className="flex min-h-0 flex-none flex-col px-2 py-2">
-        <div className="text-display px-1 pb-2 text-xs tracking-wider text-text-tertiary">
+        <div className="px-1 pb-2 text-xs text-text-tertiary">
           tools
         </div>
 

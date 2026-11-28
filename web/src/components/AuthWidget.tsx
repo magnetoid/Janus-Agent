@@ -76,31 +76,16 @@ export function AuthWidget({ className }: AuthWidgetProps) {
 
   if (error) {
     return (
-      <div
-        className={cn(
-          "px-5 py-2 text-[0.65rem] tracking-[0.05em] text-muted-foreground/70",
-          className,
-        )}
-      >
+      <div className={cn("px-2.5 py-1.5 text-xs text-text-tertiary", className)}>
         {error}
       </div>
     );
   }
 
   if (!me) {
-    // Loading. Reserve the row height so the sidebar doesn't flicker
-    // when the data arrives.
-    return (
-      <div
-        className={cn(
-          "h-9 px-5 py-2 text-[0.65rem] text-muted-foreground/40",
-          className,
-        )}
-        aria-busy="true"
-      >
-        …
-      </div>
-    );
+    // Loading. Reserve the row height so the sidebar doesn't jump when
+    // the data arrives.
+    return <div className={cn("h-11", className)} aria-busy="true" />;
   }
 
   const handleLogout = () => {
@@ -114,35 +99,28 @@ export function AuthWidget({ className }: AuthWidgetProps) {
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-between gap-2",
-        "px-5 py-2",
-        "border-t border-current/10",
-        "text-[0.65rem] tracking-[0.05em]",
+        "flex shrink-0 items-center justify-between gap-2 px-2.5 py-1.5",
         className,
       )}
       role="status"
       aria-label={`Logged in as ${label}`}
     >
       <div className="flex min-w-0 flex-col">
-        <span className="truncate font-mono text-foreground/90" title={me.user_id}>
+        <span className="truncate text-xs text-foreground" title={me.user_id}>
           {label}
         </span>
-        <span className="truncate text-muted-foreground/70">
+        <span className="truncate text-xs text-text-tertiary">
           via {me.provider}
         </span>
       </div>
       <button
         type="button"
         onClick={handleLogout}
-        className={cn(
-          "shrink-0 rounded p-1.5 text-muted-foreground/70",
-          "transition-colors hover:bg-current/10 hover:text-foreground",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current/40",
-        )}
+        className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-tertiary outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         aria-label="Log out"
         title="Log out"
       >
-        <LogOut className="h-3.5 w-3.5" />
+        <LogOut className="size-4" />
       </button>
     </div>
   );

@@ -100,8 +100,22 @@ export interface Translations {
       sessions: string;
       skills: string;
     };
+    /** The search-and-jump palette (Cmd/Ctrl+K). */
+    commandMenu: {
+      actions: string;
+      goTo: string;
+      noResults: string;
+      open: string;
+      placeholder: string;
+    };
     modelToolsSheetSubtitle: string;
     modelToolsSheetTitle: string;
+    /** Headings of the sidebar's navigation groups. */
+    navGroups: {
+      automation: string;
+      connections: string;
+      setup: string;
+    };
     navigation: string;
     openDocumentation: string;
     openNavigation: string;

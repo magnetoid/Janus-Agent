@@ -297,7 +297,7 @@ export default function SkillsPage() {
             <div className="flex flex-col rounded-none border border-border bg-muted/20">
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 border-b border-border">
                 <Filter className="h-3 w-3 text-text-tertiary" />
-                <span className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+                <span className="text-xs text-text-secondary">
                   {t.skills.filters}
                 </span>
               </div>
@@ -337,7 +337,7 @@ export default function SkillsPage() {
                 !isSearching &&
                 allCategories.length > 0 && (
                   <div className="hidden sm:flex flex-col border-t border-border">
-                    <div className="px-3 pt-2 pb-1 font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary">
+                    <div className="px-3 pt-2 pb-1 text-xs text-text-tertiary">
                       {t.skills.categories}
                     </div>
                     <div className="flex flex-col p-2 pt-1 gap-px max-h-[calc(100vh-340px)] overflow-y-auto">
@@ -596,8 +596,8 @@ function PanelItem({ active, icon: Icon, label, onClick }: PanelItemProps) {
       onClick={onClick}
       className={cn(
         "rounded-none whitespace-nowrap px-2.5 py-1.5",
-        "font-mondwest text-[0.7rem] tracking-[0.08em] uppercase",
-        active && "bg-foreground/90 text-background hover:text-background",
+        "text-xs",
+        active && "bg-accent font-medium text-foreground",
       )}
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -872,7 +872,7 @@ function HubBrowser({
                 </Button>
               )}
             </div>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words bg-background/50 border border-border p-2 text-xs font-mono text-muted-foreground">
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words bg-background/50 border border-border p-2 text-xs font-mono text-muted-foreground rounded-lg">
               {actionLog.length ? actionLog.join("\n") : "Starting…"}
             </pre>
           </CardContent>
@@ -890,7 +890,7 @@ function HubBrowser({
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 px-1">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
-                <span className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary uppercase">
+                <span className="text-xs text-text-secondary">
                   Featured skills
                 </span>
                 <span className="text-xs text-text-tertiary">
@@ -1104,7 +1104,7 @@ function HubResultCard({
             {result.tags.slice(0, 5).map((tag) => (
               <span
                 key={tag}
-                className="text-[0.65rem] font-mono text-text-tertiary border border-border px-1 py-px"
+                className="text-xs font-mono text-text-tertiary border border-border px-1 py-px rounded-lg"
               >
                 {tag}
               </span>
@@ -1130,6 +1130,7 @@ function HubResultCard({
           ) : (
             <Button
               size="sm"
+              outlined
               onClick={onInstall}
               prefix={<Download className="h-3.5 w-3.5" />}
             >
@@ -1267,6 +1268,7 @@ function SkillDetailDialog({
             ) : (
               <Button
                 size="sm"
+                outlined
                 onClick={onInstall}
                 prefix={<Download className="h-3.5 w-3.5" />}
               >
@@ -1290,7 +1292,7 @@ function SkillDetailDialog({
                     {preview.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="text-[0.65rem] font-mono text-text-tertiary border border-border px-1 py-px"
+                        className="text-xs font-mono text-text-tertiary border border-border px-1 py-px rounded-lg"
                       >
                         {tag}
                       </span>
@@ -1299,13 +1301,13 @@ function SkillDetailDialog({
                 )}
                 {preview.files.length > 0 && (
                   <div className="text-xs text-text-tertiary">
-                    <span className="font-mondwest tracking-[0.1em] uppercase">
+                    <span>
                       Files:{" "}
                     </span>
                     <span className="font-mono">{preview.files.join("  ")}</span>
                   </div>
                 )}
-                <pre className="whitespace-pre-wrap break-words bg-background/50 border border-border p-3 text-xs font-mono text-text-secondary leading-relaxed">
+                <pre className="whitespace-pre-wrap break-words bg-background/50 border border-border p-3 text-xs font-mono text-text-secondary leading-relaxed rounded-lg">
                   {(preview.skill_md || "").trim() || "(SKILL.md is empty)"}
                 </pre>
               </div>
@@ -1367,7 +1369,7 @@ function ScanPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* Verdict header */}
-      <div className="flex flex-wrap items-center gap-2 border border-border p-3">
+      <div className="flex flex-wrap items-center gap-2 border border-border p-3 rounded-lg">
         <v.Icon
           className={cn(
             "h-6 w-6",
@@ -1418,7 +1420,7 @@ function ScanPanel({
 
       {/* Findings */}
       {scan.findings.length > 0 && (
-        <div className="flex flex-col border border-border divide-y divide-border">
+        <div className="flex flex-col border border-border divide-y divide-border rounded-lg">
           {scan.findings.map((f, i) => (
             <div key={i} className="flex items-start gap-2 p-2">
               <Badge tone={SEVERITY_TONE[f.severity] || "outline"} className="text-xs shrink-0">

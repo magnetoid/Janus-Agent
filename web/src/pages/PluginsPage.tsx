@@ -158,7 +158,7 @@ export default function PluginsPage() {
           <Card>
             <CardHeader>
               <CardTitle>{t.pluginsPage.providersHeading}</CardTitle>
-              <p className="text-xs tracking-[0.08em] text-text-tertiary">
+              <p className="text-xs text-text-tertiary">
                 {t.pluginsPage.providersHint}
               </p>
             </CardHeader>
@@ -210,7 +210,7 @@ export default function PluginsPage() {
               </div>
 
               <Button
-                className="w-fit uppercase"
+                className="w-fit"
                 size="sm"
                 disabled={providerBusy}
                 onClick={() => void onSaveProviders()}
@@ -225,7 +225,7 @@ export default function PluginsPage() {
         <Card>
           <CardHeader>
             <CardTitle>{t.pluginsPage.installHeading}</CardTitle>
-            <p className="text-xs tracking-[0.08em] text-text-tertiary">
+            <p className="text-xs text-text-tertiary">
               {t.pluginsPage.installHint}
             </p>
           </CardHeader>
@@ -254,7 +254,7 @@ export default function PluginsPage() {
 
                 <Switch checked={installForce} onCheckedChange={setInstallForce} />
 
-                <span className="text-xs tracking-[0.06em] text-text-secondary">
+                <span className="text-xs text-text-secondary">
                   {t.pluginsPage.forceReinstall}
                 </span>
               </div>
@@ -263,14 +263,14 @@ export default function PluginsPage() {
 
                 <Switch checked={installEnable} onCheckedChange={setInstallEnable} />
 
-                <span className="text-xs tracking-[0.06em] text-text-secondary">
+                <span className="text-xs text-text-secondary">
                   {t.pluginsPage.enableAfterInstall}
                 </span>
               </div>
             </div>
 
             <Button
-              className="w-fit uppercase"
+              className="w-fit"
               size="sm"
               disabled={installBusy}
               onClick={() => void onInstall()}
@@ -279,11 +279,11 @@ export default function PluginsPage() {
               {t.pluginsPage.installBtn}
             </Button>
 
-            <p className="text-xs tracking-[0.06em] text-text-tertiary">
+            <p className="text-xs text-text-tertiary">
               {t.pluginsPage.rescanHint}
             </p>
 
-            <p className="text-xs tracking-[0.06em] text-text-tertiary">
+            <p className="text-xs text-text-tertiary">
               {t.pluginsPage.removeHint}
             </p>
           </CardContent>
@@ -291,7 +291,7 @@ export default function PluginsPage() {
 
         <div className="flex flex-col gap-3">
 
-          <h3 className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+          <h3 className="text-xs text-text-secondary">
             {t.pluginsPage.pluginListHeading}
           </h3>
 
@@ -329,11 +329,11 @@ export default function PluginsPage() {
 
           <div className="flex flex-col gap-3 opacity-95">
 
-            <h3 className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+            <h3 className="text-xs text-text-secondary">
               {t.pluginsPage.orphanHeading}
             </h3>
 
-            <ul className="flex flex-col gap-2 rounded border border-current/15 p-4">
+            <ul className="flex flex-col gap-2 rounded border border-border p-4">
 
               {hub!.orphan_dashboard_plugins.map((m) => (
 
@@ -466,8 +466,8 @@ function PluginRowCard(props: PluginRowCardProps) {
               <Link
                 className={cn(
                   "inline-flex items-center rounded-none px-3 py-1.5",
-                  "border border-current/25 hover:bg-current/10",
-                  "font-mondwest text-display text-xs tracking-[0.1em]",
+                  "border border-border hover:bg-current/10 rounded-lg",
+                  "text-xs",
                 )}
                 to={tabPath}
               >
@@ -532,14 +532,14 @@ function PluginRowCard(props: PluginRowCardProps) {
         </div>
 
         {row.description ? (
-          <p className="min-w-0 w-full text-xs tracking-[0.06em] text-text-secondary break-words">
+          <p className="min-w-0 w-full text-xs text-text-secondary break-words">
             {row.description}
           </p>
         ) : null}
 
         {dm?.slots?.length ? (
 
-          <p className="text-xs tracking-[0.05em] text-text-tertiary">
+          <p className="text-xs text-text-tertiary">
             {t.pluginsPage.dashboardSlots}: {dm.slots.join(", ")}
           </p>
         ) : null}

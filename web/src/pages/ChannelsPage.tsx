@@ -32,7 +32,7 @@ import type {
 } from "@/lib/api";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { usePageHeader } from "@/contexts/usePageHeader";
-import { cn, themedBody } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 // State → badge mapping. The backend emits a small, fixed vocabulary plus
 // whatever the live gateway runtime reports (connected/disconnected/fatal).
@@ -194,7 +194,6 @@ export default function ChannelsPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
         onClick={handleRestart}
         disabled={restarting}
@@ -236,7 +235,7 @@ export default function ChannelsPage() {
             </div>
             <Button
               size="sm"
-              className="uppercase shrink-0"
+              className="shrink-0"
               onClick={handleRestart}
               disabled={restarting}
               prefix={restarting ? <Spinner /> : <RotateCw className="h-4 w-4" />}
@@ -278,8 +277,7 @@ export default function ChannelsPage() {
         >
           <div
             className={cn(
-              themedBody,
-              "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col max-h-[90vh]",
+              "relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col max-h-[90vh]",
             )}
           >
             <Button
@@ -295,7 +293,7 @@ export default function ChannelsPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="channel-config-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 Configure {editing.name}
               </h2>
@@ -347,7 +345,6 @@ export default function ChannelsPage() {
                   Cancel
                 </Button>
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleSave}
                   disabled={saving}
@@ -389,7 +386,7 @@ export default function ChannelsPage() {
                     />
                     <div className="flex flex-col gap-0.5 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mondwest normal-case text-sm font-medium">
+                        <span className="text-sm font-medium">
                           {platform.name}
                         </span>
                         <Badge tone={badge.tone}>{badge.label}</Badge>
@@ -434,7 +431,7 @@ export default function ChannelsPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="uppercase"
+                      outlined
                       onClick={() => openConfig(platform)}
                       prefix={<Settings2 className="h-4 w-4" />}
                     >
@@ -641,7 +638,7 @@ function TelegramOnboardingPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          className="uppercase"
+          outlined
           onClick={() => void start()}
           disabled={phase === "starting" || phase === "waiting" || phase === "applying"}
           prefix={phase === "starting" ? <Spinner /> : <QrCode className="h-4 w-4" />}
@@ -656,7 +653,7 @@ function TelegramOnboardingPanel({
       </div>
 
       {error && (
-        <div className="mt-3 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="mt-3 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive rounded-lg">
           {error}
         </div>
       )}
@@ -677,7 +674,7 @@ function TelegramOnboardingPanel({
 
                 <div className="grid gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       Allowed users
                     </span>
                     {detectedOwnerId && allowedIds.includes(detectedOwnerId) && (
@@ -689,7 +686,7 @@ function TelegramOnboardingPanel({
                       <button
                         key={id}
                         type="button"
-                        className="inline-flex items-center gap-1 border border-border px-2 py-1 font-courier text-xs text-foreground hover:border-destructive/50"
+                        className="inline-flex items-center gap-1 border border-border px-2 py-1 font-courier text-xs text-foreground hover:border-destructive/50 rounded-md"
                         onClick={() =>
                           setAllowedIds((ids) =>
                             ids.filter((existing) => existing !== id),
@@ -723,7 +720,6 @@ function TelegramOnboardingPanel({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
-                    className="uppercase"
                     onClick={() => void apply()}
                     disabled={phase === "applying"}
                     prefix={phase === "applying" ? <Spinner /> : <Save className="h-4 w-4" />}
@@ -755,7 +751,7 @@ function TelegramOnboardingPanel({
                 href={setup.deep_link}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1 border border-border px-3 text-xs uppercase text-foreground hover:border-foreground/40"
+                className="inline-flex h-8 items-center gap-1 border border-border px-3 text-xs text-foreground hover:border-foreground/40 rounded-md"
               >
                 <ExternalLink className="h-4 w-4" />
                 Open Telegram

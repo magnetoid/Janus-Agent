@@ -1,15 +1,13 @@
 @import 'tailwindcss';
-/* Clean shadcn redesign: the Collapse/Rules/Mondwest display faces are dropped, so
-   the @font-face registrations (formerly ./styles/fonts.css) are gone — everything
-   renders in the theme's clean sans/mono stack. */
-@import './styles/globals.css';
+
+/* `dark:` follows the active theme, not the operating system: ThemeProvider
+   puts `.dark` on <html> whenever the theme's canvas is dark. */
+@custom-variant dark (&:is(.dark *));
 
 /* ------------------------------------------------------------------ */
-/* JetBrains Mono — bundled for the embedded TUI (/chat tab).          */
-/* Gives the terminal a proper monospace font even on systems where    */
-/* the user doesn't have one installed locally; xterm.js picks it up   */
-/* via ChatPage's `fontFamily` option.                                 */
-/* Apache-2.0.                                                         */
+/* JetBrains Mono — bundled, Apache-2.0. Used by the embedded terminal */
+/* (/chat) and by every technical value in the UI (model slugs, env    */
+/* keys, schedules, ids), so both read as the same instrument.         */
 /* ------------------------------------------------------------------ */
 
 @font-face {
@@ -35,65 +33,207 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Janus Agent — design tokens with the LENS_0 (Janus teal) lens     */
-/* applied statically so the canonical Janus palette is the default  */
-/* — teal canvas + cream accent — without relying on leva/gsap at    */
-/* runtime.                                                           */
+/* 1. Theme inputs                                                     */
+/*                                                                     */
+/* ThemeProvider (src/themes/context.tsx) rewrites everything in this  */
+/* block per theme. The defaults are the built-in "Bronze" theme, so   */
+/* the first paint already matches it.                                 */
+/*                                                                     */
+/* A theme is three layers: `background` (the canvas), `midground`     */
+/* (text, and the tint every surface is mixed from) and `foreground`   */
+/* (an inversion layer that is transparent unless a theme opts in).    */
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* Cloud Industry — dark "industrial slate + cloud" identity.
-     Canvas: deep blue-slate (industry, solid). Foreground: cloud off-white.
-     Brand accent: cloud sky-cyan. Replaces the legacy Janus-teal LENS_0;
-     ThemeProvider still rewrites these per user-selected theme. */
+  --background: color-mix(in srgb, #111614 100%, transparent);
+  --background-base: #111614;
+  --background-alpha: 1;
+  --midground: color-mix(in srgb, #e9e6db 100%, transparent);
+  --midground-base: #e9e6db;
+  --midground-alpha: 1;
   --foreground: color-mix(in srgb, #ffffff 0%, transparent);
   --foreground-base: #ffffff;
   --foreground-alpha: 0;
-  --midground: color-mix(in srgb, #e8eef5 100%, transparent);
-  --midground-base: #e8eef5;
-  --midground-alpha: 1;
-  --background: color-mix(in srgb, #0b1220 100%, transparent);
-  --background-base: #0b1220;
-  --background-alpha: 1;
 
-  /* Cloud Industry brand accent (cloud sky-cyan) + the dark text on top of it.
-     Drives shadcn --color-primary / --color-ring and active/selected states. */
-  --brand-base: #38bdf8;
-  --brand-foreground: #05131f;
+  /* Optional backdrop effects; off unless a theme asks for them. */
+  --warm-glow: rgba(0, 0, 0, 0);
+  --noise-opacity-mul: 0;
 
-  /* Consumed by <Backdrop />; also theme-switchable. A soft cyan glow. */
-  --warm-glow: rgba(56, 189, 248, 0.28);
-  --noise-opacity-mul: 1;
-
-  /* Typography tokens — rewritten by ThemeProvider. Defaults match the
-     system stack so themes that don't override look native. */
   --theme-font-sans: system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --theme-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo,
-    Consolas, monospace;
-  --theme-font-display: var(--theme-font-sans);
+  --theme-font-mono: "JetBrains Mono", ui-monospace, "SF Mono",
+    "Cascadia Mono", Menlo, Consolas, monospace;
+  --theme-font-display: "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Book Antiqua", P052, "URW Palladio L", Georgia, serif;
   --theme-base-size: 15px;
-  --theme-line-height: 1.55;
+  --theme-line-height: 1.5;
   --theme-letter-spacing: 0;
 
-  /* Layout tokens. */
   --radius: 0.5rem;
   --theme-radius: 0.5rem;
   --theme-spacing-mul: 1;
   --theme-density: comfortable;
 
-  /* Data-series accents — consumed by Analytics + Models pages for the
-     input-vs-output token visualisations (chart bars, table values,
-     legend swatches). Defaults are tuned for the Janus-teal LENS_0
-     look: cream input + emerald-400 output read as warm/cool against
-     the dark canvas. Themes override via ThemeProvider, which emits
-     these as `--series-input-token` / `--series-output-token`. */
-  --series-input-token: #38bdf8;
-  --series-output-token: #34d399;
+  /* Input vs output tokens on the Analytics and Models charts. */
+  --series-input-token: #d2a95c;
+  --series-output-token: #5cc3a3;
 }
 
-/* Theme tokens cascade into the document root so every descendant inherits
-   the font stack, base size, and letter spacing without explicit calls. */
+/* ------------------------------------------------------------------ */
+/* 2. Semantic tokens                                                  */
+/*                                                                     */
+/* Every surface, border and text step is mixed from the two opaque    */
+/* theme colors, so any palette (built-in, user YAML, light or dark)   */
+/* gets a complete, consistent set. They are opaque on purpose: alpha  */
+/* text and borders stack unpredictably on raised surfaces.            */
+/*                                                                     */
+/* A theme's `colorOverrides` pins individual tokens by setting the    */
+/* same custom property inline on <html>.                              */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --canvas: var(--background-base);
+  --ink: var(--midground-base);
+
+  --text-primary: var(--ink);
+  --text-secondary: color-mix(in srgb, var(--ink) 74%, var(--canvas));
+  --text-tertiary: color-mix(in srgb, var(--ink) 58%, var(--canvas));
+  --text-disabled: color-mix(in srgb, var(--ink) 40%, var(--canvas));
+
+  --card: color-mix(in srgb, var(--ink) 4%, var(--canvas));
+  --card-foreground: var(--ink);
+  --popover: color-mix(in srgb, var(--ink) 7%, var(--canvas));
+  --popover-foreground: var(--ink);
+  --secondary: color-mix(in srgb, var(--ink) 9%, var(--canvas));
+  --secondary-foreground: var(--ink);
+  --muted: color-mix(in srgb, var(--ink) 6%, var(--canvas));
+  --muted-foreground: var(--text-secondary);
+  /* Hover and selected rows: a neutral lift, never the brand color. */
+  --accent: color-mix(in srgb, var(--ink) 10%, var(--canvas));
+  --accent-foreground: var(--ink);
+
+  --border: color-mix(in srgb, var(--ink) 13%, var(--canvas));
+  --border-strong: color-mix(in srgb, var(--ink) 24%, var(--canvas));
+  --input: color-mix(in srgb, var(--ink) 20%, var(--canvas));
+
+  /* Brass: primary actions, the active nav marker and the focus ring.
+     Nothing else, so it always means "this is the thing to act on". */
+  --primary: #d2a95c;
+  --primary-foreground: #1b1508;
+  --ring: var(--primary);
+
+  --destructive: #ec6257;
+  --destructive-foreground: #200b09;
+  --success: #5cc3a3;
+  --warning: #ef9440;
+
+  /* The sidebar sits a step below the canvas so the page reads as the
+     raised plane. */
+  --sidebar: color-mix(in srgb, #000000 26%, var(--canvas));
+  --sidebar-foreground: var(--text-secondary);
+  --sidebar-border: color-mix(in srgb, var(--ink) 9%, var(--canvas));
+
+  --elevation-raised: 0 1px 0 0 color-mix(in srgb, var(--ink) 6%, transparent) inset,
+    0 12px 32px -12px rgb(0 0 0 / 0.55), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+
+  --sidebar-width: 15rem;
+  --sidebar-width-collapsed: 3.5rem;
+  --topbar-height: 3.5rem;
+}
+
+/* `static` emits every token below as a real custom property on :root even
+   when no utility in this bundle uses it. Dashboard plugins ship their own
+   CSS and read these (`var(--color-border)`, `var(--radius-sm)`, …), so the
+   set has to be complete, not tree-shaken. */
+@theme inline static {
+  --color-background: var(--background);
+  --color-background-base: var(--background-base);
+  --color-midground: var(--midground);
+  --color-midground-base: var(--midground-base);
+  --color-foreground-base: var(--foreground-base);
+  /* `text-foreground` is the readable text color. The raw `--foreground`
+     layer is an overlay and is transparent in most themes. */
+  --color-foreground: var(--text-primary);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-on-accent: var(--primary-foreground);
+
+  --color-current: currentColor;
+  --color-transparent: transparent;
+
+  --radius-sm: calc(var(--theme-radius) - 4px);
+  --radius-md: calc(var(--theme-radius) - 2px);
+  --radius-lg: var(--theme-radius);
+  --radius-xl: calc(var(--theme-radius) + 4px);
+
+  /* Density: themes scale every `p-N` / `gap-N` through one multiplier. */
+  --spacing: calc(0.25rem * var(--theme-spacing-mul, 1));
+
+  --font-sans: var(--theme-font-sans);
+  --font-mono: var(--theme-font-mono);
+  --font-display: var(--theme-font-display);
+
+  --shadow-raised: var(--elevation-raised);
+
+  --animate-pop-in: pop-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 140ms ease-out;
+  --animate-slide-in-left: slide-in-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-up: slide-in-up 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+}
+@keyframes slide-in-up {
+  from { transform: translateY(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Base                                                             */
+/* ------------------------------------------------------------------ */
+
 html {
   font-family: var(--theme-font-sans);
   font-size: var(--theme-base-size);
@@ -102,28 +242,16 @@ html {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
+  /* ThemeProvider sets this from the canvas color, so native controls
+     (select menus, scrollbars, date pickers) match light themes too. */
+  color-scheme: dark;
 }
 
 body {
-  font-family: var(--theme-font-sans);
   min-height: 0;
   height: 100%;
   margin: 0;
   overflow: hidden;
-}
-
-code, kbd, pre, samp, .font-mono, .font-mono-ui {
-  font-family: var(--theme-font-mono);
-}
-
-/* Density: scale the shadcn spacing utilities via a multiplier. The DS
-   components use `p-N` / `gap-N` / `space-*` classes which resolve against
-   Tailwind's spacing scale; multiplying `--spacing` at :root scales them
-   all proportionally in Tailwind v4. */
-@theme inline {
-  --spacing: calc(0.25rem * var(--theme-spacing-mul, 1));
-  --font-sans: var(--theme-font-sans);
-  --font-mono: var(--theme-font-mono);
 }
 
 #root {
@@ -145,128 +273,98 @@ code, kbd, pre, samp, .font-mono, .font-mono-ui {
   }
 }
 
-/* Nousnet's janus-agent layout bumps `small` and `code` to readable
-   dashboard sizes. Keep in sync. */
-small { font-size: 1.0625rem; }
-code { font-size: 0.875rem; }
+@layer base {
+  * {
+    border-color: var(--border);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
 
-/* Shadcn-compat tokens.
-   The dashboard's page code predates the design tokens and uses shadcn-style
-   utility classes (bg-card, text-muted-foreground, border-border, etc.)
-   extensively. Rather than rewrite every call site, we expose those
-   tokens on top of the Janus palette so classes continue to resolve. */
-@theme inline {
-  /* Remap foreground to midground so `text-foreground` / `bg-foreground`
-     stay visible — in LENS_0, `--foreground` itself has alpha 0. */
-  --color-foreground: var(--midground);
+  body {
+    background-color: var(--canvas);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
 
-  --color-card: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-card-foreground: var(--midground);
-  /* Cloud Industry brand accent on the shadcn `primary` slot — cyan buttons,
-     links, and active nav, with dark text for contrast (was the cream midground). */
-  --color-primary: var(--brand-base);
-  --color-primary-foreground: var(--brand-foreground);
-  --color-secondary: color-mix(in srgb, var(--midground-base) 6%, var(--background-base));
-  --color-secondary-foreground: var(--midground);
-  --color-muted: color-mix(in srgb, var(--midground-base) 8%, var(--background-base));
-  /* Routes the shadcn `muted-foreground` slot through the DS semantic
-     text-secondary token (defaults to midground 80%) so legacy call
-     sites that use `text-muted-foreground` get a readable color
-     instead of the old 55%-transparent default. */
-  --color-muted-foreground: var(--color-text-secondary);
-  /* Clean shadcn: hover/selected surfaces are a neutral gray (derived from the
-     midground), not an accent tint — keeps the UI calm; the accent stays reserved
-     for primary actions, links, and focus rings. */
-  --color-accent: color-mix(in srgb, var(--midground-base) 10%, var(--background-base));
-  --color-accent-foreground: var(--midground);
-  --color-destructive: #fb2c36;
-  --color-destructive-foreground: #ffffff;
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-border: color-mix(in srgb, var(--midground-base) 14%, transparent);
-  --color-input: color-mix(in srgb, var(--midground-base) 16%, transparent);
-  --color-ring: var(--brand-base);
-  --color-popover: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-popover-foreground: var(--midground);
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 38%, transparent);
+  }
 
-  --radius-sm: calc(var(--theme-radius) - 4px);
-  --radius-md: calc(var(--theme-radius) - 2px);
-  --radius-lg: var(--theme-radius);
-  --radius-xl: calc(var(--theme-radius) + 4px);
+  /* One focus treatment everywhere; components that draw their own ring
+     turn this off with `outline-none`. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--theme-font-mono);
+  }
+
+  /* Inline code reads as a quiet chip. `:where` keeps specificity at
+     zero so any utility class on the element still wins. */
+  :where(code):not(:where(pre code)) {
+    font-size: 0.9em;
+    padding: 0.1em 0.35em;
+    border-radius: 0.3em;
+    background: var(--muted);
+  }
+
+  ::-webkit-scrollbar {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 1rem;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    min-height: 1.5rem;
+  }
 }
 
+/* ------------------------------------------------------------------ */
+/* 4. Utilities                                                        */
+/* ------------------------------------------------------------------ */
 
-/* Collapsed sidebar tooltip entrance — skipped when moving between items. */
-@keyframes sidebar-tooltip-in {
-  from { opacity: 0; transform: translateY(-50%) translateX(-4px); }
-  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
-}
-
-/* Toast animations used by `components/Toast.tsx`. */
-@keyframes toast-in {
-  from { opacity: 0; transform: translateX(16px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-@keyframes toast-out {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(16px); }
+/* Technical values: model slugs, env keys, schedules, ids, paths. */
+@utility font-mono-ui {
+  font-family: var(--theme-font-mono);
+  font-feature-settings: "zero", "ss01";
 }
 
-/* Generic fade + dialog entrance used by popovers and confirm dialogs. */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes dialog-in {
-  from { opacity: 0; transform: translateY(4px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* Hide scrollbar utility — used by the header's overflow-x nav row. */
-.scrollbar-none {
+@utility scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-
-/* Plus-lighter blend used by logos/titles for a subtle glow. */
-.blend-lighter {
-  mix-blend-mode: plus-lighter;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-/* System UI-monospace stack — distinct from `font-courier` (Courier
-   Prime), used for dense data readouts where the display font would
-   break the grid. Routes through the theme's mono stack so themes
-   with a different monospace (JetBrains Mono, IBM Plex Mono, etc.)
-   still apply here. */
-.font-mono-ui {
+/* Names kept from the previous design system so dashboard plugins built
+   against it keep rendering. They now resolve to the theme's own fonts
+   and do not change case. New code should not use them. */
+@utility font-mondwest {
+  font-family: var(--theme-font-sans);
+}
+@utility font-expanded {
+  font-family: var(--theme-font-display);
+}
+@utility font-compressed {
+  font-family: var(--theme-font-sans);
+}
+@utility font-courier {
   font-family: var(--theme-font-mono);
 }
-
-/* Subtle grain overlay for badges. */
-.grain {
-  position: relative;
+@utility text-display {
+  font-weight: 500;
 }
-.grain::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.12;
-  pointer-events: none;
-  background: repeating-conic-gradient(currentColor 0% 25%, #0000 0% 50%) 0 0 /
-    2px 2px;
-}
-
-/* When a theme provides `assets.bg`, the backdrop's <div> renders it as
-   a CSS background; the default filler <img> is hidden to prevent
-   double-compositing. Unset → initial → empty, so the :not() selector
-   matches and the default image stays visible. */
-:root:not([style*="--theme-asset-bg:"]) .theme-default-filler {
-  display: block;
-}
-:root[style*="--theme-asset-bg:"] .theme-default-filler {
-  display: none;
-}
-

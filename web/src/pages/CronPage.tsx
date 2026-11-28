@@ -29,7 +29,6 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
-import { cn, themedBody } from "@/lib/utils";
 
 function formatTime(iso?: string | null): string {
   if (!iso) return "—";
@@ -390,7 +389,6 @@ export default function CronPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
-        className="uppercase"
         size="sm"
         onClick={() => setCreateModalOpen(true)}
       >
@@ -444,7 +442,7 @@ export default function CronPage() {
           aria-modal="true"
           aria-labelledby="create-cron-title"
         >
-          <div className={cn(themedBody, "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col")}>
+          <div className={"relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col"}>
             <Button
               ghost
               size="icon"
@@ -458,7 +456,7 @@ export default function CronPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="create-cron-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 {t.cron.newJob}
               </h2>
@@ -495,7 +493,7 @@ export default function CronPage() {
                 <Label htmlFor="cron-prompt">{t.cron.prompt}</Label>
                 <textarea
                   id="cron-prompt"
-                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
                   placeholder={t.cron.promptPlaceholder}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -526,7 +524,6 @@ export default function CronPage() {
 
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleCreate}
                   disabled={creating}
@@ -550,7 +547,7 @@ export default function CronPage() {
           aria-modal="true"
           aria-labelledby="edit-cron-title"
         >
-          <div className={cn(themedBody, "relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col")}>
+          <div className={"relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-raised flex flex-col"}>
             <Button
               ghost
               size="icon"
@@ -564,7 +561,7 @@ export default function CronPage() {
             <header className="p-5 pb-3 border-b border-border">
               <h2
                 id="edit-cron-title"
-                className="font-mondwest text-display text-base tracking-wider"
+                className="text-base"
               >
                 Edit job
               </h2>
@@ -586,7 +583,7 @@ export default function CronPage() {
                 <Label htmlFor="edit-cron-prompt">{t.cron.prompt}</Label>
                 <textarea
                   id="edit-cron-prompt"
-                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25 rounded-md"
                   placeholder={t.cron.promptPlaceholder}
                   value={editPrompt}
                   onChange={(e) => setEditPrompt(e.target.value)}
@@ -618,7 +615,6 @@ export default function CronPage() {
 
               <div className="flex justify-end">
                 <Button
-                  className="uppercase"
                   size="sm"
                   onClick={handleEdit}
                   disabled={saving}
