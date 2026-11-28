@@ -530,6 +530,13 @@ export const en: Translations = {
   theme: {
     title: "Theme",
     switchTheme: "Switch theme",
+    mode: {
+      title: "Appearance",
+      light: "Light",
+      dark: "Dark",
+      system: "System",
+      oneLook: "This theme has one look",
+    },
     fontTitle: "Font",
     fontDefault: "Theme default",
     fontDefaultHint: "Use the active theme's font",

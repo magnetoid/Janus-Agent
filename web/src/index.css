@@ -1,7 +1,10 @@
 @import 'tailwindcss';
 
-/* `dark:` follows the active theme, not the operating system: ThemeProvider
-   puts `.dark` on <html> whenever the theme's canvas is dark. */
+/* `dark:` follows the look being painted, not the operating system:
+   ThemeProvider puts `.dark` on <html> whenever the canvas is dark and
+   takes it off for a light one. `:root:not(.dark)` is therefore "any
+   light canvas", whether it is a built-in theme's light look or a
+   hand-written light theme. */
 @custom-variant dark (&:is(.dark *));
 
 /* ------------------------------------------------------------------ */
@@ -37,7 +40,8 @@
 /*                                                                     */
 /* ThemeProvider (src/themes/context.tsx) rewrites everything in this  */
 /* block per theme. The defaults are the built-in "Bronze" theme, so   */
-/* the first paint already matches it.                                 */
+/* the first paint already matches it: its dark look here, its light   */
+/* look in the block that follows.                                     */
 /*                                                                     */
 /* A theme is three layers: `background` (the canvas), `midground`     */
 /* (text, and the tint every surface is mixed from) and `foreground`   */
@@ -74,9 +78,30 @@
   --theme-spacing-mul: 1;
   --theme-density: comfortable;
 
-  /* Input vs output tokens on the Analytics and Models charts. */
+  /* Input vs output tokens on the Analytics and Models charts. A theme
+     can set these two (`seriesColors`). */
   --series-input-token: #d2a95c;
   --series-output-token: #5cc3a3;
+  /* Cache reads and reasoning tokens on the Models bars. */
+  --series-cache-token: #60a5fa;
+  --series-reasoning-token: #c084fc;
+}
+
+/* Bronze by daylight, for the frame before ThemeProvider runs. A small
+   script in index.html takes `.dark` off <html> when the last look
+   painted in this browser was a light one. */
+:root:not(.dark) {
+  --background: color-mix(in srgb, #e9eeea 100%, transparent);
+  --background-base: #e9eeea;
+  --midground: color-mix(in srgb, #131917 100%, transparent);
+  --midground-base: #131917;
+
+  /* The series colors are also table text on Analytics, so on a light
+     canvas they are held to the same 4.5:1 as any other text. */
+  --series-input-token: #7f570d;
+  --series-output-token: #18705a;
+  --series-cache-token: #2563eb;
+  --series-reasoning-token: #9333ea;
 }
 
 /* ------------------------------------------------------------------ */
@@ -136,9 +161,64 @@
   --elevation-raised: 0 1px 0 0 color-mix(in srgb, var(--ink) 6%, transparent) inset,
     0 12px 32px -12px rgb(0 0 0 / 0.55), 0 2px 6px -2px rgb(0 0 0 / 0.4);
 
+  /* What sits behind a dialog, sheet or command menu. */
+  --scrim: rgb(0 0 0 / 0.6);
+
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* 2b. The same tokens on a light canvas                               */
+/*                                                                     */
+/* Mixing toward the ink lifts a surface on a dark canvas and sinks it */
+/* on a light one, so the raised surfaces flip: cards and menus move   */
+/* toward white, and only the recessed ones (hover, wells, the         */
+/* sidebar) keep mixing toward the ink. Text steps carry more ink,     */
+/* because dark-on-light loses contrast faster than the reverse.       */
+/*                                                                     */
+/* The accent and status colors deepen: the dark look's brass and      */
+/* verdigris are lit metal, far too pale to read as a label or a link  */
+/* on a light canvas. Each one keeps 4.5:1 against the canvas, a card  */
+/* and its own tinted badge.                                           */
+/* ------------------------------------------------------------------ */
+
+:root:not(.dark) {
+  color-scheme: light;
+
+  --text-secondary: color-mix(in srgb, var(--ink) 80%, var(--canvas));
+  --text-tertiary: color-mix(in srgb, var(--ink) 68%, var(--canvas));
+  --text-disabled: color-mix(in srgb, var(--ink) 42%, var(--canvas));
+
+  --card: color-mix(in srgb, #ffffff 60%, var(--canvas));
+  --popover: color-mix(in srgb, #ffffff 88%, var(--canvas));
+  --secondary: color-mix(in srgb, var(--ink) 8%, var(--canvas));
+  --muted: color-mix(in srgb, var(--ink) 5%, var(--canvas));
+  --accent: color-mix(in srgb, var(--ink) 9%, var(--canvas));
+
+  --border: color-mix(in srgb, var(--ink) 14%, var(--canvas));
+  --border-strong: color-mix(in srgb, var(--ink) 28%, var(--canvas));
+  --input: color-mix(in srgb, var(--ink) 26%, var(--canvas));
+
+  --primary: #7f570d;
+  --primary-foreground: #fffaf0;
+
+  --destructive: #ad3328;
+  --destructive-foreground: #fff6f4;
+  --success: #15644b;
+  --warning: #8f4c08;
+
+  --sidebar: color-mix(in srgb, var(--ink) 4.5%, var(--canvas));
+  --sidebar-border: color-mix(in srgb, var(--ink) 12%, var(--canvas));
+
+  /* Shadows are the ink at low strength, so a tinted theme casts a
+     tinted shadow instead of a grey one. */
+  --elevation-raised: 0 0 0 1px color-mix(in srgb, var(--ink) 5%, transparent),
+    0 14px 32px -14px color-mix(in srgb, var(--ink) 30%, transparent),
+    0 2px 6px -2px color-mix(in srgb, var(--ink) 14%, transparent);
+
+  --scrim: color-mix(in srgb, var(--ink) 36%, transparent);
 }
 
 /* `static` emits every token below as a real custom property on :root even
@@ -178,6 +258,7 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-scrim: var(--scrim);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
@@ -243,7 +324,7 @@ html {
   max-height: 100dvh;
   overflow: hidden;
   /* ThemeProvider sets this from the canvas color, so native controls
-     (select menus, scrollbars, date pickers) match light themes too. */
+     (select menus, scrollbars, date pickers) match light looks too. */
   color-scheme: dark;
 }
 

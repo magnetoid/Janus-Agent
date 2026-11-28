@@ -553,6 +553,15 @@ export interface Translations {
   theme: {
     title: string;
     switchTheme: string;
+    /** The light / dark / system control at the foot of the sidebar. */
+    mode: {
+      title: string;
+      light: string;
+      dark: string;
+      system: string;
+      /** Shown when the active theme has a single look to offer. */
+      oneLook: string;
+    };
     /** Font-override section (optional — locales fall back to English). */
     fontTitle?: string;
     fontDefault?: string;

@@ -31,7 +31,7 @@ export interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement>
 const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
   ({ className, children, showCloseButton = true, ...props }, ref) => (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-[110] animate-fade-in bg-black/60" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-[110] animate-fade-in bg-scrim" />
       <DialogPrimitive.Content
         ref={ref}
         // Not every dialog has a description; callers that render

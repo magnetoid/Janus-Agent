@@ -492,6 +492,13 @@ export const de: Translations = {
   theme: {
     title: "Design",
     switchTheme: "Design wechseln",
+    mode: {
+      title: "Darstellung",
+      light: "Hell",
+      dark: "Dunkel",
+      system: "System",
+      oneLook: "Dieses Design hat nur eine Darstellung",
+    },
   },
   achievements: {
     hero: {

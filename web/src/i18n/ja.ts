@@ -491,6 +491,13 @@ export const ja: Translations = {
   theme: {
     title: "テーマ",
     switchTheme: "テーマを切り替え",
+    mode: {
+      title: "外観",
+      light: "ライト",
+      dark: "ダーク",
+      system: "システム",
+      oneLook: "このテーマの外観は1種類のみです",
+    },
   },
 
   achievements: {

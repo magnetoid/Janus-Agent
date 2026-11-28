@@ -500,6 +500,13 @@ export const ga: Translations = {
   theme: {
     title: "Téama",
     switchTheme: "Athraigh téama",
+    mode: {
+      title: "Cuma",
+      light: "Geal",
+      dark: "Dorcha",
+      system: "Córas",
+      oneLook: "Níl ach cuma amháin ar an téama seo",
+    },
   },
 
   achievements: {

@@ -7,6 +7,10 @@ import type { DashboardTheme, ThemeTypography, ThemeLayout } from "./types";
  * themes produces visible changes beyond just color — fonts, density, and
  * corner-radius all shift to match the theme's personality.
  *
+ * Every built-in is authored on a dark canvas and carries a `light` look
+ * for the sidebar's appearance control. `web/tests/theme-scheme.test.ts`
+ * holds both looks of each theme to the same contrast floor.
+ *
  * Theme names must stay in sync with the backend's
  * `_BUILTIN_DASHBOARD_THEMES` list in `janus_cli/web_server.py`.
  */
@@ -42,6 +46,10 @@ const DEFAULT_LAYOUT: ThemeLayout = {
   density: "comfortable",
 };
 
+/** The corner glow is blended with `lighten`, so on a light canvas it
+ *  could only ever wash the page out. Light looks switch it off. */
+const NO_GLOW = "rgba(0, 0, 0, 0)";
+
 // ---------------------------------------------------------------------------
 // Themes
 // ---------------------------------------------------------------------------
@@ -53,8 +61,13 @@ const DEFAULT_LAYOUT: ThemeLayout = {
  * thing to act on and verdigris for whatever is live. The brass matches
  * the CLI's default gold skin.
  *
- * Keep the values in step with the `:root` defaults in `src/index.css`,
- * which paint the first frame before this theme is applied.
+ * By daylight the same metal reads the other way round: the canvas is the
+ * basalt's green-grey lifted almost to white, the text is the basalt, and
+ * the brass deepens to cast bronze so it still carries a label and a link.
+ *
+ * Keep both looks in step with the `:root` and `:root:not(.dark)` defaults
+ * in `src/index.css`, which paint the first frame before this theme is
+ * applied.
  */
 export const defaultTheme: DashboardTheme = {
   name: "default",
@@ -83,6 +96,20 @@ export const defaultTheme: DashboardTheme = {
     outputTokenAccent: "#5cc3a3",
   },
   terminalBackground: "#0d100f",
+  light: {
+    palette: {
+      background: { hex: "#e9eeea", alpha: 1 },
+      midground: { hex: "#131917", alpha: 1 },
+    },
+    colorOverrides: {
+      primary: "#7f570d",
+      primaryForeground: "#fffaf0",
+    },
+    seriesColors: {
+      inputTokenAccent: "#7f570d",
+      outputTokenAccent: "#18705a",
+    },
+  },
 };
 
 export const midnightTheme: DashboardTheme = {
@@ -112,6 +139,17 @@ export const midnightTheme: DashboardTheme = {
     primary: "#a78bfa",
     primaryForeground: "#140c33",
     ring: "#a78bfa",
+  },
+  light: {
+    palette: {
+      background: { hex: "#eeedf9", alpha: 1 },
+      midground: { hex: "#17143a", alpha: 1 },
+      warmGlow: NO_GLOW,
+    },
+    colorOverrides: {
+      primary: "#5b3fc4",
+      primaryForeground: "#f7f5ff",
+    },
   },
 };
 
@@ -144,6 +182,19 @@ export const emberTheme: DashboardTheme = {
     destructive: "#f0553a",
     warning: "#f97316",
   },
+  light: {
+    palette: {
+      background: { hex: "#f6ebe1", alpha: 1 },
+      midground: { hex: "#2b130a", alpha: 1 },
+      warmGlow: NO_GLOW,
+    },
+    colorOverrides: {
+      primary: "#9a4410",
+      primaryForeground: "#fff6ee",
+      destructive: "#b42a17",
+      warning: "#8f4a00",
+    },
+  },
 };
 
 export const monoTheme: DashboardTheme = {
@@ -167,6 +218,13 @@ export const monoTheme: DashboardTheme = {
   layout: {
     ...DEFAULT_LAYOUT,
     radius: "0",
+  },
+  light: {
+    palette: {
+      background: { hex: "#f4f4f4", alpha: 1 },
+      midground: { hex: "#141414", alpha: 1 },
+      warmGlow: NO_GLOW,
+    },
   },
 };
 
@@ -197,6 +255,18 @@ export const cyberpunkTheme: DashboardTheme = {
     warning: "#ffd700",
     destructive: "#ff0055",
   },
+  light: {
+    palette: {
+      background: { hex: "#e8f3ec", alpha: 1 },
+      midground: { hex: "#03170f", alpha: 1 },
+      warmGlow: NO_GLOW,
+    },
+    colorOverrides: {
+      success: "#007040",
+      warning: "#775f00",
+      destructive: "#c0003c",
+    },
+  },
 };
 
 export const roseTheme: DashboardTheme = {
@@ -225,6 +295,17 @@ export const roseTheme: DashboardTheme = {
     primary: "#f9a8d4",
     primaryForeground: "#2b0f1d",
     ring: "#f9a8d4",
+  },
+  light: {
+    palette: {
+      background: { hex: "#fbeef2", alpha: 1 },
+      midground: { hex: "#3a1426", alpha: 1 },
+      warmGlow: NO_GLOW,
+    },
+    colorOverrides: {
+      primary: "#a8356b",
+      primaryForeground: "#fff5f9",
+    },
   },
 };
 

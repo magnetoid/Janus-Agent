@@ -492,6 +492,13 @@ export const ru: Translations = {
   theme: {
     title: "Тема",
     switchTheme: "Сменить тему",
+    mode: {
+      title: "Оформление",
+      light: "Светлое",
+      dark: "Тёмное",
+      system: "Системное",
+      oneLook: "У этой темы только одно оформление",
+    },
   },
 
   achievements: {

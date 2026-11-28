@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n";
-import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, useTheme } from "@/themes";
+import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, themeForScheme, useTheme } from "@/themes";
 import type { DashboardTheme, FontChoice } from "@/themes";
 import { cn } from "@/lib/utils";
 
@@ -31,14 +31,16 @@ const FONT_CATEGORY_LABEL_KEY: Record<
 
 /**
  * Theme and font picker. Each theme row shows a three-stop swatch of its
- * palette; user themes from `<janus home>/dashboard-themes/*.yaml` carry
- * their own definition, so they preview the same way as built-ins.
+ * palette in the look that is on screen (light or dark), so the swatch is
+ * what picking the theme will give; user themes from
+ * `<janus home>/dashboard-themes/*.yaml` carry their own definition, so
+ * they preview the same way as built-ins.
  *
  * The font is a separate choice that survives theme switches; it lives in
  * a submenu because the catalog is long and rarely visited.
  */
 export function ThemeSwitcher({ collapsed = false }: ThemeSwitcherProps) {
-  const { themeName, availableThemes, setTheme, fontId, fontChoices, setFont } =
+  const { themeName, availableThemes, setTheme, scheme, fontId, fontChoices, setFont } =
     useTheme();
   const { t } = useI18n();
 
@@ -69,7 +71,8 @@ export function ThemeSwitcher({ collapsed = false }: ThemeSwitcherProps) {
         <DropdownMenuLabel>{t.theme?.title ?? "Theme"}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={themeName} onValueChange={setTheme}>
           {availableThemes.map((th) => {
-            const palette = BUILTIN_THEMES[th.name] ?? th.definition;
+            const definition = BUILTIN_THEMES[th.name] ?? th.definition;
+            const palette = definition && themeForScheme(definition, scheme);
             return (
               <DropdownMenuRadioItem key={th.name} value={th.name} className="items-start gap-2.5">
                 <ThemeSwatch theme={palette} />

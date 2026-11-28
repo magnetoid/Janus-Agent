@@ -492,6 +492,13 @@ export const af: Translations = {
   theme: {
     title: "Tema",
     switchTheme: "Wissel tema",
+    mode: {
+      title: "Voorkoms",
+      light: "Lig",
+      dark: "Donker",
+      system: "Stelsel",
+      oneLook: "Hierdie tema het net een voorkoms",
+    },
   },
 
   achievements: {

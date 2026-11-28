@@ -493,7 +493,7 @@ export default function SkillsPage() {
                                 {ts.description}
                               </p>
                               {ts.enabled && !ts.configured && (
-                                <p className="text-xs text-amber-300 mb-2">
+                                <p className="text-xs text-warning mb-2">
                                   {t.skills.setupNeeded}
                                 </p>
                               )}
@@ -1050,7 +1050,7 @@ function SearchMeta({
         </span>
       )}
       {timedOut.length > 0 && (
-        <span className="flex items-center gap-1 text-amber-400">
+        <span className="flex items-center gap-1 text-warning">
           <AlertTriangle className="h-3 w-3" />
           {timedOut.join(", ")} timed out
         </span>
@@ -1374,10 +1374,10 @@ function ScanPanel({
           className={cn(
             "h-6 w-6",
             scan.verdict === "safe"
-              ? "text-emerald-400"
+              ? "text-success"
               : scan.verdict === "dangerous"
-                ? "text-red-400"
-                : "text-amber-400",
+                ? "text-destructive"
+                : "text-warning",
           )}
         />
         <div className="flex flex-col">
@@ -1409,7 +1409,7 @@ function ScanPanel({
           );
         })}
         {scan.findings.length === 0 && (
-          <span className="flex items-center gap-1 text-xs text-emerald-400">
+          <span className="flex items-center gap-1 text-xs text-success">
             <CheckCircle2 className="h-3.5 w-3.5" />
             No risky patterns detected
           </span>

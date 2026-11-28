@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { BUILTIN_THEMES, defaultTheme } from "./presets";
@@ -14,6 +15,13 @@ import {
   getFontChoice,
   type FontChoice,
 } from "./fonts";
+import {
+  isThemeMode,
+  resolveScheme,
+  themeForScheme,
+  themeScheme,
+  themeSchemes,
+} from "./scheme";
 import type {
   DashboardTheme,
   ThemeAssets,
@@ -24,7 +32,9 @@ import type {
   ThemeLayout,
   ThemeLayoutVariant,
   ThemeListEntry,
+  ThemeMode,
   ThemePalette,
+  ThemeScheme,
   ThemeSeriesColors,
   ThemeTypography,
 } from "./types";
@@ -39,6 +49,52 @@ const STORAGE_KEY = "janus-dashboard-theme";
  *  sentinel / absent = "use the active theme's font". Pre-applied before
  *  the React tree mounts (see `main.tsx`) to avoid a font flash. */
 const FONT_STORAGE_KEY = "janus-dashboard-font";
+
+/** LocalStorage key for the appearance choice: `light`, `dark` or
+ *  `system`. Kept per browser on purpose — "follow the system" means this
+ *  device's system, and a phone and a desk monitor rarely want the same. */
+const MODE_STORAGE_KEY = "janus-dashboard-mode";
+
+/** LocalStorage key for the look that was last painted. `index.html`
+ *  reads it before the first frame so a light dashboard does not open on
+ *  a dark flash; nothing else depends on it. */
+const SCHEME_HINT_KEY = "janus-dashboard-scheme";
+
+/** Dark until the person says otherwise: the dashboard has always opened
+ *  dark, and an update should not repaint it without being asked. */
+const DEFAULT_MODE: ThemeMode = "dark";
+
+const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
+
+function subscribeToSystemScheme(onChange: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const query = window.matchMedia(SYSTEM_DARK_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function systemPrefersDark(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return true;
+  return window.matchMedia(SYSTEM_DARK_QUERY).matches;
+}
+
+/** localStorage throws in some private modes and when storage is blocked;
+ *  the appearance choice must never take the dashboard down with it. */
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Nothing to do: the choice still holds for this page load.
+  }
+}
 
 /** Renames of built-in theme keys we've shipped previously. Without this,
  *  users who saved one of the old names in localStorage (or had it
@@ -160,19 +216,6 @@ function overrideVars(
     }
   }
   return out;
-}
-
-/** Relative luminance (0–1) of a `#rgb` / `#rrggbb` color; 0 when the
- *  value is not a hex color. */
-function hexLuminance(hex: string): number {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return 0;
-  const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
-  const channel = (i: number) => {
-    const v = parseInt(h.slice(i, i + 2), 16) / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
 }
 
 /** Map data-series accents to their CSS vars. Themes omit either field to
@@ -368,8 +411,31 @@ function applyFontOverride(fontId: string | undefined) {
 // Apply a full theme to :root
 // ---------------------------------------------------------------------------
 
+/**
+ * Run `change` with every CSS transition off, then turn them back on.
+ *
+ * A theme or look change rewrites every color at once. Elements that
+ * animate their colors would spend 150ms halfway between the two palettes
+ * while their neighbours had already arrived, which reads as a glitch
+ * (light text on a still-dark pill), not as a fade.
+ */
+function withoutTransitions(change: () => void) {
+  const style = document.createElement("style");
+  style.textContent = "*,*::before,*::after{transition:none!important}";
+  document.head.appendChild(style);
+  change();
+  // Reading a computed style makes the browser apply the new colors now,
+  // while transitions are still off.
+  void window.getComputedStyle(document.body).color;
+  window.setTimeout(() => style.remove(), 0);
+}
+
 function applyTheme(theme: DashboardTheme) {
   if (typeof document === "undefined") return;
+  withoutTransitions(() => paintTheme(theme));
+}
+
+function paintTheme(theme: DashboardTheme) {
   const root = document.documentElement;
 
   // Clear any overrides from a previous theme before applying the new set.
@@ -409,12 +475,15 @@ function applyTheme(theme: DashboardTheme) {
     root.style.setProperty(k, v);
   }
 
-  // Whether the canvas is light decides two things: native controls
-  // (select menus, scrollbars) match it, and Tailwind's `dark:` variant,
-  // which keys on a `.dark` ancestor, is on for every dark canvas.
-  const lightCanvas = hexLuminance(theme.palette.background.hex) > 0.4;
-  root.style.colorScheme = lightCanvas ? "light" : "dark";
-  root.classList.toggle("dark", !lightCanvas);
+  // Whether the canvas is light decides three things: native controls
+  // (select menus, scrollbars) match it, Tailwind's `dark:` variant, which
+  // keys on a `.dark` ancestor, is on for every dark canvas, and the
+  // stylesheet's `:root:not(.dark)` block retunes surfaces, shadows and
+  // status colors for a light one.
+  const scheme = themeScheme(theme);
+  root.style.colorScheme = scheme;
+  root.classList.toggle("dark", scheme === "dark");
+  writeStored(SCHEME_HINT_KEY, scheme);
 
   injectFontStylesheet(theme.typography.fontUrl);
   applyCustomCSS(theme.customCSS);
@@ -475,6 +544,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return valid;
   });
 
+  /** The appearance choice (independent of theme). */
+  const [mode, setModeState] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return DEFAULT_MODE;
+    const stored = readStored(MODE_STORAGE_KEY);
+    return isThemeMode(stored) ? stored : DEFAULT_MODE;
+  });
+
+  /** Tracks the operating system's preference live, so `system` mode
+   *  follows a sunset switch without a reload. */
+  const prefersDark = useSyncExternalStore(
+    subscribeToSystemScheme,
+    systemPrefersDark,
+    () => true,
+  );
+
   // Resolve a theme name to a full DashboardTheme, falling back to default
   // only when neither a built-in nor a user theme is found.
   const resolveTheme = useCallback(
@@ -488,14 +572,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [userThemeDefs],
   );
 
-  // Apply the active theme (and re-assert the font override at its tail)
-  // whenever the theme, the resolver, OR the font override changes. Folding
+  /** The theme as authored, with both of its looks. */
+  const definition = useMemo(() => resolveTheme(themeName), [resolveTheme, themeName]);
+  const wantedScheme = resolveScheme(mode, prefersDark);
+  /** The look being painted. A theme with one look paints that one
+   *  whatever the mode says. */
+  const theme = useMemo(
+    () => themeForScheme(definition, wantedScheme),
+    [definition, wantedScheme],
+  );
+  const schemes = useMemo(() => themeSchemes(definition), [definition]);
+  const scheme = themeScheme(theme);
+
+  // Apply the active look (and re-assert the font override at its tail)
+  // whenever the theme, the look, OR the font override changes. Folding
   // font into the same effect means clearing the override re-runs applyTheme,
   // which restores the theme's own font; setting it re-asserts the override.
   useEffect(() => {
     _ACTIVE_FONT_OVERRIDE = fontId;
-    applyTheme(resolveTheme(themeName));
-  }, [themeName, resolveTheme, fontId]);
+    applyTheme(theme);
+  }, [theme, fontId]);
 
   // Load server-side themes (built-ins + user YAMLs) once on mount.
   useEffect(() => {
@@ -600,17 +696,37 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     api.setFontPref(next).catch(() => {});
   }, []);
 
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    writeStored(MODE_STORAGE_KEY, next);
+  }, []);
+
   const value = useMemo<ThemeContextValue>(
     () => ({
-      theme: resolveTheme(themeName),
+      theme,
       themeName,
       availableThemes,
       setTheme,
+      mode,
+      setMode,
+      scheme,
+      schemes,
       fontId,
       fontChoices: FONT_CHOICES,
       setFont,
     }),
-    [themeName, availableThemes, setTheme, resolveTheme, fontId, setFont],
+    [
+      theme,
+      themeName,
+      availableThemes,
+      setTheme,
+      mode,
+      setMode,
+      scheme,
+      schemes,
+      fontId,
+      setFont,
+    ],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
@@ -629,6 +745,10 @@ const ThemeContext = createContext<ThemeContextValue>({
     description: t.description,
   })),
   setTheme: () => {},
+  mode: DEFAULT_MODE,
+  setMode: () => {},
+  scheme: "dark",
+  schemes: ["dark", "light"],
   fontId: THEME_DEFAULT_FONT_ID,
   fontChoices: FONT_CHOICES,
   setFont: () => {},
@@ -637,8 +757,19 @@ const ThemeContext = createContext<ThemeContextValue>({
 interface ThemeContextValue {
   availableThemes: ThemeListEntry[];
   setTheme: (name: string) => void;
+  /** The active theme in the look being painted: a single-look theme, so
+   *  `theme.palette` and `theme.colorOverrides` are what is on screen. */
   theme: DashboardTheme;
   themeName: string;
+  /** The appearance choice: `light`, `dark`, or `system`. */
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+  /** The look being painted. Differs from the choice in `system` mode,
+   *  and whenever the active theme only has the other look. */
+  scheme: ThemeScheme;
+  /** The looks the active theme has. One entry means the appearance
+   *  control has nothing to switch. */
+  schemes: ThemeScheme[];
   /** Active font-override id (`THEME_DEFAULT_FONT_ID` = no override). */
   fontId: string;
   /** Curated font catalog for the picker. */

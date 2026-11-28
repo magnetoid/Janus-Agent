@@ -492,6 +492,13 @@ export const hu: Translations = {
   theme: {
     title: "Téma",
     switchTheme: "Téma váltása",
+    mode: {
+      title: "Megjelenés",
+      light: "Világos",
+      dark: "Sötét",
+      system: "Rendszer",
+      oneLook: "Ennek a témának csak egy megjelenése van",
+    },
   },
 
   achievements: {

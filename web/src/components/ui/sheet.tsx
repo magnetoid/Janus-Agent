@@ -17,7 +17,7 @@ const SheetContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <SheetPrimitive.Portal>
-    <SheetPrimitive.Overlay className="fixed inset-0 z-[100] animate-fade-in bg-black/60" />
+    <SheetPrimitive.Overlay className="fixed inset-0 z-[100] animate-fade-in bg-scrim" />
     <SheetPrimitive.Content
       ref={ref}
       aria-describedby={undefined}

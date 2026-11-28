@@ -4,6 +4,7 @@ import { Download, MoreHorizontal, RotateCw, Search } from "lucide-react";
 
 import { AuthWidget } from "@/components/AuthWidget";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -162,23 +163,33 @@ export function AppSidebar({
           <RailTooltip collapsed={collapsed} label={t.language.switchTo}>
             <LanguageSwitcher collapsed={collapsed} />
           </RailTooltip>
+          {/* On the rail the appearance control closes the column, so it
+              is in the bottom-left corner in both sidebar widths. */}
+          {collapsed && (
+            <RailTooltip collapsed label={t.theme.mode.title}>
+              <ModeSwitcher collapsed />
+            </RailTooltip>
+          )}
         </div>
 
         {!collapsed && (
           <>
             <AuthWidget />
-            <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-1 text-xs text-text-tertiary">
-              <span className="font-mono-ui tabular-nums">
-                {status?.version != null ? `v${status.version}` : ""}
-              </span>
-              <a
-                href="https://cloud-industry.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-sm outline-none transition-colors hover:text-text-secondary focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {t.app.footer.org}
-              </a>
+            <div className="flex items-end justify-between gap-3 pb-0.5 pl-0.5 pr-2.5 pt-1.5">
+              <ModeSwitcher />
+              <div className="flex min-w-0 flex-col items-end text-xs leading-snug text-text-tertiary">
+                <a
+                  href="https://cloud-industry.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="max-w-full truncate rounded-sm outline-none transition-colors hover:text-text-secondary focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t.app.footer.org}
+                </a>
+                <span className="font-mono-ui tabular-nums">
+                  {status?.version != null ? `v${status.version}` : ""}
+                </span>
+              </div>
             </div>
           </>
         )}

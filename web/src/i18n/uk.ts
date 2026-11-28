@@ -492,6 +492,13 @@ export const uk: Translations = {
   theme: {
     title: "Тема",
     switchTheme: "Змінити тему",
+    mode: {
+      title: "Вигляд",
+      light: "Світлий",
+      dark: "Темний",
+      system: "Системний",
+      oneLook: "Ця тема має лише один вигляд",
+    },
   },
 
   achievements: {
