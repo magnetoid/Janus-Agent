@@ -350,24 +350,43 @@ The registry handles schema collection, dispatch, availability checking, and err
 
 ## Dependency Pinning Policy
 
-All dependencies must have upper bounds to limit supply-chain attack surface.
-This policy was established after the litellm compromise (PR #2796, #2810) and
-reinforced after the Mini Shai-Hulud worm campaign (May 2026).
+Every PyPI dependency is pinned to an exact version (`==X.Y.Z`), in core and
+in every extra. A range lets PyPI hand users a release nobody here has looked
+at; with an exact pin, a new version reaches a user only through a change in
+this repository.
+
+The policy began as upper bounds after the litellm compromise (PR #2796,
+#2810). It was tightened to exact pins on 2026-05-12, during the Mini
+Shai-Hulud worm campaign: a poisoned `mistralai` release would have been
+pulled in by any `>=X,<Y` range that covered it.
 
 | Source type | Treatment | Example |
 |---|---|---|
-| PyPI package | `>=floor,<next_major` | `"httpx>=0.28.1,<1"` |
+| PyPI package | `==exact` | `"httpx[socks]==0.28.1"` |
 | Git URL | Commit SHA | `git+https://...@<40-char-sha>` |
 | GitHub Actions | Commit SHA + comment | `uses: actions/checkout@<sha>  # v4` |
 | CI-only pip | `==exact` | `pyyaml==6.0.2` |
 
 **When adding a new dependency to `pyproject.toml`:**
-1. Pin to `>=current_version,<next_major` for post-1.0 (e.g. `>=1.5.0,<2`).
-2. For pre-1.0 packages, use `<0.(current_minor + 2)` (e.g. `>=0.29,<0.32`).
-3. Never commit a bare `>=X.Y.Z` without a ceiling — CI and reviewers will reject it.
-4. Run `uv lock` to regenerate `uv.lock` with hashes.
+1. Pin it to the exact version you tested: `"package==X.Y.Z"`.
+2. No ranges: not `>=X.Y.Z`, and not `>=X.Y.Z,<next_major` either. Reviewers reject them.
+3. Put it in core `dependencies` only if every Janus session uses it. Anything
+   provider-specific goes in an extra and is lazy-installed through
+   `tools/lazy_deps.py`.
+4. Run `uv lock` to regenerate `uv.lock`; the diff should hold only what you added.
 
-Reference: #2810 (bounds pass), #9801 (SHA pinning + audit CI).
+To move a pin, change the version in `pyproject.toml` and run `uv lock` in the
+same commit.
+
+Two platform-specific entries in core, `ptyprocess` and `pywinpty`, are still
+ranges. They are the exception, not a model for new entries.
+
+The same rule is written at the top of `dependencies` in `pyproject.toml` and
+in `CONTRIBUTING.md` → "Dependency pinning policy". Keep the three in step:
+automated reviewers quote this section.
+
+Reference: #2810 (bounds pass), #9801 (SHA pinning + audit CI), the May 2026
+exact-pin update.
 
 ---
 
