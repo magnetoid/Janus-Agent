@@ -497,6 +497,20 @@ export const ga: Translations = {
     switchTo: "Athraigh teanga",
   },
 
+  docs: {
+    filter: "Scag leathanaigh",
+    browse: "Brabhsáil na doiciméid",
+    onThisPage: "Ar an leathanach seo",
+    noMatches: "Níl aon leathanach ag teacht le “{query}”",
+    unavailableTitle: "Níl an doiciméadú mar chuid den tsuiteáil seo",
+    unavailableBody: "Tagann sé le cóip de chód foinseach Janus. Rinneadh an tsuiteáil seo ó phacáiste, nach bhfuil sé ann.",
+    missingTitle: "Níl an leathanach seo ann",
+    missingBody: "B’fhéidir gur bogadh nó gur athainmníodh é.",
+    openFirst: "Oscail an chéad leathanach",
+    failedTitle: "Níorbh fhéidir an leathanach a lódáil",
+    retry: "Bain triail eile as",
+  },
+
   theme: {
     title: "Téama",
     switchTheme: "Athraigh téama",

@@ -489,6 +489,20 @@ export const ru: Translations = {
     switchTo: "Сменить язык",
   },
 
+  docs: {
+    filter: "Фильтр страниц",
+    browse: "Обзор документации",
+    onThisPage: "На этой странице",
+    noMatches: "Нет страниц по запросу «{query}»",
+    unavailableTitle: "Документация не входит в эту установку",
+    unavailableBody: "Она поставляется вместе с исходным кодом Janus. Эта установка сделана из пакета, в котором её нет.",
+    missingTitle: "Такой страницы нет",
+    missingBody: "Возможно, её переместили или переименовали.",
+    openFirst: "Открыть первую страницу",
+    failedTitle: "Не удалось загрузить страницу",
+    retry: "Повторить",
+  },
+
   theme: {
     title: "Тема",
     switchTheme: "Сменить тему",

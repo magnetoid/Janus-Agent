@@ -732,6 +732,18 @@ export const api = {
       },
     ),
 
+  // Documentation, read from the checkout (janus_cli/routers/docs.py)
+  getDocsTree: () => fetchJSON<DocsTreeResponse>("/api/docs/tree"),
+  getDocsPage: (id: string) =>
+    fetchJSON<DocsPageResponse>(`/api/docs/page?id=${encodeURIComponent(id)}`),
+  /** An image a docs page shows. `/api/` needs the session, so the page
+   *  cannot point an `<img>` at it; it fetches the bytes and shows them. */
+  getDocsAsset: async (path: string): Promise<Blob> => {
+    const res = await authedFetch(`/api/docs/asset?path=${encodeURIComponent(path)}`);
+    if (!res.ok) throw new Error(`${res.status}: ${path}`);
+    return res.blob();
+  },
+
   // Dashboard themes
   getThemes: () =>
     fetchJSON<DashboardThemesResponse>("/api/dashboard/themes"),
@@ -1928,4 +1940,44 @@ export interface AgentPluginUpdateResponse {
 export interface PluginProvidersPutRequest {
   memory_provider?: string;
   context_engine?: string;
+}
+
+// ── Documentation ──────────────────────────────────────────────────────
+
+export interface DocsNavDoc {
+  type: "doc";
+  /** The page's path under the docs folder, without a suffix. */
+  id: string;
+  label: string;
+}
+
+export interface DocsNavCategory {
+  type: "category";
+  label: string;
+  items: DocsNavNode[];
+}
+
+export type DocsNavNode = DocsNavDoc | DocsNavCategory;
+
+export interface DocsTreeResponse {
+  /** False when this install has no docs (a wheel, not a checkout). */
+  available: boolean;
+  /** The page to open when none is asked for. */
+  home: string | null;
+  tree: DocsNavNode[];
+}
+
+export interface DocsTocEntry {
+  id: string;
+  level: number;
+  text: string;
+}
+
+export interface DocsPageResponse {
+  description: string;
+  /** Rendered on the server with raw HTML switched off. */
+  html: string;
+  id: string;
+  title: string;
+  toc: DocsTocEntry[];
 }

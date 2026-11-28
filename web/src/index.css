@@ -449,3 +449,199 @@ body {
 @utility text-display {
   font-weight: 500;
 }
+
+/* ------------------------------------------------------------------ */
+/* 5. Documentation prose                                              */
+/*                                                                     */
+/* The Documentation page shows Markdown the server rendered to plain  */
+/* HTML, so it cannot carry utility classes. These rules style it from */
+/* the same tokens as everything else, in both looks.                  */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  .docs-prose {
+    max-width: 46rem;
+    padding-bottom: 3rem;
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    overflow-wrap: break-word;
+  }
+  .docs-prose > :first-child {
+    margin-top: 0;
+  }
+
+  .docs-prose :is(h1, h2, h3, h4, h5, h6) {
+    color: var(--text-primary);
+    font-weight: 600;
+    line-height: 1.3;
+    /* A section opened from the address or the "On this page" list stops
+       a little below the top of the reading column. */
+    scroll-margin-top: 1rem;
+  }
+  .docs-prose h1 {
+    margin: 0 0 1.25rem;
+    font-family: var(--theme-font-display);
+    font-size: 2rem;
+    font-weight: 500;
+    line-height: 1.15;
+  }
+  .docs-prose h2 {
+    margin: 2.5rem 0 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 1.3rem;
+  }
+  .docs-prose h3 {
+    margin: 1.9rem 0 0.5rem;
+    font-size: 1.075rem;
+  }
+  .docs-prose :is(h4, h5, h6) {
+    margin: 1.5rem 0 0.4rem;
+    font-size: 0.9375rem;
+  }
+
+  .docs-prose :is(p, ul, ol, pre, table, blockquote, .admonition) {
+    margin: 0 0 1rem;
+  }
+  .docs-prose ul {
+    padding-left: 1.35rem;
+    list-style: disc;
+  }
+  .docs-prose ol {
+    padding-left: 1.5rem;
+    list-style: decimal;
+  }
+  .docs-prose li {
+    margin: 0.3rem 0;
+  }
+  .docs-prose li > :is(ul, ol) {
+    margin: 0.3rem 0;
+  }
+  .docs-prose li > :is(p, pre):last-child {
+    margin-bottom: 0.5rem;
+  }
+  .docs-prose li::marker {
+    color: var(--text-tertiary);
+  }
+  .docs-prose strong {
+    font-weight: 600;
+  }
+
+  .docs-prose a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent);
+    text-underline-offset: 3px;
+    border-radius: 2px;
+  }
+  .docs-prose a:hover {
+    text-decoration-color: currentColor;
+  }
+  /* A link to a page this install does not have keeps its words only. */
+  .docs-prose a:not([href]) {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .docs-prose pre {
+    padding: 0.85rem 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--muted);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+  .docs-prose pre code {
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    font-size: inherit;
+  }
+
+  /* Reference tables are wide; they scroll inside the column instead of
+     pushing the page sideways. */
+  .docs-prose table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .docs-prose :is(th, td) {
+    padding: 0.5rem 0.85rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .docs-prose th {
+    border-bottom-color: var(--border-strong);
+    color: var(--text-secondary);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .docs-prose blockquote {
+    padding-left: 1rem;
+    border-left: 2px solid var(--border-strong);
+    color: var(--text-secondary);
+  }
+  .docs-prose hr {
+    margin: 2rem 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+  .docs-prose img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  /* Holds the place of a picture that is still being fetched. */
+  .docs-prose img[data-doc-asset]:not([src]) {
+    display: block;
+    width: 100%;
+    min-height: 9rem;
+    padding: 0.75rem 1rem;
+    background: var(--muted);
+    color: var(--text-tertiary);
+    font-size: 0.8125rem;
+  }
+
+  /* Admonitions: the kind is carried by the edge and the title color, so
+     the body stays as readable as the text around it. */
+  .docs-prose .admonition {
+    --admonition: var(--border-strong);
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--admonition);
+    border-radius: var(--radius-md);
+    background: var(--card);
+  }
+  .docs-prose .admonition > :last-child {
+    margin-bottom: 0;
+  }
+  .docs-prose .admonition-title {
+    margin-bottom: 0.3rem;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .docs-prose .admonition.tip {
+    --admonition: var(--success);
+  }
+  .docs-prose .admonition:is(.warning, .caution) {
+    --admonition: var(--warning);
+  }
+  .docs-prose .admonition.danger {
+    --admonition: var(--destructive);
+  }
+  .docs-prose .admonition.important {
+    --admonition: var(--primary);
+  }
+  .docs-prose .admonition:is(.tip, .warning, .caution, .danger, .important) > .admonition-title {
+    color: var(--admonition);
+  }
+}

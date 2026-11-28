@@ -549,6 +549,24 @@ export interface Translations {
     switchTo: string;
   };
 
+  // ── Documentation page ──
+  docs: {
+    filter: string;
+    /** Opens the page list on a narrow screen. */
+    browse: string;
+    onThisPage: string;
+    /** `{query}` is what was typed into the filter. */
+    noMatches: string;
+    /** This install has no docs to show. */
+    unavailableTitle: string;
+    unavailableBody: string;
+    missingTitle: string;
+    missingBody: string;
+    openFirst: string;
+    failedTitle: string;
+    retry: string;
+  };
+
   // ── Theme switcher ──
   theme: {
     title: string;

@@ -527,6 +527,20 @@ export const en: Translations = {
     switchTo: "Switch language",
   },
 
+  docs: {
+    filter: "Filter pages",
+    browse: "Browse the docs",
+    onThisPage: "On this page",
+    noMatches: "No page matches “{query}”",
+    unavailableTitle: "The documentation is not part of this install",
+    unavailableBody: "It comes with a source checkout of Janus. This install was made from a package, which leaves it out.",
+    missingTitle: "This page does not exist",
+    missingBody: "It may have been moved or renamed.",
+    openFirst: "Open the first page",
+    failedTitle: "The page could not be loaded",
+    retry: "Try again",
+  },
+
   theme: {
     title: "Theme",
     switchTheme: "Switch theme",

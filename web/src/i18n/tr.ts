@@ -489,6 +489,20 @@ export const tr: Translations = {
     switchTo: "Dil değiştir",
   },
 
+  docs: {
+    filter: "Sayfaları filtrele",
+    browse: "Belgelere göz at",
+    onThisPage: "Bu sayfada",
+    noMatches: "“{query}” ile eşleşen sayfa yok",
+    unavailableTitle: "Belgeler bu kurulumun parçası değil",
+    unavailableBody: "Belgeler Janus’un kaynak kodu kopyasıyla birlikte gelir. Bu kurulum, belgeleri içermeyen bir paketten yapıldı.",
+    missingTitle: "Bu sayfa yok",
+    missingBody: "Taşınmış veya yeniden adlandırılmış olabilir.",
+    openFirst: "İlk sayfayı aç",
+    failedTitle: "Sayfa yüklenemedi",
+    retry: "Yeniden dene",
+  },
+
   theme: {
     title: "Tema",
     switchTheme: "Temayı değiştir",

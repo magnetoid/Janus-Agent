@@ -488,6 +488,20 @@ export const ko: Translations = {
     switchTo: "언어 변경",
   },
 
+  docs: {
+    filter: "페이지 필터",
+    browse: "문서 둘러보기",
+    onThisPage: "이 페이지의 내용",
+    noMatches: "“{query}”와 일치하는 페이지가 없습니다",
+    unavailableTitle: "이 설치에는 문서가 포함되어 있지 않습니다",
+    unavailableBody: "문서는 Janus 소스 코드와 함께 제공됩니다. 이 설치는 패키지로 만들어져 문서가 빠져 있습니다.",
+    missingTitle: "존재하지 않는 페이지입니다",
+    missingBody: "이동되었거나 이름이 바뀌었을 수 있습니다.",
+    openFirst: "첫 페이지 열기",
+    failedTitle: "페이지를 불러오지 못했습니다",
+    retry: "다시 시도",
+  },
+
   theme: {
     title: "테마",
     switchTheme: "테마 전환",
